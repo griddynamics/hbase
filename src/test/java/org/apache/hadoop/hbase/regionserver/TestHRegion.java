@@ -90,6 +90,7 @@ import org.apache.hadoop.hbase.util.ManualEnvironmentEdge;
 import org.apache.hadoop.hbase.util.Pair;
 import org.apache.hadoop.hbase.util.PairOfSameType;
 import org.apache.hadoop.hbase.util.Threads;
+import org.junit.Assert;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 import org.mockito.Mockito;
@@ -201,6 +202,40 @@ public class TestHRegion extends HBaseTestCase {
     scanner3.next(results);
     System.out.println(results);
     assertEquals(0, results.size());
+  }
+  
+  @Test
+  public void testToShowNPEOnRegionScannerReseek() throws Exception{
+    String method = "testToShowNPEOnRegionScannerReseek";
+    byte[] tableName = Bytes.toBytes(method);
+    byte[] family = Bytes.toBytes("family");
+    Configuration conf = HBaseConfiguration.create();
+    this.region = initHRegion(tableName, method, conf, family);
+
+    Put put = new Put(Bytes.toBytes("r1"));
+    put.add(family, Bytes.toBytes("q1"), Bytes.toBytes("v1"));
+    region.put(put);
+    put = new Put(Bytes.toBytes("r2"));
+    put.add(family, Bytes.toBytes("q1"), Bytes.toBytes("v1"));
+    region.put(put);
+    region.flushcache();
+
+
+    Scan scan = new Scan();
+    scan.setMaxVersions(3);
+    // open the first scanner
+    RegionScanner scanner1 = region.getScanner(scan);
+
+    System.out.println("Smallest read point:" + region.getSmallestReadPoint());
+    
+    region.compactStores(true);
+
+    scanner1.reseek(Bytes.toBytes("r2"));
+    List<KeyValue> results = new ArrayList<KeyValue>();
+    scanner1.next(results);
+    KeyValue keyValue = results.get(0);
+    Assert.assertTrue(Bytes.compareTo(keyValue.getRow(), Bytes.toBytes("r2")) == 0);
+    scanner1.close();
   }
 
   public void testSkipRecoveredEditsReplay() throws Exception {
@@ -558,7 +593,7 @@ public class TestHRegion extends HBaseTestCase {
       boolean exception = false;
       try {
         this.region.put(p);
-      } catch (DoNotRetryIOException e) {
+      } catch (NoSuchColumnFamilyException e) {
         exception = true;
       }
       assertTrue(exception);
@@ -599,7 +634,7 @@ public class TestHRegion extends HBaseTestCase {
       codes = this.region.put(puts);
       assertEquals(10, codes.length);
       for (int i = 0; i < 10; i++) {
-        assertEquals((i == 5) ? OperationStatusCode.SANITY_CHECK_FAILURE :
+        assertEquals((i == 5) ? OperationStatusCode.BAD_FAMILY :
           OperationStatusCode.SUCCESS, codes[i].getOperationStatusCode());
       }
       assertEquals(1, HLog.getSyncTime().count);
@@ -637,7 +672,7 @@ public class TestHRegion extends HBaseTestCase {
       assertEquals(1, HLog.getSyncTime().count);
       codes = retFromThread.get();
       for (int i = 0; i < 10; i++) {
-        assertEquals((i == 5) ? OperationStatusCode.SANITY_CHECK_FAILURE :
+        assertEquals((i == 5) ? OperationStatusCode.BAD_FAMILY :
           OperationStatusCode.SUCCESS, codes[i].getOperationStatusCode());
       }
   
@@ -654,7 +689,7 @@ public class TestHRegion extends HBaseTestCase {
       codes = region.put(putsAndLocks.toArray(new Pair[0]));
       LOG.info("...performed put");
       for (int i = 0; i < 10; i++) {
-        assertEquals((i == 5) ? OperationStatusCode.SANITY_CHECK_FAILURE :
+        assertEquals((i == 5) ? OperationStatusCode.BAD_FAMILY :
           OperationStatusCode.SUCCESS, codes[i].getOperationStatusCode());
       }
       // Make sure we didn't do an extra batch
@@ -668,6 +703,45 @@ public class TestHRegion extends HBaseTestCase {
       HRegion.closeHRegion(this.region);
        this.region = null;
     }
+  }
+
+  public void testBatchPutWithTsSlop() throws Exception {
+    byte[] b = Bytes.toBytes(getName());
+    byte[] cf = Bytes.toBytes(COLUMN_FAMILY);
+    byte[] qual = Bytes.toBytes("qual");
+    byte[] val = Bytes.toBytes("val");
+
+    HBaseConfiguration conf = new HBaseConfiguration();
+
+
+    // add data with a timestamp that is too recent for range. Ensure assert
+    conf.setInt("hbase.hregion.keyvalue.timestamp.slop.millisecs", 1000);
+    this.region = initHRegion(b, getName(), conf, cf);
+
+    try{
+      HLog.getSyncTime(); // clear counter from prior tests
+      assertEquals(0, HLog.getSyncTime().count);
+
+      final Put[] puts = new Put[10];
+      for (int i = 0; i < 10; i++) {
+        puts[i] = new Put(Bytes.toBytes("row_" + i), Long.MAX_VALUE - 100);
+        puts[i].add(cf, qual, val);
+      }
+
+      OperationStatus[] codes = this.region.put(puts);
+      assertEquals(10, codes.length);
+      for (int i = 0; i < 10; i++) {
+        assertEquals(OperationStatusCode.SANITY_CHECK_FAILURE, codes[i]
+            .getOperationStatusCode());
+      }
+      assertEquals(0, HLog.getSyncTime().count);
+
+
+    } finally {
+      HRegion.closeHRegion(this.region);
+      this.region = null;
+    }
+
   }
 
   //////////////////////////////////////////////////////////////////////////////
@@ -1202,6 +1276,7 @@ public class TestHRegion extends HBaseTestCase {
 
   }
 
+
   /**
    * Tests that there is server-side filtering for invalid timestamp upper
    * bound. Note that the timestamp lower bound is automatically handled for us
@@ -1217,6 +1292,7 @@ public class TestHRegion extends HBaseTestCase {
     // add data with a timestamp that is too recent for range. Ensure assert
     conf.setInt("hbase.hregion.keyvalue.timestamp.slop.millisecs", 1000);
     this.region = initHRegion(tableName, method, conf, families);
+    boolean caughtExcep = false;
     try {
       try {
         // no TS specified == use latest. should not error
@@ -1229,7 +1305,9 @@ public class TestHRegion extends HBaseTestCase {
         fail("Expected IOE for TS out of configured timerange");
       } catch (DoNotRetryIOException ioe) {
         LOG.debug("Received expected exception", ioe);
+        caughtExcep = true;
       }
+      assertTrue("Should catch FailedSanityCheckException", caughtExcep);
     } finally {
       HRegion.closeHRegion(this.region);
       this.region = null;
@@ -3968,7 +4046,7 @@ public class TestHRegion extends HBaseTestCase {
    * @throws IOException
    * @return A region on which you must call {@link HRegion#closeHRegion(HRegion)} when done.
    */
-  private static HRegion initHRegion (byte [] tableName, String callingMethod,
+  public static HRegion initHRegion (byte [] tableName, String callingMethod,
       Configuration conf, byte [] ... families)
     throws IOException{
     return initHRegion(tableName, null, null, callingMethod, conf, families);

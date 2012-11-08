@@ -41,7 +41,7 @@ import org.apache.hadoop.fs.PathFilter;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.TableDescriptors;
-import org.apache.hadoop.hbase.TableExistsException;
+import org.apache.hadoop.hbase.TableInfoMissingException;
 
 
 /**
@@ -122,7 +122,7 @@ public class FSTableDescriptors implements TableDescriptors {
    */
   @Override
   public HTableDescriptor get(final byte [] tablename)
-  throws FileNotFoundException, IOException {
+  throws IOException {
     return get(Bytes.toString(tablename));
   }
 
@@ -131,7 +131,7 @@ public class FSTableDescriptors implements TableDescriptors {
    */
   @Override
   public HTableDescriptor get(final String tablename)
-  throws FileNotFoundException, IOException {
+  throws IOException {
     invocations++;
     if (HTableDescriptor.ROOT_TABLEDESC.getNameAsString().equals(tablename)) {
       cachehits++;
@@ -148,25 +148,35 @@ public class FSTableDescriptors implements TableDescriptors {
     }
 
     // Look in cache of descriptors.
-    TableDescriptorModtime tdm = this.cache.get(tablename);
+    TableDescriptorModtime cachedtdm = this.cache.get(tablename);
 
-    // Check mod time has not changed (this is trip to NN).
-    long modtime = getTableInfoModtime(this.fs, this.rootdir, tablename);
-    if (tdm != null) {
-      if (modtime <= tdm.getModtime()) {
+    if (cachedtdm != null) {
+      // Check mod time has not changed (this is trip to NN).
+      if (getTableInfoModtime(this.fs, this.rootdir, tablename) <= cachedtdm.getModtime()) {
         cachehits++;
-        return tdm.getTableDescriptor();
+        return cachedtdm.getTableDescriptor();
       }
     }
-    HTableDescriptor htd = getTableDescriptor(this.fs, this.rootdir, tablename);
-    if (htd == null) {
+    
+    TableDescriptorModtime tdmt = null;
+    try {
+      tdmt = getTableDescriptorModtime(this.fs, this.rootdir, tablename);
+    } catch (NullPointerException e) {
+      LOG.debug("Exception during readTableDecriptor. Current table name = "
+          + tablename, e);
+    } catch (IOException ioe) {
+      LOG.debug("Exception during readTableDecriptor. Current table name = "
+          + tablename, ioe);
+    }
+    
+    if (tdmt == null) {
       LOG.warn("The following folder is in HBase's root directory and " +
         "doesn't contain a table descriptor, " +
         "do consider deleting it: " + tablename);
     } else {
-      this.cache.put(tablename, new TableDescriptorModtime(modtime, htd));
+      this.cache.put(tablename, tdmt);
     }
-    return htd;
+    return tdmt == null ? null : tdmt.getTableDescriptor();
   }
 
   /* (non-Javadoc)
@@ -220,7 +230,7 @@ public class FSTableDescriptors implements TableDescriptors {
       }
     }
     TableDescriptorModtime tdm = this.cache.remove(tablename);
-    return tdm == null? null: tdm.getTableDescriptor();
+    return tdm == null ? null : tdm.getTableDescriptor();
   }
 
   /**
@@ -253,7 +263,7 @@ public class FSTableDescriptors implements TableDescriptors {
    * @return The 'current' tableinfo file.
    * @throws IOException
    */
-  private static FileStatus getTableInfoPath(final FileSystem fs,
+  public static FileStatus getTableInfoPath(final FileSystem fs,
       final Path tabledir)
   throws IOException {
     FileStatus [] status = FSUtils.listStatus(fs, tabledir, new PathFilter() {
@@ -370,29 +380,42 @@ public class FSTableDescriptors implements TableDescriptors {
   public static HTableDescriptor getTableDescriptor(FileSystem fs,
       Path hbaseRootDir, byte[] tableName)
   throws IOException {
-     return getTableDescriptor(fs, hbaseRootDir, Bytes.toString(tableName));
+     HTableDescriptor htd = null;
+     try {
+       TableDescriptorModtime tdmt =
+         getTableDescriptorModtime(fs, hbaseRootDir, Bytes.toString(tableName));
+       htd = tdmt == null ? null : tdmt.getTableDescriptor();
+     } catch (NullPointerException e) {
+       LOG.debug("Exception during readTableDecriptor. Current table name = "
+           + Bytes.toString(tableName), e);
+     }
+     return htd;
   }
 
   static HTableDescriptor getTableDescriptor(FileSystem fs,
-      Path hbaseRootDir, String tableName) {
-    HTableDescriptor htd = null;
-    try {
-      htd = getTableDescriptor(fs, FSUtils.getTablePath(hbaseRootDir, tableName));
-    } catch (NullPointerException e) {
-      LOG.debug("Exception during readTableDecriptor. Current table name = " +
-        tableName , e);
-    } catch (IOException ioe) {
-      LOG.debug("Exception during readTableDecriptor. Current table name = " +
-        tableName , ioe);
-    }
-    return htd;
+      Path hbaseRootDir, String tableName) throws NullPointerException, IOException {
+    TableDescriptorModtime tdmt = getTableDescriptorModtime(fs, hbaseRootDir, tableName);
+    return tdmt == null ? null : tdmt.getTableDescriptor();
   }
 
-  public static HTableDescriptor getTableDescriptor(FileSystem fs, Path tableDir)
-  throws IOException, NullPointerException {
+  static TableDescriptorModtime getTableDescriptorModtime(FileSystem fs,
+      Path hbaseRootDir, String tableName) throws NullPointerException, IOException{
+    // ignore both -ROOT- and .META. tables
+    if (Bytes.compareTo(Bytes.toBytes(tableName), HConstants.ROOT_TABLE_NAME) == 0
+        || Bytes.compareTo(Bytes.toBytes(tableName), HConstants.META_TABLE_NAME) == 0) {
+      return null;
+    }
+    return getTableDescriptorModtime(fs, FSUtils.getTablePath(hbaseRootDir, tableName));
+  }
+
+  static TableDescriptorModtime getTableDescriptorModtime(FileSystem fs, Path tableDir)
+  throws NullPointerException, IOException {
     if (tableDir == null) throw new NullPointerException();
     FileStatus status = getTableInfoPath(fs, tableDir);
-    if (status == null) return null;
+    if (status == null) {
+      throw new TableInfoMissingException("No .tableinfo file under "
+          + tableDir.toUri());
+    }
     FSDataInputStream fsDataInputStream = fs.open(status.getPath());
     HTableDescriptor hTableDescriptor = null;
     try {
@@ -401,8 +424,15 @@ public class FSTableDescriptors implements TableDescriptors {
     } finally {
       fsDataInputStream.close();
     }
-    return hTableDescriptor;
+    return new TableDescriptorModtime(status.getModificationTime(), hTableDescriptor);
   }
+
+  public static HTableDescriptor getTableDescriptor(FileSystem fs, Path tableDir)
+  throws IOException, NullPointerException {
+    TableDescriptorModtime tdmt = getTableDescriptorModtime(fs, tableDir);
+    return tdmt == null? null: tdmt.getTableDescriptor();
+  }
+ 
 
   /**
    * Update table descriptor

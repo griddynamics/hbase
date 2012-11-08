@@ -109,6 +109,8 @@ public class AssignmentManager extends ZooKeeperListener {
 
   private TimeoutMonitor timeoutMonitor;
 
+  private TimerUpdater timerUpdater;
+
   private LoadBalancer balancer;
 
   /**
@@ -152,6 +154,13 @@ public class AssignmentManager extends ZooKeeperListener {
    */
   private final NavigableMap<ServerName, Set<HRegionInfo>> servers =
     new TreeMap<ServerName, Set<HRegionInfo>>();
+
+  /**
+   * Contains the server which need to update timer, these servers will be
+   * handled by {@link TimerUpdater}
+   */
+  private final ConcurrentSkipListSet<ServerName> serversInUpdatingTimer = 
+    new ConcurrentSkipListSet<ServerName>();
 
   /**
    * Region to server assignment map.
@@ -207,6 +216,10 @@ public class AssignmentManager extends ZooKeeperListener {
       conf.getInt("hbase.master.assignment.timeoutmonitor.period", 10000),
       master, serverManager,
       conf.getInt("hbase.master.assignment.timeoutmonitor.timeout", 1800000));
+    this.timerUpdater = new TimerUpdater(conf.getInt(
+        "hbase.master.assignment.timerupdater.period", 10000), master);
+    Threads.setDaemonThreadRunning(timerUpdater.getThread(),
+        master.getServerName() + ".timerUpdater");
     this.zkTable = new ZKTable(this.master.getZooKeeper());
     this.maximumAssignmentAttempts =
       this.master.getConfiguration().getInt("hbase.assignment.maximum.attempts", 10);
@@ -1125,9 +1138,13 @@ public class AssignmentManager extends ZooKeeperListener {
       if (rs != null) {
         HRegionInfo regionInfo = rs.getRegion();
         if (rs.isSplit()) {
-          LOG.debug("Ephemeral node deleted, regionserver crashed?, " +
-            "clearing from RIT; rs=" + rs);
+          LOG.debug("Ephemeral node deleted, regionserver crashed?, offlining the region"
+              + rs.getRegion() + " clearing from RIT;");
           regionOffline(rs.getRegion());
+        } else if (rs.isSplitting()) {
+          LOG.debug("Ephemeral node deleted.  Found in SPLITTING state. " + "Removing from RIT "
+              + rs.getRegion());
+          this.regionsInTransition.remove(regionName);
         } else {
           LOG.debug("The znode of region " + regionInfo.getRegionNameAsString()
               + " has been deleted.");
@@ -1211,8 +1228,17 @@ public class AssignmentManager extends ZooKeeperListener {
     }
     // Remove plan if one.
     clearRegionPlan(regionInfo);
-    // Update timers for all regions in transition going against this server.
-    updateTimers(sn);
+    // Add the server to serversInUpdatingTimer
+    addToServersInUpdatingTimer(sn);
+  }
+
+  /**
+   * Add the server to the set serversInUpdatingTimer, then {@link TimerUpdater}
+   * will update timers for this server in background
+   * @param sn
+   */
+  private void addToServersInUpdatingTimer(final ServerName sn) {
+    this.serversInUpdatingTimer.add(sn);
   }
 
   /**
@@ -1257,14 +1283,15 @@ public class AssignmentManager extends ZooKeeperListener {
    * @param regionInfo
    */
   public void regionOffline(final HRegionInfo regionInfo) {
+    // remove the region plan as well just in case.
+    clearRegionPlan(regionInfo);
+    setOffline(regionInfo);
+
     synchronized(this.regionsInTransition) {
       if (this.regionsInTransition.remove(regionInfo.getEncodedName()) != null) {
         this.regionsInTransition.notifyAll();
       }
     }
-    // remove the region plan as well just in case.
-    clearRegionPlan(regionInfo);
-    setOffline(regionInfo);
   }
 
   /**
@@ -1584,13 +1611,14 @@ public class AssignmentManager extends ZooKeeperListener {
   private void assign(final HRegionInfo region, final RegionState state,
       final boolean setOfflineInZK, final boolean forceNewPlan,
       boolean hijack) {
+    boolean regionAlreadyInTransitionException = false;
     for (int i = 0; i < this.maximumAssignmentAttempts; i++) {
       int versionOfOfflineNode = -1;
       if (setOfflineInZK) {
         // get the version of the znode after setting it to OFFLINE.
         // versionOfOfflineNode will be -1 if the znode was not set to OFFLINE
-        versionOfOfflineNode = setOfflineInZooKeeper(state,
-            hijack);
+        versionOfOfflineNode = setOfflineInZooKeeper(state, hijack,
+            regionAlreadyInTransitionException);
         if(versionOfOfflineNode != -1){
           if (isDisabledorDisablingRegionInRIT(region)) {
             return;
@@ -1617,7 +1645,7 @@ public class AssignmentManager extends ZooKeeperListener {
         LOG.debug("Server stopped; skipping assign of " + state);
         return;
       }
-      RegionPlan plan = getRegionPlan(state, forceNewPlan);
+      RegionPlan plan = getRegionPlan(state, !regionAlreadyInTransitionException && forceNewPlan);
       if (plan == null) {
         LOG.debug("Unable to determine a plan to assign " + state);
         this.timeoutMonitor.setAllRegionServersOffline(true);
@@ -1665,22 +1693,43 @@ public class AssignmentManager extends ZooKeeperListener {
         if (t instanceof RemoteException) {
           t = ((RemoteException) t).unwrapRemoteException();
           if (t instanceof RegionAlreadyInTransitionException) {
-            String errorMsg = "Failed assignment in: " + plan.getDestination()
-                + " due to " + t.getMessage();
-            LOG.error(errorMsg, t);
-            return;
+            regionAlreadyInTransitionException = true;
+            if (LOG.isDebugEnabled()) {
+              LOG.debug("Failed assignment in: " + plan.getDestination() + " due to "
+                  + t.getMessage());
+            }
           }
         }
-        LOG.warn("Failed assignment of " +
-          state.getRegion().getRegionNameAsString() + " to " +
-          plan.getDestination() + ", trying to assign elsewhere instead; " +
-          "retry=" + i, t);
+        if (t instanceof java.net.SocketTimeoutException 
+            && this.serverManager.isServerOnline(plan.getDestination())) {
+          LOG.warn("Call openRegion() to " + plan.getDestination()
+              + " has timed out when trying to assign "
+              + region.getRegionNameAsString()
+              + ", but the region might already be opened on "
+              + plan.getDestination() + ".", t);
+          return;
+        }
+        LOG.warn("Failed assignment of "
+            + state.getRegion().getRegionNameAsString()
+            + " to "
+            + plan.getDestination()
+            + ", trying to assign "
+            + (regionAlreadyInTransitionException ? "to the same region server"
+                + " because of RegionAlreadyInTransitionException;" : "elsewhere instead; ")
+            + "retry=" + i, t);
         // Clean out plan we failed execute and one that doesn't look like it'll
         // succeed anyways; we need a new plan!
         // Transition back to OFFLINE
         state.update(RegionState.State.OFFLINE);
-        // Force a new plan and reassign.  Will return null if no servers.
-        if (getRegionPlan(state, plan.getDestination(), true) == null) {
+        // If region opened on destination of present plan, reassigning to new
+        // RS may cause double assignments. In case of RegionAlreadyInTransitionException
+        // reassigning to same RS.
+        RegionPlan newPlan = plan;
+        if (!regionAlreadyInTransitionException) {
+          // Force a new plan and reassign. Will return null if no servers.
+          newPlan = getRegionPlan(state, plan.getDestination(), true);
+        }
+        if (newPlan == null) {
           this.timeoutMonitor.setAllRegionServersOffline(true);
           LOG.warn("Unable to find a viable location to assign region " +
             state.getRegion().getRegionNameAsString());
@@ -1708,17 +1757,23 @@ public class AssignmentManager extends ZooKeeperListener {
    * @param state
    * @param hijack
    *          - true if needs to be hijacked and reassigned, false otherwise.
+   * @param regionAlreadyInTransitionException  
+   *          - true if we need to retry assignment because of RegionAlreadyInTransitionException.       
    * @return the version of the offline node if setting of the OFFLINE node was
    *         successful, -1 otherwise.
    */
-  int setOfflineInZooKeeper(final RegionState state,
-      boolean hijack) {
+  int setOfflineInZooKeeper(final RegionState state, boolean hijack,
+      boolean regionAlreadyInTransitionException) {
     // In case of reassignment the current state in memory need not be
     // OFFLINE. 
     if (!hijack && !state.isClosed() && !state.isOffline()) {
-      String msg = "Unexpected state : " + state + " .. Cannot transit it to OFFLINE.";
-      this.master.abort(msg, new IllegalStateException(msg));
-      return -1;
+      if (!regionAlreadyInTransitionException ) {
+        String msg = "Unexpected state : " + state + " .. Cannot transit it to OFFLINE.";
+        this.master.abort(msg, new IllegalStateException(msg));
+        return -1;
+      } 
+      LOG.debug("Unexpected state : " + state
+          + " but retrying to assign because RegionAlreadyInTransitionException.");
     }
     boolean allowZNodeCreation = false;
     // Under reassignment if the current state is PENDING_OPEN
@@ -2065,7 +2120,8 @@ public class AssignmentManager extends ZooKeeperListener {
       if (t instanceof RemoteException) {
         t = ((RemoteException)t).unwrapRemoteException();
         if (t instanceof NotServingRegionException) {
-          if (checkIfRegionBelongsToDisabling(region)) {
+          if (checkIfRegionBelongsToDisabling(region)
+              || checkIfRegionBelongsToDisabled(region)) {
             // Remove from the regionsinTransition map
             LOG.info("While trying to recover the table "
                 + region.getTableNameAsString()
@@ -2855,6 +2911,35 @@ public class AssignmentManager extends ZooKeeperListener {
   }
 
   /**
+   * Update timers for all regions in transition going against the server in the
+   * serversInUpdatingTimer.
+   */
+  public class TimerUpdater extends Chore {
+
+    public TimerUpdater(final int period, final Stoppable stopper) {
+      super("AssignmentTimerUpdater", period, stopper);
+    }
+
+    @Override
+    protected void chore() {
+      ServerName serverToUpdateTimer = null;
+      while (!serversInUpdatingTimer.isEmpty() && !stopper.isStopped()) {
+        if (serverToUpdateTimer == null) {
+          serverToUpdateTimer = serversInUpdatingTimer.first();
+        } else {
+          serverToUpdateTimer = serversInUpdatingTimer
+              .higher(serverToUpdateTimer);
+        }
+        if (serverToUpdateTimer == null) {
+          break;
+        }
+        updateTimers(serverToUpdateTimer);
+        serversInUpdatingTimer.remove(serverToUpdateTimer);
+      }
+    }
+  }
+
+  /**
    * Monitor to check for time outs on region transition operations
    */
   public class TimeoutMonitor extends Chore {
@@ -2911,9 +2996,13 @@ public class AssignmentManager extends ZooKeeperListener {
            //decide on action upon timeout
             actOnTimeOut(regionState);
           } else if (this.allRegionServersOffline && !allRSsOffline) {
-            // if some RSs just came back online, we can start the
-            // the assignment right away
-            actOnTimeOut(regionState);
+            RegionPlan existingPlan = regionPlans.get(regionState.getRegion().getEncodedName());
+            if (existingPlan == null
+                || !this.serverManager.isServerOnline(existingPlan.getDestination())) {
+              // if some RSs just came back online, we can start the
+              // the assignment right away
+              actOnTimeOut(regionState);
+            }
           }
         }
       }
@@ -3390,6 +3479,7 @@ public class AssignmentManager extends ZooKeeperListener {
 
   public void stop() {
     this.timeoutMonitor.interrupt();
+    this.timerUpdater.interrupt();
   }
   
   /**

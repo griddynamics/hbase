@@ -51,6 +51,7 @@ import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.KeyValue.KVComparator;
 import org.apache.hadoop.hbase.RemoteExceptionHandler;
+import org.apache.hadoop.hbase.backup.HFileArchiver;
 import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.fs.HFileSystem;
 import org.apache.hadoop.hbase.io.HeapSize;
@@ -148,7 +149,7 @@ public class Store extends SchemaConfigured implements HeapSize {
    * List of store files inside this store. This is an immutable list that
    * is atomically replaced when its contents change.
    */
-  private ImmutableList<StoreFile> storefiles = null;
+  private volatile ImmutableList<StoreFile> storefiles = null;
 
   List<StoreFile> filesCompacting = Lists.newArrayList();
 
@@ -457,7 +458,7 @@ public class Store extends SchemaConfigured implements HeapSize {
   /**
    * @return All store files.
    */
-  List<StoreFile> getStorefiles() {
+  public List<StoreFile> getStorefiles() {
     return this.storefiles;
   }
 
@@ -1402,6 +1403,15 @@ public class Store extends SchemaConfigured implements HeapSize {
       int start = 0;
       double r = compactSelection.getCompactSelectionRatio();
 
+      // remove bulk import files that request to be excluded from minors
+      compactSelection.getFilesToCompact().removeAll(Collections2.filter(
+          compactSelection.getFilesToCompact(),
+          new Predicate<StoreFile>() {
+            public boolean apply(StoreFile input) {
+              return input.excludeFromMinorCompaction();
+            }
+          }));
+
       // skip selection algorithm if we don't have enough files
       if (compactSelection.getFilesToCompact().size() < this.minFilesToCompact) {
         if(LOG.isDebugEnabled()) {
@@ -1412,15 +1422,6 @@ public class Store extends SchemaConfigured implements HeapSize {
         compactSelection.emptyFileList();
         return compactSelection;
       }
-
-      // remove bulk import files that request to be excluded from minors
-      compactSelection.getFilesToCompact().removeAll(Collections2.filter(
-          compactSelection.getFilesToCompact(),
-          new Predicate<StoreFile>() {
-            public boolean apply(StoreFile input) {
-              return input.excludeFromMinorCompaction();
-            }
-          }));
 
       /* TODO: add sorting + unit test back in when HBASE-2856 is fixed
       // Sort files by size to correct when normal skew is altered by bulk load.
@@ -1732,10 +1733,12 @@ public class Store extends SchemaConfigured implements HeapSize {
 
       // Tell observers that list of StoreFiles has changed.
       notifyChangedReadersObservers();
-      // Finally, delete old store files.
-      for (StoreFile hsf: compactedFiles) {
-        hsf.deleteReader();
-      }
+
+      // let the archive util decide if we should archive or delete the files
+      LOG.debug("Removing store files after compaction...");
+      HFileArchiver.archiveStoreFiles(this.fs, this.region, this.conf, this.family.getName(),
+        compactedFiles);
+
     } catch (IOException e) {
       e = RemoteExceptionHandler.checkIOException(e);
       LOG.error("Failed replacing compacted files in " + this.storeNameStr +
@@ -1852,6 +1855,7 @@ public class Store extends SchemaConfigured implements HeapSize {
     }
     // TODO: Cache these keys rather than make each time?
     byte [] fk = r.getFirstKey();
+    if (fk == null) return;
     KeyValue firstKV = KeyValue.createKeyValueFromKey(fk, 0, fk.length);
     byte [] lk = r.getLastKey();
     KeyValue lastKV = KeyValue.createKeyValueFromKey(lk, 0, lk.length);
@@ -1865,7 +1869,7 @@ public class Store extends SchemaConfigured implements HeapSize {
       firstOnRow = new KeyValue(lastKV.getRow(), HConstants.LATEST_TIMESTAMP);
     }
     // Get a scanner that caches blocks and that uses pread.
-    HFileScanner scanner = r.getHFileReader().getScanner(true, true, false);
+    HFileScanner scanner = r.getScanner(true, true, false);
     // Seek scanner.  If can't seek it, return.
     if (!seekToScanner(scanner, firstOnRow, firstKV)) return;
     // If we found candidate on firstOnRow, just return. THIS WILL NEVER HAPPEN!
@@ -2010,9 +2014,9 @@ public class Store extends SchemaConfigured implements HeapSize {
         KeyValue firstKey = KeyValue.createKeyValueFromKey(fk, 0, fk.length);
         byte [] lk = r.getLastKey();
         KeyValue lastKey = KeyValue.createKeyValueFromKey(lk, 0, lk.length);
-        // if the midkey is the same as the first and last keys, then we cannot
+        // if the midkey is the same as the first or last keys, then we cannot
         // (ever) split this region.
-        if (this.comparator.compareRows(mk, firstKey) == 0 &&
+        if (this.comparator.compareRows(mk, firstKey) == 0 ||
             this.comparator.compareRows(mk, lastKey) == 0) {
           if (LOG.isDebugEnabled()) {
             LOG.debug("cannot split because midkey is the same as first or " +
@@ -2179,6 +2183,13 @@ public class Store extends SchemaConfigured implements HeapSize {
       return this.blockingStoreFileCount - this.storefiles.size();
     }
   }
+
+  boolean throttleCompaction(long compactionSize) {
+    long throttlePoint = conf.getLong(
+        "hbase.regionserver.thread.compaction.throttle",  
+        2 * this.minFilesToCompact * this.region.memstoreFlushSize);  
+    return compactionSize > throttlePoint;  
+  } 
 
   public HRegion getHRegion() {
     return this.region;

@@ -76,7 +76,7 @@ import org.apache.hadoop.hbase.util.SoftValueSortedMap;
 import org.apache.hadoop.hbase.util.Writables;
 import org.apache.hadoop.hbase.zookeeper.ClusterId;
 import org.apache.hadoop.hbase.zookeeper.RootRegionTracker;
-import org.apache.hadoop.hbase.zookeeper.ZKTable;
+import org.apache.hadoop.hbase.zookeeper.ZKTableReadOnly;
 import org.apache.hadoop.hbase.zookeeper.ZKUtil;
 import org.apache.hadoop.hbase.zookeeper.ZooKeeperWatcher;
 import org.apache.hadoop.ipc.RemoteException;
@@ -616,6 +616,23 @@ public class HConnectionManager {
       return this.conf;
     }
 
+    /**
+     * Log failure of getMaster attempt
+     * @return true if should retry
+     */
+    private boolean shouldRetryGetMaster(int tries, Exception e) {
+      if (tries == numRetries - 1) {
+        // This was our last chance - don't bother sleeping
+        LOG.info("getMaster attempt " + tries + " of " + numRetries +
+          " failed; no more retrying.", e);
+        return false;
+      }
+      LOG.info("getMaster attempt " + tries + " of " + numRetries +
+        " failed; retrying after sleep of " +
+        ConnectionUtils.getPauseTime(this.pause, tries), e);
+      return true;
+    }
+
     public HMasterInterface getMaster()
     throws MasterNotRunningException, ZooKeeperConnectionException {
       // TODO: REMOVE.  MOVE TO HBaseAdmin and redo as a Callable!!!
@@ -673,15 +690,9 @@ public class HConnectionManager {
             }
 
           } catch (IOException e) {
-            if (tries == numRetries - 1) {
-              // This was our last chance - don't bother sleeping
-              LOG.info("getMaster attempt " + tries + " of " + numRetries +
-                " failed; no more retrying.", e);
-              break;
-            }
-            LOG.info("getMaster attempt " + tries + " of " + numRetries +
-              " failed; retrying after sleep of " +
-              ConnectionUtils.getPauseTime(this.pause, tries), e);
+            if (!shouldRetryGetMaster(tries, e)) break;
+          } catch (UndeclaredThrowableException ute) {
+            if (!shouldRetryGetMaster(tries, ute)) break;
           }
 
           // Cannot connect to master or it is not running. Sleep & retry
@@ -782,9 +793,9 @@ public class HConnectionManager {
       String tableNameStr = Bytes.toString(tableName);
       try {
         if (online) {
-          return ZKTable.isEnabledTable(zkw, tableNameStr);
+          return ZKTableReadOnly.isEnabledTable(zkw, tableNameStr);
         }
-        return ZKTable.isDisabledTable(zkw, tableNameStr);
+        return ZKTableReadOnly.isDisabledTable(zkw, tableNameStr);
       } catch (KeeperException e) {
         throw new IOException("Enable/Disable failed", e);
       }
@@ -813,6 +824,14 @@ public class HConnectionManager {
     public HRegionLocation relocateRegion(final byte [] tableName,
         final byte [] row)
     throws IOException{
+
+      // Since this is an explicit request not to use any caching, finding
+      // disabled tables should not be desirable.  This will ensure that an exception is thrown when
+      // the first time a disabled table is interacted with.
+      if (isTableDisabled(tableName)) {
+        throw new DoNotRetryIOException(Bytes.toString(tableName) + " is disabled.");
+      }
+
       return locateRegion(tableName, row, false, true);
     }
 

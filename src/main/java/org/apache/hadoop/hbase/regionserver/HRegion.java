@@ -77,6 +77,7 @@ import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.NotServingRegionException;
 import org.apache.hadoop.hbase.UnknownScannerException;
+import org.apache.hadoop.hbase.backup.HFileArchiver;
 import org.apache.hadoop.hbase.client.Append;
 import org.apache.hadoop.hbase.client.RowMutations;
 import org.apache.hadoop.hbase.client.Delete;
@@ -221,6 +222,7 @@ public class HRegion implements HeapSize { // , Writable{
 
   final Counter readRequestsCount = new Counter();
   final Counter writeRequestsCount = new Counter();
+  final Counter updatesBlockedMs = new Counter();
 
   /**
    * The directory for the table this region is part of.
@@ -868,16 +870,7 @@ public class HRegion implements HeapSize { // , Writable{
       writestate.writesEnabled = false;
       wasFlushing = writestate.flushing;
       LOG.debug("Closing " + this + ": disabling compactions & flushes");
-      while (writestate.compacting > 0 || writestate.flushing) {
-        LOG.debug("waiting for " + writestate.compacting + " compactions" +
-            (writestate.flushing ? " & cache flush" : "") +
-            " to complete for region " + this);
-        try {
-          writestate.wait();
-        } catch (InterruptedException iex) {
-          // continue
-        }
-      }
+      waitForFlushesAndCompactions();
     }
     // If we were not just flushing, is it worth doing a preflush...one
     // that will clear out of the bulk of the memstore before we put up
@@ -949,6 +942,26 @@ public class HRegion implements HeapSize { // , Writable{
       return result;
     } finally {
       lock.writeLock().unlock();
+    }
+  }
+
+  /**
+   * Wait for all current flushes and compactions of the region to complete.
+   * <p>
+   * Exposed for TESTING.
+   */
+  public void waitForFlushesAndCompactions() {
+    synchronized (writestate) {
+      while (writestate.compacting > 0 || writestate.flushing) {
+        LOG.debug("waiting for " + writestate.compacting + " compactions"
+            + (writestate.flushing ? " & cache flush" : "") + " to complete for region " + this);
+        try {
+          writestate.wait();
+        } catch (InterruptedException iex) {
+          // essentially ignore and propagate the interrupt back up
+          Thread.currentThread().interrupt();
+        }
+      }
     }
   }
 
@@ -2065,17 +2078,33 @@ public class HRegion implements HeapSize { // , Writable{
           } else {
             prepareDelete((Delete) mutation);
           }
-        } catch (DoNotRetryIOException dnrioe) {
-          LOG.warn("No such column family in batch mutation", dnrioe);
+        } catch (NoSuchColumnFamilyException nscf) {
+          LOG.warn("No such column family in batch mutation", nscf);
           batchOp.retCodeDetails[lastIndexExclusive] = new OperationStatus(
-              OperationStatusCode.SANITY_CHECK_FAILURE, dnrioe.getMessage());
+              OperationStatusCode.BAD_FAMILY, nscf.getMessage());
+          lastIndexExclusive++;
+          continue;
+        } catch (DoNotRetryIOException fsce) {
+          // The only thing that throws a generic DoNotRetryIOException in the above code is
+          // checkTimestamps so that DoNotRetryIOException means that timestamps were invalid.
+          // If more checks are added, be sure to revisit this assumption.
+          LOG.warn("Batch Mutation did not pass sanity check", fsce);
+          batchOp.retCodeDetails[lastIndexExclusive] = new OperationStatus(
+              OperationStatusCode.SANITY_CHECK_FAILURE, fsce.getMessage());
           lastIndexExclusive++;
           continue;
         }
         // If we haven't got any rows in our batch, we should block to
         // get the next one.
         boolean shouldBlock = numReadyToWrite == 0;
-        Integer acquiredLockId = getLock(providedLockId, mutation.getRow(), shouldBlock);
+        Integer acquiredLockId = null;
+        try {
+          acquiredLockId = getLock(providedLockId, mutation.getRow(),
+              shouldBlock);
+        } catch (IOException ioe) {
+          LOG.warn("Failed getting lock in batch put, row="
+                  + Bytes.toStringBinary(mutation.getRow()), ioe);
+        }
         if (acquiredLockId == null) {
           // We failed to grab another lock
           assert !shouldBlock : "Should never fail to get lock when blocking";
@@ -2212,10 +2241,8 @@ public class HRegion implements HeapSize { // , Writable{
       // -------------------------
       // STEP 7. Sync wal.
       // -------------------------
-      if (walEdit.size() > 0 &&
-          (this.regionInfo.isMetaRegion() ||
-           !this.htableDescriptor.isDeferredLogFlush())) {
-        this.log.sync(txid);
+      if (walEdit.size() > 0) {
+        syncOrDefer(txid);
       }
       walSyncSuccessful = true;
       // ------------------------------------------------------------------
@@ -2339,6 +2366,8 @@ public class HRegion implements HeapSize { // , Writable{
 
       // Lock row
       Integer lid = getLock(lockId, get.getRow(), true);
+      // wait for all previous transactions to complete (with lock held)
+      mvcc.completeMemstoreInsert(mvcc.beginMemstoreInsert());
       List<KeyValue> result = new ArrayList<KeyValue>();
       try {
         result = get(get, false);
@@ -2434,9 +2463,11 @@ public class HRegion implements HeapSize { // , Writable{
     if (this.getRegionInfo().isMetaRegion()) return;
 
     boolean blocked = false;
+    long startTime = 0;
     while (this.memstoreSize.get() > this.blockingMemStoreSize) {
       requestFlush();
       if (!blocked) {
+        startTime = EnvironmentEdgeManager.currentTimeMillis();
         LOG.info("Blocking updates for '" + Thread.currentThread().getName() +
           "' on region " + Bytes.toStringBinary(getRegionName()) +
           ": memstore size " +
@@ -2449,11 +2480,16 @@ public class HRegion implements HeapSize { // , Writable{
         try {
           wait(threadWakeFrequency);
         } catch (InterruptedException e) {
-          // continue;
+          Thread.currentThread().interrupt();
         }
       }
     }
     if (blocked) {
+      // Add in the blocked time if appropriate
+      final long totalTime = EnvironmentEdgeManager.currentTimeMillis() - startTime;
+      if(totalTime > 0 ){
+        this.updatesBlockedMs.add(totalTime);
+      }
       LOG.info("Unblocking updates for region " + this + " '"
           + Thread.currentThread().getName() + "'");
     }
@@ -3096,7 +3132,8 @@ public class HRegion implements HeapSize { // , Writable{
           try {
             if (!existingLatch.await(this.rowLockWaitDuration,
                             TimeUnit.MILLISECONDS)) {
-                return null;
+              throw new IOException("Timed out on getting lock for row="
+                  + Bytes.toStringBinary(row));
             }
           } catch (InterruptedException ie) {
             // Empty
@@ -3452,8 +3489,7 @@ public class HRegion implements HeapSize { // , Writable{
           rpcCall.throwExceptionIfCallerDisconnected();
         }
 
-        KeyValue kv = this.storeHeap.peek();
-        byte [] currentRow = kv == null ? null : kv.getRow();
+        byte [] currentRow = peekRow();
         if (isStopRow(currentRow)) {
           if (filter != null && filter.hasFilterRow()) {
             filter.filterRow(results);
@@ -3463,7 +3499,7 @@ public class HRegion implements HeapSize { // , Writable{
           }
 
           return false;
-        } else if (kv != null && !kv.isInternal() && filterRowKey(currentRow)) {
+        } else if (filterRowKey(currentRow)) {
           nextRow(currentRow);
         } else {
           byte [] nextRow;
@@ -4064,8 +4100,13 @@ public class HRegion implements HeapSize { // , Writable{
       LOG.debug("Files for new region");
       listPaths(fs, dstRegion.getRegionDir());
     }
-    deleteRegion(fs, a.getRegionDir());
-    deleteRegion(fs, b.getRegionDir());
+
+    // delete out the 'A' region
+    HFileArchiver.archiveRegion(fs, FSUtils.getRootDir(a.getConf()), a.getTableDir(),
+      a.getRegionDir());
+    // delete out the 'B' region
+    HFileArchiver.archiveRegion(fs, FSUtils.getRootDir(b.getConf()), b.getTableDir(),
+      b.getRegionDir());
 
     LOG.info("merge completed. New region is " + dstRegion);
 
@@ -4216,6 +4257,9 @@ public class HRegion implements HeapSize { // , Writable{
       Collection<byte[]> rowsToLock) throws IOException {
     boolean flush = false;
 
+    checkReadOnly();
+    checkResources();
+
     startRegionOperation();
     List<Integer> acquiredLocks = null;
     try {
@@ -4314,10 +4358,8 @@ public class HRegion implements HeapSize { // , Writable{
         }
 
         // 9. sync WAL if required
-        if (walEdit.size() > 0 &&
-            (this.regionInfo.isMetaRegion() ||
-             !this.htableDescriptor.isDeferredLogFlush())) {
-          this.log.sync(txid);
+        if (walEdit.size() > 0) {
+          syncOrDefer(txid);
         }
         walSyncSuccessful = true;
 
@@ -4515,7 +4557,7 @@ public class HRegion implements HeapSize { // , Writable{
         releaseRowLock(lid);
       }
       if (writeToWAL) {
-        this.log.sync(txid); // sync the transaction log outside the rowlock
+        syncOrDefer(txid); // sync the transaction log outside the rowlock
       }
     } finally {
       closeRegionOperation();
@@ -4591,7 +4633,13 @@ public class HRegion implements HeapSize { // , Writable{
             if (idx < results.size() &&
                 results.get(idx).matchingQualifier(column.getKey())) {
               KeyValue kv = results.get(idx);
-              amount += Bytes.toLong(kv.getBuffer(), kv.getValueOffset(), kv.getValueLength());
+              if(kv.getValueLength() == Bytes.SIZEOF_LONG) {
+                amount += Bytes.toLong(kv.getBuffer(), kv.getValueOffset(), Bytes.SIZEOF_LONG);
+              } else {
+                // throw DoNotRetryIOException instead of IllegalArgumentException
+                throw new DoNotRetryIOException(
+                    "Attempted to increment field that isn't 64 bits wide");
+              }
               idx++;
             }
 
@@ -4636,15 +4684,14 @@ public class HRegion implements HeapSize { // , Writable{
         releaseRowLock(lid);
       }
       if (writeToWAL) {
-        this.log.sync(txid); // sync the transaction log outside the rowlock
+        syncOrDefer(txid); // sync the transaction log outside the rowlock
       }
     } finally {
       closeRegionOperation();
+      long after = EnvironmentEdgeManager.currentTimeMillis();
+      this.opMetrics.updateIncrementMetrics(increment.getFamilyMap().keySet(), after - before);
     }
     
-    long after = EnvironmentEdgeManager.currentTimeMillis();
-    this.opMetrics.updateIncrementMetrics(increment.getFamilyMap().keySet(), after - before);
-
     if (flush) {
       // Request a cache flush.  Do it outside update lock.
       requestFlush();
@@ -4692,7 +4739,7 @@ public class HRegion implements HeapSize { // , Writable{
 
         if (!results.isEmpty()) {
           KeyValue kv = results.get(0);
-          if(kv.getValueLength() == 8){
+          if(kv.getValueLength() == Bytes.SIZEOF_LONG){
             byte [] buffer = kv.getBuffer();
             int valueOffset = kv.getValueOffset();
             result += Bytes.toLong(buffer, valueOffset, Bytes.SIZEOF_LONG);
@@ -4733,7 +4780,7 @@ public class HRegion implements HeapSize { // , Writable{
         releaseRowLock(lid);
       }
       if (writeToWAL) {
-        this.log.sync(txid); // sync the transaction log outside the rowlock
+        syncOrDefer(txid); // sync the transaction log outside the rowlock
       }
     } finally {
       closeRegionOperation();
@@ -4748,7 +4795,8 @@ public class HRegion implements HeapSize { // , Writable{
       requestFlush();
     }
     if(wrongLength){
-    	throw new IOException("Attempted to increment field that isn't 64 bits wide");
+      throw new DoNotRetryIOException(
+          "Attempted to increment field that isn't 64 bits wide");
     }
     return result;
   }
@@ -4770,7 +4818,7 @@ public class HRegion implements HeapSize { // , Writable{
   public static final long FIXED_OVERHEAD = ClassSize.align(
       ClassSize.OBJECT +
       ClassSize.ARRAY +
-      34 * ClassSize.REFERENCE + Bytes.SIZEOF_INT +
+      35 * ClassSize.REFERENCE + Bytes.SIZEOF_INT +
       (5 * Bytes.SIZEOF_LONG) +
       Bytes.SIZEOF_BOOLEAN);
 
@@ -5143,6 +5191,19 @@ public class HRegion implements HeapSize { // , Writable{
     }
 
     dataInMemoryWithoutWAL.addAndGet(putSize);
+  }
+
+  /**
+   * Calls sync with the given transaction ID if the region's table is not
+   * deferring it.
+   * @param txid should sync up to which transaction
+   * @throws IOException If anything goes wrong with DFS
+   */
+  private void syncOrDefer(long txid) throws IOException {
+    if (this.regionInfo.isMetaRegion() ||
+      !this.htableDescriptor.isDeferredLogFlush()) {
+      this.log.sync(txid);
+    }
   }
 
   /**

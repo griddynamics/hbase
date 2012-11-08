@@ -126,6 +126,7 @@ public class Replication implements WALActionsListener,
   public void join() {
     if (this.replication) {
       this.replicationManager.join();
+      this.replicationSink.stopReplicationSinkServices();
     }
   }
 
@@ -187,12 +188,12 @@ public class Replication implements WALActionsListener,
 
   @Override
   public void preLogRoll(Path oldPath, Path newPath) throws IOException {
-    // Not interested
+    getReplicationManager().preLogRoll(newPath);
   }
 
   @Override
   public void postLogRoll(Path oldPath, Path newPath) throws IOException {
-    getReplicationManager().logRolled(newPath);
+    getReplicationManager().postLogRoll(newPath);
   }
 
   @Override

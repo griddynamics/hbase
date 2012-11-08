@@ -634,12 +634,6 @@ public class HLog implements Syncable {
       if (nextWriter instanceof SequenceFileLogWriter) {
         nextHdfsOut = ((SequenceFileLogWriter)nextWriter).getWriterFSDataOutputStream();
       }
-      // Tell our listeners that a new log was created
-      if (!this.listeners.isEmpty()) {
-        for (WALActionsListener i : this.listeners) {
-          i.postLogRoll(oldPath, newPath);
-        }
-      }
 
       synchronized (updateLock) {
         // Clean up current writer.
@@ -655,6 +649,13 @@ public class HLog implements Syncable {
           " for " + FSUtils.getPath(newPath));
         this.numEntries.set(0);
       }
+      // Tell our listeners that a new log was created
+      if (!this.listeners.isEmpty()) {
+        for (WALActionsListener i : this.listeners) {
+          i.postLogRoll(oldPath, newPath);
+        }
+      }
+
       // Can we delete any of the old log files?
       if (this.outputfiles.size() > 0) {
         if (this.lastSeqWritten.isEmpty()) {
@@ -1187,10 +1188,14 @@ public class HLog implements Syncable {
   }
 
   /**
-   * This thread is responsible to call syncFs and buffer up the writers while
-   * it happens.
+   * This class is responsible to hold the HLog's appended Entry list
+   * and to sync them according to a configurable interval.
+   *
+   * Deferred log flushing works first by piggy backing on this process by
+   * simply not sync'ing the appended Entry. It can also be sync'd by other
+   * non-deferred log flushed entries outside of this thread.
    */
-   class LogSyncer extends HasThread {
+  class LogSyncer extends HasThread {
 
     private final long optionalFlushInterval;
 
@@ -1221,6 +1226,9 @@ public class HLog implements Syncable {
                 closeLogSyncer.wait(this.optionalFlushInterval);
               }
             }
+            // Calling sync since we waited or had unflushed entries.
+            // Entries appended but not sync'd are taken care of here AKA
+            // deferred log flush
             sync();
           } catch (IOException e) {
             LOG.error("Error while syncing, requesting close of hlog ", e);
@@ -1761,6 +1769,11 @@ public class HLog implements Syncable {
     return dir;
   }
   
+  /**
+   * @param filename name of the file to validate
+   * @return <tt>true</tt> if the filename matches an HLog, <tt>false</tt>
+   *         otherwise
+   */
   public static boolean validateHLogFilename(String filename) {
     return pattern.matcher(filename).matches();
   }

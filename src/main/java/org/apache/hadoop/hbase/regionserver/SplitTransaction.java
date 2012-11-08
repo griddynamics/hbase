@@ -275,7 +275,12 @@ public class SplitTransaction {
       if (exceptionToThrow instanceof IOException) throw (IOException)exceptionToThrow;
       throw new IOException(exceptionToThrow);
     }
-
+            
+    if (hstoreFilesToSplit.size() == 0) {
+      String errorMsg = "No store files to split for the region " + this.parent.getRegionInfo();
+      LOG.error(errorMsg);
+      throw new IOException(errorMsg);
+    }
     if (!testing) {
       services.removeFromOnlineRegions(this.parent.getRegionInfo().getEncodedName());
     }
@@ -539,7 +544,7 @@ public class SplitTransaction {
    * to create it.
    * @see #cleanupSplitDir(FileSystem, Path)
    */
-  private static void createSplitDir(final FileSystem fs, final Path splitdir)
+  void createSplitDir(final FileSystem fs, final Path splitdir)
   throws IOException {
     if (fs.exists(splitdir)) {
       LOG.info("The " + splitdir
