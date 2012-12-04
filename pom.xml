@@ -1020,6 +1020,7 @@
     <zookeeper.version>3.4.3</zookeeper.version>
     <hadoop-snappy.version>0.0.1-SNAPSHOT</hadoop-snappy.version>
     <clover.version>2.6.3</clover.version>
+
     <package.prefix>/usr</package.prefix>
     <package.conf.dir>/etc/hbase</package.conf.dir>
     <package.log.dir>/var/log/hbase</package.log.dir>
