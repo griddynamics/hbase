@@ -1710,7 +1710,7 @@
       </activation>
       <properties>
         <maven.clover.licenseLocation>${user.home}/.clover.license</maven.clover.licenseLocation>
-        <clover.version>2.6.3</clover.version>
+        <clover.version>3.0.5</clover.version>
       </properties>
       <build>
         <plugins>
