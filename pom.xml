@@ -1713,6 +1713,17 @@
         <maven.clover.licenseLocation>${user.home}/.clover.license</maven.clover.licenseLocation>
         <!-- <clover.version>3.0.5</clover.version> -->
       </properties>
+      <!-- This dependency is badly needed to be able to download clover.jar using
+           dependency:copy-dependencies Maven goal. Otherwize this does not work for some reason.
+           Also that does not work if the clover dependency is placed into "dependencyManagement"
+           section. -->
+      <dependencies>
+          <dependency>
+              <groupId>com.cenqua.clover</groupId>
+              <artifactId>clover</artifactId>
+              <version>${clover.version}</version>
+          </dependency>
+      </dependencies>
       <build>
         <plugins>
           <plugin>
