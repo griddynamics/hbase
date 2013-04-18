@@ -30,6 +30,7 @@ import org.junit.Test;
 public class TestFIntTool {
   @Test
   public void testLeadingZeros() {
+
     Assert.assertEquals(64, Long.numberOfLeadingZeros(0));
     Assert.assertEquals(63, Long.numberOfLeadingZeros(1));
     Assert.assertEquals(0, Long.numberOfLeadingZeros(Long.MIN_VALUE));
