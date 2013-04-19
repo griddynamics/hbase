@@ -8,5 +8,6 @@
 /logs
 /target
 *.iml
+*.ipr
 *.orig
 *~
