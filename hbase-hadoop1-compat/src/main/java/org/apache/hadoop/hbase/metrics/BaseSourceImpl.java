@@ -72,6 +72,7 @@ public class BaseSourceImpl implements BaseSource, MetricsSource {
     init();
   }
 
+  @Override
   public void init() {
     this.metricsRegistry.clearMetrics();
   }
@@ -83,6 +84,7 @@ public class BaseSourceImpl implements BaseSource, MetricsSource {
    * @param gaugeName gauge name
    * @param value     the new value of the gauge.
    */
+  @Override
   public void setGauge(String gaugeName, long value) {
     MetricMutableGaugeLong gaugeInt = metricsRegistry.getLongGauge(gaugeName, value);
     gaugeInt.set(value);
@@ -94,6 +96,7 @@ public class BaseSourceImpl implements BaseSource, MetricsSource {
    * @param gaugeName The name of the gauge to increment.
    * @param delta     The amount to increment the gauge by.
    */
+  @Override
   public void incGauge(String gaugeName, long delta) {
     MetricMutableGaugeLong gaugeInt = metricsRegistry.getLongGauge(gaugeName, 0l);
     gaugeInt.incr(delta);
@@ -105,6 +108,7 @@ public class BaseSourceImpl implements BaseSource, MetricsSource {
    * @param gaugeName The name of the gauge.
    * @param delta     the ammount to subtract from a gauge value.
    */
+  @Override
   public void decGauge(String gaugeName, long delta) {
     MetricMutableGaugeLong gaugeInt = metricsRegistry.getLongGauge(gaugeName, 0l);
     gaugeInt.decr(delta);
@@ -116,6 +120,7 @@ public class BaseSourceImpl implements BaseSource, MetricsSource {
    * @param key   the name of the counter
    * @param delta the ammount to increment
    */
+  @Override
   public void incCounters(String key, long delta) {
     MetricMutableCounterLong counter = metricsRegistry.getLongCounter(key, 0l);
     counter.incr(delta);
@@ -139,6 +144,7 @@ public class BaseSourceImpl implements BaseSource, MetricsSource {
    *
    * @param key
    */
+  @Override
   public void removeMetric(String key) {
     metricsRegistry.removeMetric(key);
     JmxCacheBuster.clearJmxCache();
@@ -166,18 +172,22 @@ public class BaseSourceImpl implements BaseSource, MetricsSource {
     return metricsRegistry;
   }
 
+  @Override
   public String getMetricsContext() {
     return metricsContext;
   }
 
+  @Override
   public String getMetricsDescription() {
     return metricsDescription;
   }
 
+  @Override
   public String getMetricsJmxContext() {
     return metricsJmxContext;
   }
 
+  @Override
   public String getMetricsName() {
     return metricsName;
   }
