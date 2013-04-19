@@ -82,6 +82,7 @@ public class TestGzipFilter {
   public void testGzipFilter() throws Exception {
     String path = "/" + TABLE + "/" + ROW_1 + "/" + COLUMN_1;
 
+
     ByteArrayOutputStream bos = new ByteArrayOutputStream();
     GZIPOutputStream os = new GZIPOutputStream(bos);
     os.write(VALUE_1);
