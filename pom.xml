@@ -880,7 +880,7 @@
     <thrift.version>0.9.0</thrift.version>
     <zookeeper.version>3.4.5</zookeeper.version>
     <hadoop-snappy.version>0.0.1-SNAPSHOT</hadoop-snappy.version>
-    <clover.version>2.6.3</clover.version>
+    <clover.version>3.1.11</clover.version>
     <jamon-runtime.version>2.3.1</jamon-runtime.version>
     <jettison.version>1.3.1</jettison.version>
     <netty.version>3.5.9.Final</netty.version>
@@ -1694,8 +1694,19 @@
       </activation>
       <properties>
         <maven.clover.licenseLocation>${user.home}/.clover.license</maven.clover.licenseLocation>
-        <clover.version>2.6.3</clover.version>
+        <!--<clover.version>2.6.3</clover.version>-->
       </properties>
+      <!-- This dependency is badly needed to be able to download clover.jar using
+           dependency:copy-dependencies Maven goal. Otherwize this does not work for some reason.
+           Also that does not work if the clover dependency is placed into "dependencyManagement"
+           section. -->
+      <dependencies>
+          <dependency>
+              <groupId>com.cenqua.clover</groupId>
+              <artifactId>clover</artifactId>
+              <version>${clover.version}</version>
+          </dependency>
+      </dependencies>
       <build>
         <plugins>
           <plugin>
