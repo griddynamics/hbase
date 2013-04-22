@@ -10,6 +10,7 @@ import org.apache.hadoop.fs.FileUtil;
 import org.apache.hadoop.fs.LocalFileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
+import org.apache.hadoop.hbase.LargeTests;
 import org.apache.hadoop.hbase.client.HTable;
 import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.util.Bytes;
@@ -18,8 +19,11 @@ import org.apache.hadoop.util.GenericOptionsParser;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
+
 import static junit.framework.Assert.*;
 
+@Category(LargeTests.class)
 public class TestCellCounter {
     private static final HBaseTestingUtility UTIL = new HBaseTestingUtility();
     private static final byte[] ROW1 = Bytes.toBytes("row1");
