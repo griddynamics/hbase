@@ -22,8 +22,6 @@ import static org.junit.Assert.*;
 import java.io.IOException;
 
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.LargeTests;
 import org.apache.hadoop.hbase.client.Get;
@@ -49,16 +47,12 @@ public class TestCopy {
 	  private static final byte[] FAMILYB = Bytes.toBytes(FAMILYB_STRING);
 	  private static final byte[] QUAL = Bytes.toBytes("q");
 	
-	private static String FQ_OUTPUT_DIR;
-	private static final String OUTPUT_DIR = "outputdir";
 	  private static long now = System.currentTimeMillis();
 	  
 	@BeforeClass
 	public static void beforeClass() throws Exception {
 		UTIL.startMiniCluster();
 		UTIL.startMiniMapReduceCluster();
-		FQ_OUTPUT_DIR = new Path(OUTPUT_DIR).makeQualified(
-				FileSystem.get(UTIL.getConfiguration())).toString();
 	}
 
 	@AfterClass
@@ -75,55 +69,38 @@ public class TestCopy {
 	    String sourceTable = "sourceTable";
 	    String targetTable = "targetTable";
 	    
-	    HTable t = UTIL.createTable(Bytes.toBytes(sourceTable), FAMILYA);
-	    HTable t2=  UTIL.createTable(Bytes.toBytes(targetTable), FAMILYA);
+	    byte[][] families= {FAMILYA,FAMILYB};
+	    
+	    HTable t = UTIL.createTable(Bytes.toBytes(sourceTable), families);
+	    HTable t2=  UTIL.createTable(Bytes.toBytes(targetTable), families);
 	    Put p = new Put(ROW1);
 	    p.add(FAMILYA, QUAL, now, "Data11".getBytes("UTF-8"));
-	    p.add(FAMILYA, QUAL, now+1, "Data12".getBytes());
+	    p.add(FAMILYB, QUAL, now+1, "Data12".getBytes());
 	    p.add(FAMILYA, QUAL, now+2, "Data13".getBytes());
 	    t.put(p);
 	    p = new Put(ROW2);
-	    p.add(FAMILYA, QUAL, now, "Dat21".getBytes());
+	    p.add(FAMILYB, QUAL, now, "Dat21".getBytes());
 	    p.add(FAMILYA, QUAL, now+1, "Data22".getBytes());
-	    p.add(FAMILYA, QUAL, now+2, "Data23".getBytes());
+	    p.add(FAMILYB, QUAL, now+2, "Data23".getBytes());
 	    t.put(p);
 
-	    String[] args = new String[] {"--new.name=targetTable",
-	    		sourceTable
-//	        FQ_OUTPUT_DIR,
-//	        "1000", // max number of key versions per key to export
+	    String[] args = new String[] {"--new.name="+targetTable,
+	    		"--families=a",sourceTable
 	    };
 	    assertNull(t2.get(new Get(ROW1)).getRow());
 	    assertTrue(runCopy(args));
-	 //   t2.get(ROW1) 
+
 	    assertNotNull(t2.get(new Get(ROW1)).getRow());
 	    Result res= t2.get(new Get(ROW1));
 	    byte[] b1=res.getValue(FAMILYA, QUAL);
 	    assertEquals("Data13", new String(b1));
 	    assertNotNull(t2.get(new Get(ROW2)).getRow());
 	    res= t2.get(new Get(ROW2));
-	    b1=res.getValue(FAMILYA, QUAL);
-	    assertEquals("Data23", new String(b1));
+	    b1=res.getValue(FAMILYB, QUAL);
+	    // Data from the family of B is not copied
+	    assertNull(b1);
 	    System.out.println("ok");
-/*
-	    String IMPORT_TABLE = "importTableSimpleCase";
-	    t = UTIL.createTable(Bytes.toBytes(IMPORT_TABLE), FAMILYB);
-	    args = new String[] {
-	        "-D" + Import.CF_RENAME_PROP + "="+FAMILYA_STRING+":"+FAMILYB_STRING,
-	        IMPORT_TABLE,
-	        FQ_OUTPUT_DIR
-	    };
-	    assertTrue(runCopy(args));
 
-	    Get g = new Get(ROW1);
-	    g.setMaxVersions();
-	    Result r = t.get(g);
-	    assertEquals(3, r.size());
-	    g = new Get(ROW2);
-	    g.setMaxVersions();
-	    r = t.get(g);
-	    assertEquals(3, r.size());
-	    */
 	  }
 	  
 	  boolean runCopy(String[] args) throws IOException, InterruptedException, ClassNotFoundException {
