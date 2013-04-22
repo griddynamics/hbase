@@ -934,7 +934,7 @@
     <surefire.firstPartGroups>org.apache.hadoop.hbase.SmallTests</surefire.firstPartGroups>
     <surefire.secondPartGroups>org.apache.hadoop.hbase.MediumTests</surefire.secondPartGroups>
     <test.output.tofile>true</test.output.tofile>
-    <surefire.timeout>900</surefire.timeout>
+    <surefire.timeout>1800</surefire.timeout>
   </properties>
   <!-- Sorted by groups of dependencies then groupId and artifactId -->
   <dependencyManagement>
@@ -1710,8 +1710,19 @@
       </activation>
       <properties>
         <maven.clover.licenseLocation>${user.home}/.clover.license</maven.clover.licenseLocation>
-        <!--<clover.version>${clover.version}</clover.version>-->
+        <!-- <clover.version>3.0.5</clover.version> -->
       </properties>
+      <!-- This dependency is badly needed to be able to download clover.jar using
+           dependency:copy-dependencies Maven goal. Otherwize this does not work for some reason.
+           Also that does not work if the clover dependency is placed into "dependencyManagement"
+           section. -->
+      <dependencies>
+          <dependency>
+              <groupId>com.cenqua.clover</groupId>
+              <artifactId>clover</artifactId>
+              <version>${clover.version}</version>
+          </dependency>
+      </dependencies>
       <build>
         <plugins>
           <plugin>
