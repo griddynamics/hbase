@@ -1674,7 +1674,7 @@
         <surefire.secondPartThreadCount>5</surefire.secondPartThreadCount>
         <surefire.skipFirstPart>false</surefire.skipFirstPart>
         <surefire.skipSecondPart>false</surefire.skipSecondPart>
-        <surefire.firstPartGroups>org.apache.hadoop.hbase.SmallTests</surefire.firstPartGroups>
+        <surefire.firstPartGroups>org.apache.hadoop.hbase.SmallTests,org.apache.hadoop.hbase.IntegrationTests</surefire.firstPartGroups>
         <surefire.secondPartGroups>org.apache.hadoop.hbase.MediumTests,org.apache.hadoop.hbase.LargeTests</surefire.secondPartGroups>
       </properties>
     </profile>
