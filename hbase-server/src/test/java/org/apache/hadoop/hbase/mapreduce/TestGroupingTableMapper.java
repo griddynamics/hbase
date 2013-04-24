@@ -36,7 +36,6 @@ public class TestGroupingTableMapper {
         byte[][] data={"value1".getBytes(),"value2".getBytes()};
         ImmutableBytesWritable ibw=mapper.createGroupKey(data);
         verify(context).write(ibw, result);
-        System.out.println("ok");
     }
     
     

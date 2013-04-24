@@ -21,7 +21,9 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.PrintStream;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
@@ -354,5 +356,22 @@ public class TestImportExport {
     }
     results.close();
     return count;
+  }
+  
+  @Test
+  public void testImportMain() throws Exception{
+      PrintStream oldPrintStream=System.err;
+      
+      ByteArrayOutputStream data= new ByteArrayOutputStream();
+      PrintStream print= new PrintStream(data);
+      String[] args= {};
+      try{
+          System.setErr(new PrintStream(data));
+          Import.main(args);
+        System.out.println("ok");  
+      }finally{
+          System.setErr(oldPrintStream);
+      }
+      
   }
 }

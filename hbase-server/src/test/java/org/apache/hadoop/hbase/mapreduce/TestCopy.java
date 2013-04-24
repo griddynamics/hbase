@@ -52,13 +52,18 @@ public class TestCopy {
 
     private static long now = System.currentTimeMillis();
 
-    /*
-     * @BeforeClass public static void beforeClass() throws Exception {
-     * UTIL.startMiniCluster(); UTIL.startMiniMapReduceCluster(); }
-     * 
-     * @AfterClass public static void afterClass() throws Exception {
-     * UTIL.shutdownMiniMapReduceCluster(); UTIL.shutdownMiniCluster(); }
-     */
+    @BeforeClass
+    public static void beforeClass() throws Exception {
+        UTIL.startMiniCluster();
+        UTIL.startMiniMapReduceCluster();
+    }
+
+    @AfterClass
+    public static void afterClass() throws Exception {
+        UTIL.shutdownMiniMapReduceCluster();
+        UTIL.shutdownMiniCluster();
+    }
+
     /**
      * Test simple replication case with column mapping
      * 
@@ -114,14 +119,22 @@ public class TestCopy {
             System.setErr(oldWriter);
         }
         assertTrue(data.toString().contains("rs.class"));
-        assertTrue(data.toString().contains("Usage: CopyTable [general options] [--starttime=X] [--endtime=Y] [--new.name=NEW] [--peer.adr=ADR] <tablename>"));
-        assertTrue(data.toString().contains("rs.impl      hbase.regionserver.impl of the peer cluster"));
-        assertTrue(data.toString().contains("starttime    beginning of the time range (unixtime in millis)"));
-        assertTrue(data.toString().contains("endtime      end of the time range.  Ignored if no starttime specified."));
+        assertTrue(data
+                .toString()
+                .contains(
+                        "Usage: CopyTable [general options] [--starttime=X] [--endtime=Y] [--new.name=NEW] [--peer.adr=ADR] <tablename>"));
+        assertTrue(data.toString().contains(
+                "rs.impl      hbase.regionserver.impl of the peer cluster"));
+        assertTrue(data.toString().contains(
+                "starttime    beginning of the time range (unixtime in millis)"));
+        assertTrue(data.toString().contains(
+                "endtime      end of the time range.  Ignored if no starttime specified."));
         assertTrue(data.toString().contains("versions     number of cell versions to copy"));
         assertTrue(data.toString().contains("new.name     new table's name"));
-        assertTrue(data.toString().contains("peer.adr     Address of the peer cluster given in the format"));
-        assertTrue(data.toString().contains("all.cells    also copy delete markers and deleted cells"));
+        assertTrue(data.toString().contains(
+                "peer.adr     Address of the peer cluster given in the format"));
+        assertTrue(data.toString().contains(
+                "all.cells    also copy delete markers and deleted cells"));
         assertTrue(data.toString().contains("tablename    Name of the table to copy"));
     }
 
