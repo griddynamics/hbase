@@ -37,6 +37,7 @@
         <testsources refid="test.sources"/>
         <columns refid="clover.columns"/>
         <sourcepath>
+          <pathelement path="${projectDir}"/>
           <pathelement path="."/>
           <pathelement path="./src"/>
           <pathelement path="./src/main"/>
