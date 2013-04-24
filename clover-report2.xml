@@ -38,12 +38,6 @@
         <columns refid="clover.columns"/>
         <sourcepath>
           <pathelement path="${projectDir}"/>
-          <pathelement path="."/>
-          <pathelement path="./src"/>
-          <pathelement path="./src/main"/>
-          <pathelement path="./src/main/java"/>
-          <pathelement path="./src/test"/>
-          <pathelement path="./src/test/java"/>
         </sourcepath>
       </current>
     </clover-report>
