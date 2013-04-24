@@ -1,3 +1,21 @@
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package org.apache.hadoop.hbase.mapreduce;
 
 import java.io.File;
@@ -54,13 +72,12 @@ public class TestCellCounter {
     }
 
     /**
-     * Test simple replication case with column mapping
+     * Test CellCounter all data should print to output 
      * 
-     * @throws Exception
      */
     @SuppressWarnings("deprecation")
     @Test
-    public void testSimpleCase() throws Exception {
+    public void testCellCounter() throws Exception {
         String sourceTable = "sourceTable";
 
         byte[][] families = { FAMILYA, FAMILYB };
@@ -82,7 +99,6 @@ public class TestCellCounter {
                 + "part-r-00000");
         String data = IOUtils.toString(inputStream);
         inputStream.close();
-        System.out.println("data:"+data);
         assertTrue(data.contains("Total Families Across all Rows"+"\t"+"2"));
         assertTrue(data.contains("Total Qualifiers across all Rows"+"\t"+"2"));
         assertTrue(data.contains("Total ROWS"+"\t"+"1"));
@@ -93,7 +109,7 @@ public class TestCellCounter {
 
     }
 
-    boolean runCount(String[] args) throws IOException, InterruptedException,
+   private boolean runCount(String[] args) throws IOException, InterruptedException,
             ClassNotFoundException {
         // need to make a copy of the configuration because to make sure
         // different temp dirs are used.
@@ -103,7 +119,6 @@ public class TestCellCounter {
         args = opts.getRemainingArgs();
         Job job = CellCounter.createSubmittableJob(conf, args);
         job.waitForCompletion(false);
-        System.out.println("job:" + job.getJobName() + " id:" + job.getJobID().toString());
         return job.isSuccessful();
     }
 }

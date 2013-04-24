@@ -22,7 +22,6 @@ import static org.junit.Assert.*;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
-import java.io.PrintWriter;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
@@ -65,12 +64,10 @@ public class TestCopy {
     }
 
     /**
-     * Test simple replication case with column mapping
-     * 
-     * @throws Exception
+     * Test copy of table from sourceTable to targetTable all rows from family a 
      */
     @Test
-    public void testSimpleCase() throws Exception {
+    public void testCopyTable() throws Exception {
         String sourceTable = "sourceTable";
         String targetTable = "targetTable";
 
@@ -102,10 +99,12 @@ public class TestCopy {
         b1 = res.getValue(FAMILYB, QUAL);
         // Data from the family of B is not copied
         assertNull(b1);
-        System.out.println("ok");
 
     }
 
+    /**
+     * Test main method. 
+     */
     @Test
     public void testMainMethod() throws Exception {
         String[] emptyArgs = {};

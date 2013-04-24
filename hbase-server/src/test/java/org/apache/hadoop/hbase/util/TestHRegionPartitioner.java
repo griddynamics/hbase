@@ -15,6 +15,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.apache.hadoop.hbase.util;
 
 import org.apache.hadoop.conf.Configuration;
@@ -45,6 +46,9 @@ public class TestHRegionPartitioner {
         UTIL.shutdownMiniCluster();
     }
 
+    /**
+     * Test HRegionPartitioner
+     */
     @Test
     public void testHRegionPartitioner() throws Exception {
 

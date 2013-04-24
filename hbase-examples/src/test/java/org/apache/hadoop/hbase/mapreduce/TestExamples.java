@@ -17,7 +17,6 @@
  */
 package org.apache.hadoop.hbase.mapreduce;
 
-
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
@@ -45,6 +44,10 @@ import static org.junit.Assert.*;
 public class TestExamples {
     private static HBaseTestingUtility util = new HBaseTestingUtility();
     int counter = 1;
+
+    /**
+     * Test SampleUploader from examples
+     */
 
     @SuppressWarnings("unchecked")
     @Test
@@ -75,35 +78,39 @@ public class TestExamples {
 
     }
 
+    /**
+     * Test IndexBuilder from examples
+     */
     @SuppressWarnings("unchecked")
     @Test
     public void testIndexBuilder() throws Exception {
         Configuration configuration = new Configuration();
-        String[] args= {"tableName","columnFamily","column1","column2"};
-        IndexBuilder.configureJob(configuration,args);
+        String[] args = { "tableName", "columnFamily", "column1", "column2" };
+        IndexBuilder.configureJob(configuration, args);
         assertEquals("tableName", configuration.get("index.tablename"));
         assertEquals("attributes", configuration.get("index.familyname"));
         assertEquals("tableName", configuration.get(TableInputFormat.INPUT_TABLE));
         assertEquals("column1,column2", configuration.get("index.fields"));
-        
-       Map map = new Map();
-       ImmutableBytesWritable rowKey = new ImmutableBytesWritable("test".getBytes());
-       Mapper<ImmutableBytesWritable,Result,ImmutableBytesWritable,Put>.Context ctx = mock(Context.class);
-       when(ctx.getConfiguration()).thenReturn(configuration);
-       doAnswer(new Answer<Void>() {
 
-           @Override
-           public Void answer(InvocationOnMock invocation) throws Throwable {
-               ImmutableBytesWritable writer = (ImmutableBytesWritable) invocation.getArguments()[0];
-               Put put = (Put) invocation.getArguments()[1];
-               assertEquals("tableName-column1", new String(writer.get()));
-               assertEquals("test", new String(put.getRow()));
-               return null;
-           }
-       }).when(ctx).write(any(ImmutableBytesWritable.class), any(Put.class));
-       Result result = mock(Result.class);
-       when(result.getValue("attributes".getBytes(),"column1".getBytes())).thenReturn("test".getBytes());
-       map.setup(ctx);
-       map.map(rowKey, result, ctx);
+        Map map = new Map();
+        ImmutableBytesWritable rowKey = new ImmutableBytesWritable("test".getBytes());
+        Mapper<ImmutableBytesWritable, Result, ImmutableBytesWritable, Put>.Context ctx = mock(Context.class);
+        when(ctx.getConfiguration()).thenReturn(configuration);
+        doAnswer(new Answer<Void>() {
+
+            @Override
+            public Void answer(InvocationOnMock invocation) throws Throwable {
+                ImmutableBytesWritable writer = (ImmutableBytesWritable) invocation.getArguments()[0];
+                Put put = (Put) invocation.getArguments()[1];
+                assertEquals("tableName-column1", new String(writer.get()));
+                assertEquals("test", new String(put.getRow()));
+                return null;
+            }
+        }).when(ctx).write(any(ImmutableBytesWritable.class), any(Put.class));
+        Result result = mock(Result.class);
+        when(result.getValue("attributes".getBytes(), "column1".getBytes())).thenReturn(
+                "test".getBytes());
+        map.setup(ctx);
+        map.map(rowKey, result, ctx);
     }
 }
