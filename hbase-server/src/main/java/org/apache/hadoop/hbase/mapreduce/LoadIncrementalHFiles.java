@@ -234,9 +234,10 @@ public class LoadIncrementalHFiles extends Configured implements Tool {
         }
       }
       if (unmatchedFamilies.size() > 0) {
-        String msg = "Unmatched family names found: unmatched family names in HFiles to be bulkloaded: "
-            + unmatchedFamilies + "; valid family names of table "
-            + Bytes.toString(table.getTableName()) + " are: " + familyNames;
+        String msg =
+            "Unmatched family names found: unmatched family names in HFiles to be bulkloaded: "
+                + unmatchedFamilies + "; valid family names of table "
+                + Bytes.toString(table.getTableName()) + " are: " + familyNames;
         LOG.error(msg);
         throw new IOException(msg);
       }

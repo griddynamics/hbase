@@ -53,7 +53,7 @@ import org.junit.experimental.categories.Category;
 public class TestLoadIncrementalHFiles {
   private static final byte[] QUALIFIER = Bytes.toBytes("myqual");
   private static final byte[] FAMILY = Bytes.toBytes("myfam");
-  private static final String EXPECTED_MSG_FOR_NON_EXISTING_FAMILY = "invalid family name found";
+  private static final String EXPECTED_MSG_FOR_NON_EXISTING_FAMILY = "Unmatched family names found";
 
   private static final byte[][] SPLIT_KEYS = new byte[][] {
     Bytes.toBytes("ddd"),
