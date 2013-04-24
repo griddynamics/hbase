@@ -20,6 +20,7 @@ package org.apache.hadoop.hbase.mapreduce;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -43,6 +44,7 @@ import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.filter.Filter;
 import org.apache.hadoop.hbase.filter.PrefixFilter;
 import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.hbase.util.LauncherSecurityManager;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.util.GenericOptionsParser;
 import org.junit.After;
@@ -358,19 +360,30 @@ public class TestImportExport {
     return count;
   }
   
-  @Test
+  /**
+   * test maim method. Import should  print help and call System.exit  
+   */
+  @Test (timeout=30000)
   public void testImportMain() throws Exception{
       PrintStream oldPrintStream=System.err;
-      
+      SecurityManager SECURITY_MANAGER=System.getSecurityManager();
+      new LauncherSecurityManager();
       ByteArrayOutputStream data= new ByteArrayOutputStream();
-      PrintStream print= new PrintStream(data);
       String[] args= {};
+      System.setErr(new PrintStream(data));
       try{
           System.setErr(new PrintStream(data));
           Import.main(args);
-        System.out.println("ok");  
+        fail("should be SecurityException");
+      }catch(SecurityException e){
+          assertTrue(data.toString().contains("Wrong number of arguments:"));
+          assertTrue(data.toString().contains("-Dimport.bulk.output=/path/for/output"));
+          assertTrue(data.toString().contains("-Dimport.filter.class=<name of filter class>"));
+          assertTrue(data.toString().contains("-Dimport.bulk.output=/path/for/output"));
+          assertTrue(data.toString().contains("-Dmapred.reduce.tasks.speculative.execution=false"));
       }finally{
           System.setErr(oldPrintStream);
+          System.setSecurityManager(SECURITY_MANAGER);
       }
       
   }
