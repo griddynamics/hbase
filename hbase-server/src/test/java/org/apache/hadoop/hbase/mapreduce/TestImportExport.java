@@ -190,7 +190,8 @@ public class TestImportExport {
   /**
    * Test export scanner batching
    */
-   @Test
+   @SuppressWarnings("resource")
+@Test
    public void testExportScannerBatching() throws Exception {
     String BATCH_TABLE = "exportWithBatch";
     HTableDescriptor desc = new HTableDescriptor(BATCH_TABLE);
@@ -385,6 +386,35 @@ public class TestImportExport {
           System.setErr(oldPrintStream);
           System.setSecurityManager(SECURITY_MANAGER);
       }
-      
+  }
+  
+  /**
+   * test maim method. Export should  print help and call System.exit  
+   */
+  @Test (timeout=30000)
+  public void testExportMain() throws Exception{
+      PrintStream oldPrintStream=System.err;
+      SecurityManager SECURITY_MANAGER=System.getSecurityManager();
+      new LauncherSecurityManager();
+      ByteArrayOutputStream data= new ByteArrayOutputStream();
+      String[] args= {};
+      System.setErr(new PrintStream(data));
+      try{
+          System.setErr(new PrintStream(data));
+          Export.main(args);
+        fail("should be SecurityException");
+      }catch(SecurityException e){
+          assertTrue(data.toString().contains("Wrong number of arguments:"));
+          assertTrue(data.toString().contains("Usage: Export [-D <property=value>]* <tablename> <outputdir> [<versions> [<starttime> [<endtime>]] [^[regex pattern] or [Prefix] to filter]]"));
+          assertTrue(data.toString().contains("-D hbase.mapreduce.scan.column.family=<familyName>"));
+          assertTrue(data.toString().contains("-D hbase.mapreduce.include.deleted.rows=true"));
+          assertTrue(data.toString().contains("-Dhbase.client.scanner.caching=100"));
+          assertTrue(data.toString().contains("-Dmapred.map.tasks.speculative.execution=false"));
+          assertTrue(data.toString().contains("-Dmapred.reduce.tasks.speculative.execution=false"));
+          assertTrue(data.toString().contains("-Dhbase.export.scanner.batch=10"));
+      }finally{
+          System.setErr(oldPrintStream);
+          System.setSecurityManager(SECURITY_MANAGER);
+      }
   }
 }
