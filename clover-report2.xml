@@ -38,6 +38,7 @@
         <columns refid="clover.columns"/>
         <sourcepath>
           <pathelement path="${projectDir}"/>
+          <pathelement path="."/>
         </sourcepath>
       </current>
     </clover-report>
