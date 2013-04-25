@@ -18,9 +18,11 @@
 
 package org.apache.hadoop.hbase.mapreduce;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.PrintStream;
 
 import org.apache.commons.io.IOUtils;
 import org.apache.hadoop.conf.Configuration;
@@ -32,6 +34,7 @@ import org.apache.hadoop.hbase.LargeTests;
 import org.apache.hadoop.hbase.client.HTable;
 import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.hbase.util.LauncherSecurityManager;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.util.GenericOptionsParser;
 import org.junit.AfterClass;
@@ -40,6 +43,8 @@ import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
 import static junit.framework.Assert.*;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 @Category(LargeTests.class)
 public class TestCellCounter {
@@ -53,8 +58,7 @@ public class TestCellCounter {
     private static final byte[] QUAL = Bytes.toBytes("q");
 
     private static Path FQ_OUTPUT_DIR;
-    private static final String OUTPUT_DIR = "target" + File.separator + "test-data"
-            + File.separator + "output";
+    private static final String OUTPUT_DIR = "target" + File.separator + "test-data" + File.separator + "output";
     private static long now = System.currentTimeMillis();
 
     @BeforeClass
@@ -72,7 +76,7 @@ public class TestCellCounter {
     }
 
     /**
-     * Test CellCounter all data should print to output 
+     * Test CellCounter all data should print to output
      * 
      */
     @SuppressWarnings("deprecation")
@@ -83,42 +87,67 @@ public class TestCellCounter {
         byte[][] families = { FAMILYA, FAMILYB };
         HTable t = UTIL.createTable(Bytes.toBytes(sourceTable), families);
         Put p = new Put(ROW1);
-        p.add(FAMILYA, QUAL, now, "Data11".getBytes("UTF-8"));
-        p.add(FAMILYB, QUAL, now + 1, "Data12".getBytes());
-        p.add(FAMILYA, QUAL, now + 2, "Data13".getBytes());
+        p.add(FAMILYA, QUAL, now, Bytes.toBytes("Data11"));
+        p.add(FAMILYB, QUAL, now + 1, Bytes.toBytes("Data12"));
+        p.add(FAMILYA, QUAL, now + 2, Bytes.toBytes("Data13"));
         t.put(p);
         p = new Put(ROW2);
-        p.add(FAMILYB, QUAL, now, "Dat21".getBytes());
-        p.add(FAMILYA, QUAL, now + 1, "Data22".getBytes());
-        p.add(FAMILYB, QUAL, now + 2, "Data23".getBytes());
+        p.add(FAMILYB, QUAL, now, Bytes.toBytes("Dat21"));
+        p.add(FAMILYA, QUAL, now + 1, Bytes.toBytes("Data22"));
+        p.add(FAMILYB, QUAL, now + 2, Bytes.toBytes("Data23"));
         t.put(p);
         System.out.println("file out:" + FQ_OUTPUT_DIR.toString());
-        String[] args = { sourceTable, FQ_OUTPUT_DIR.toString(), ";","^row1"};
+        String[] args = { sourceTable, FQ_OUTPUT_DIR.toString(), ";", "^row1" };
         runCount(args);
-        FileInputStream inputStream = new FileInputStream(OUTPUT_DIR + File.separator
-                + "part-r-00000");
+        FileInputStream inputStream = new FileInputStream(OUTPUT_DIR + File.separator + "part-r-00000");
         String data = IOUtils.toString(inputStream);
         inputStream.close();
-        assertTrue(data.contains("Total Families Across all Rows"+"\t"+"2"));
-        assertTrue(data.contains("Total Qualifiers across all Rows"+"\t"+"2"));
-        assertTrue(data.contains("Total ROWS"+"\t"+"1"));
-        assertTrue(data.contains("b;q"+"\t"+"1"));
-        assertTrue(data.contains("a;q"+"\t"+"1"));
-        assertTrue(data.contains("row1;a;q_Versions"+"\t"+"2"));
-        System.out.println("ok");
+        assertTrue(data.contains("Total Families Across all Rows" + "\t" + "2"));
+        assertTrue(data.contains("Total Qualifiers across all Rows" + "\t" + "2"));
+        assertTrue(data.contains("Total ROWS" + "\t" + "1"));
+        assertTrue(data.contains("b;q" + "\t" + "1"));
+        assertTrue(data.contains("a;q" + "\t" + "1"));
+        assertTrue(data.contains("row1;a;q_Versions" + "\t" + "2"));
 
     }
 
-   private boolean runCount(String[] args) throws IOException, InterruptedException,
-            ClassNotFoundException {
+    private boolean runCount(String[] args) throws IOException, InterruptedException, ClassNotFoundException {
         // need to make a copy of the configuration because to make sure
         // different temp dirs are used.
-        GenericOptionsParser opts = new GenericOptionsParser(new Configuration(
-                UTIL.getConfiguration()), args);
+        GenericOptionsParser opts = new GenericOptionsParser(new Configuration(UTIL.getConfiguration()), args);
         Configuration conf = opts.getConfiguration();
         args = opts.getRemainingArgs();
         Job job = CellCounter.createSubmittableJob(conf, args);
         job.waitForCompletion(false);
         return job.isSuccessful();
+    }
+
+    @Test
+    public void testMain() throws Exception {
+
+        PrintStream oldPrintStream = System.err;
+        SecurityManager SECURITY_MANAGER = System.getSecurityManager();
+        new LauncherSecurityManager();
+        ByteArrayOutputStream data = new ByteArrayOutputStream();
+        String[] args = {};
+        System.setErr(new PrintStream(data));
+        try {
+            System.setErr(new PrintStream(data));
+
+            try {
+                CellCounter.main(args);
+                fail("should be SecurityException");
+            } catch (SecurityException e) {
+                assertTrue(data.toString().contains("ERROR: Wrong number of parameters:"));
+                assertTrue(data.toString().contains(
+                        "Usage: CellCounter <tablename> <outputDir> <reportSeparator> [^[regex pattern] or [Prefix] for row filter]]"));
+                assertTrue(data.toString().contains("-D hbase.mapreduce.scan.column.family=<familyName>"));
+            }
+
+        } finally {
+            System.setErr(oldPrintStream);
+            System.setSecurityManager(SECURITY_MANAGER);
+        }
+
     }
 }

@@ -64,7 +64,7 @@ public class TestCopy {
     }
 
     /**
-     * Test copy of table from sourceTable to targetTable all rows from family a 
+     * Test copy of table from sourceTable to targetTable all rows from family a
      */
     @Test
     public void testCopyTable() throws Exception {
@@ -76,14 +76,14 @@ public class TestCopy {
         HTable t = UTIL.createTable(Bytes.toBytes(sourceTable), families);
         HTable t2 = UTIL.createTable(Bytes.toBytes(targetTable), families);
         Put p = new Put(ROW1);
-        p.add(FAMILYA, QUAL, now, "Data11".getBytes("UTF-8"));
-        p.add(FAMILYB, QUAL, now + 1, "Data12".getBytes());
-        p.add(FAMILYA, QUAL, now + 2, "Data13".getBytes());
+        p.add(FAMILYA, QUAL, now, Bytes.toBytes("Data11"));
+        p.add(FAMILYB, QUAL, now + 1, Bytes.toBytes("Data12"));
+        p.add(FAMILYA, QUAL, now + 2, Bytes.toBytes("Data13"));
         t.put(p);
         p = new Put(ROW2);
-        p.add(FAMILYB, QUAL, now, "Dat21".getBytes());
-        p.add(FAMILYA, QUAL, now + 1, "Data22".getBytes());
-        p.add(FAMILYB, QUAL, now + 2, "Data23".getBytes());
+        p.add(FAMILYB, QUAL, now, Bytes.toBytes("Dat21"));
+        p.add(FAMILYA, QUAL, now + 1, Bytes.toBytes("Data22"));
+        p.add(FAMILYB, QUAL, now + 2, Bytes.toBytes("Data23"));
         t.put(p);
 
         String[] args = new String[] { "--new.name=" + targetTable, "--families=a", sourceTable };
@@ -103,7 +103,7 @@ public class TestCopy {
     }
 
     /**
-     * Test main method. 
+     * Test main method.
      */
     @Test
     public void testMainMethod() throws Exception {
@@ -118,31 +118,22 @@ public class TestCopy {
             System.setErr(oldWriter);
         }
         assertTrue(data.toString().contains("rs.class"));
-        assertTrue(data
-                .toString()
-                .contains(
-                        "Usage: CopyTable [general options] [--starttime=X] [--endtime=Y] [--new.name=NEW] [--peer.adr=ADR] <tablename>"));
         assertTrue(data.toString().contains(
-                "rs.impl      hbase.regionserver.impl of the peer cluster"));
-        assertTrue(data.toString().contains(
-                "starttime    beginning of the time range (unixtime in millis)"));
-        assertTrue(data.toString().contains(
-                "endtime      end of the time range.  Ignored if no starttime specified."));
+                "Usage: CopyTable [general options] [--starttime=X] [--endtime=Y] [--new.name=NEW] [--peer.adr=ADR] <tablename>"));
+        assertTrue(data.toString().contains("rs.impl      hbase.regionserver.impl of the peer cluster"));
+        assertTrue(data.toString().contains("starttime    beginning of the time range (unixtime in millis)"));
+        assertTrue(data.toString().contains("endtime      end of the time range.  Ignored if no starttime specified."));
         assertTrue(data.toString().contains("versions     number of cell versions to copy"));
         assertTrue(data.toString().contains("new.name     new table's name"));
-        assertTrue(data.toString().contains(
-                "peer.adr     Address of the peer cluster given in the format"));
-        assertTrue(data.toString().contains(
-                "all.cells    also copy delete markers and deleted cells"));
+        assertTrue(data.toString().contains("peer.adr     Address of the peer cluster given in the format"));
+        assertTrue(data.toString().contains("all.cells    also copy delete markers and deleted cells"));
         assertTrue(data.toString().contains("tablename    Name of the table to copy"));
     }
 
-    private boolean runCopy(String[] args) throws IOException, InterruptedException,
-            ClassNotFoundException {
+    private boolean runCopy(String[] args) throws IOException, InterruptedException, ClassNotFoundException {
         // need to make a copy of the configuration because to make sure
         // different temp dirs are used.
-        GenericOptionsParser opts = new GenericOptionsParser(new Configuration(
-                UTIL.getConfiguration()), args);
+        GenericOptionsParser opts = new GenericOptionsParser(new Configuration(UTIL.getConfiguration()), args);
         Configuration conf = opts.getConfiguration();
         args = opts.getRemainingArgs();
         Job job = CopyTable.createSubmittableJob(conf, args);

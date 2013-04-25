@@ -26,6 +26,7 @@ import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.SmallTests;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
+import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.mapreduce.Mapper;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
@@ -52,12 +53,12 @@ public class TestGroupingTableMapper {
         context.write(any(ImmutableBytesWritable.class),any(Result.class));
         List<KeyValue> keyValue= new ArrayList<KeyValue>();
         byte[] row= {};
-        keyValue.add(new KeyValue(row, "family2".getBytes(), "clm".getBytes(), "value1".getBytes()));
-        keyValue.add(new KeyValue(row, "family1".getBytes(), "clm".getBytes(), "value2".getBytes()));
+        keyValue.add(new KeyValue(row, Bytes.toBytes("family2"), Bytes.toBytes("clm"), Bytes.toBytes("value1")));
+        keyValue.add(new KeyValue(row, Bytes.toBytes("family1"), Bytes.toBytes("clm"), Bytes.toBytes("value2")));
         when(result.list()).thenReturn(keyValue);
         mapper.map(null, result, context);
         // template data
-        byte[][] data={"value1".getBytes(),"value2".getBytes()};
+        byte[][] data={Bytes.toBytes("value1"),Bytes.toBytes("value2")};
         ImmutableBytesWritable ibw=mapper.createGroupKey(data);
         verify(context).write(ibw, result);
     }

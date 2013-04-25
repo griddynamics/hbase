@@ -17,6 +17,9 @@
  */
 package org.apache.hadoop.hbase.mapreduce;
 
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
@@ -26,6 +29,8 @@ import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
 import org.apache.hadoop.hbase.mapreduce.IndexBuilder.Map;
 import org.apache.hadoop.hbase.mapreduce.SampleUploader.Uploader;
+import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.hbase.util.LauncherSecurityManager;
 import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapreduce.Job;
@@ -62,8 +67,8 @@ public class TestExamples {
             public Void answer(InvocationOnMock invocation) throws Throwable {
                 ImmutableBytesWritable writer = (ImmutableBytesWritable) invocation.getArguments()[0];
                 Put put = (Put) invocation.getArguments()[1];
-                assertEquals("row", new String(writer.get()));
-                assertEquals("row", new String(put.getRow()));
+                assertEquals("row", Bytes.toString(writer.get()));
+                assertEquals("row", Bytes.toString(put.getRow()));
                 return null;
             }
         }).when(ctx).write(any(ImmutableBytesWritable.class), any(Put.class));
@@ -77,7 +82,34 @@ public class TestExamples {
         assertEquals(SequenceFileInputFormat.class, job.getInputFormatClass());
 
     }
+    /**
+     * Test main method of SampleUploader. 
+     */
+    @Test
+    public void testMainSampleUploader() throws Exception {
+        PrintStream oldPrintStream = System.err;
+        SecurityManager SECURITY_MANAGER = System.getSecurityManager();
+        new LauncherSecurityManager();
+        ByteArrayOutputStream data = new ByteArrayOutputStream();
+        String[] args = {};
+        System.setErr(new PrintStream(data));
+        try {
+            System.setErr(new PrintStream(data));
 
+            try {
+                SampleUploader.main(args);
+                fail("should be SecurityException");
+            } catch (SecurityException e) {
+                assertTrue(data.toString().contains("Wrong number of arguments:"));
+                assertTrue(data.toString().contains("Usage: SampleUploader <input> <tablename>"));
+            }
+
+        } finally {
+            System.setErr(oldPrintStream);
+            System.setSecurityManager(SECURITY_MANAGER);
+        }
+
+    }
     /**
      * Test IndexBuilder from examples
      */
@@ -93,7 +125,7 @@ public class TestExamples {
         assertEquals("column1,column2", configuration.get("index.fields"));
 
         Map map = new Map();
-        ImmutableBytesWritable rowKey = new ImmutableBytesWritable("test".getBytes());
+        ImmutableBytesWritable rowKey = new ImmutableBytesWritable(Bytes.toBytes("test"));
         Mapper<ImmutableBytesWritable, Result, ImmutableBytesWritable, Put>.Context ctx = mock(Context.class);
         when(ctx.getConfiguration()).thenReturn(configuration);
         doAnswer(new Answer<Void>() {
@@ -102,15 +134,42 @@ public class TestExamples {
             public Void answer(InvocationOnMock invocation) throws Throwable {
                 ImmutableBytesWritable writer = (ImmutableBytesWritable) invocation.getArguments()[0];
                 Put put = (Put) invocation.getArguments()[1];
-                assertEquals("tableName-column1", new String(writer.get()));
-                assertEquals("test", new String(put.getRow()));
+                assertEquals("tableName-column1", Bytes.toString(writer.get()));
+                assertEquals("test", Bytes.toString(put.getRow()));
                 return null;
             }
         }).when(ctx).write(any(ImmutableBytesWritable.class), any(Put.class));
         Result result = mock(Result.class);
-        when(result.getValue("attributes".getBytes(), "column1".getBytes())).thenReturn(
-                "test".getBytes());
+        when(result.getValue(Bytes.toBytes("attributes"), Bytes.toBytes("column1"))).thenReturn(Bytes.toBytes("test"));
         map.setup(ctx);
         map.map(rowKey, result, ctx);
+    }
+    
+    /**
+     * Test main method of IndexBuilder
+     */
+    @Test
+    public void testMainIndexBuilder() throws Exception {
+        PrintStream oldPrintStream = System.err;
+        SecurityManager SECURITY_MANAGER = System.getSecurityManager();
+        new LauncherSecurityManager();
+        ByteArrayOutputStream data = new ByteArrayOutputStream();
+        String[] args = {};
+        System.setErr(new PrintStream(data));
+        try {
+            System.setErr(new PrintStream(data));
+            try {
+                IndexBuilder.main(args);
+                fail("should be SecurityException");
+            } catch (SecurityException e) {
+                assertTrue(data.toString().contains("arguments supplied, required: 3"));
+                assertTrue(data.toString().contains("Usage: IndexBuilder <TABLE_NAME> <COLUMN_FAMILY> <ATTR> [<ATTR> ...]"));
+            }
+
+        } finally {
+            System.setErr(oldPrintStream);
+            System.setSecurityManager(SECURITY_MANAGER);
+        }
+
     }
 }
