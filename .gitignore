@@ -9,5 +9,6 @@
 /target
 *.iml
 *.ipr
+*.iws
 *.orig
 *~
