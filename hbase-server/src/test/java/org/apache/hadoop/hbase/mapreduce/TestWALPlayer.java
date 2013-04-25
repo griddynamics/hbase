@@ -21,10 +21,15 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.assertNull;
 
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.HConstants;
+import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.LargeTests;
 import org.apache.hadoop.hbase.MiniHBaseCluster;
 import org.apache.hadoop.hbase.client.Delete;
@@ -32,12 +37,24 @@ import org.apache.hadoop.hbase.client.Get;
 import org.apache.hadoop.hbase.client.HTable;
 import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.client.Result;
+import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
+import org.apache.hadoop.hbase.mapreduce.WALPlayer.HLogKeyValueMapper;
 import org.apache.hadoop.hbase.regionserver.wal.HLog;
+import org.apache.hadoop.hbase.regionserver.wal.HLogKey;
+import org.apache.hadoop.hbase.regionserver.wal.WALEdit;
 import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.mapreduce.Mapper;
+import org.apache.hadoop.mapreduce.Mapper.Context;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
+import org.mockito.Mockito;
+import org.mockito.invocation.InvocationOnMock;
+import org.mockito.stubbing.Answer;
+
+import static org.mockito.Matchers.any;
+import static org.mockito.Mockito.*;
 
 /**
  * Basic test for the WALPlayer M/R tool
@@ -99,5 +116,40 @@ public class TestWALPlayer {
     Result r = t2.get(g);
     assertEquals(1, r.size());
     assertTrue(Bytes.equals(COLUMN2, r.raw()[0].getQualifier()));
+  }
+  
+  @Test
+  public void testHLogKeyValueMapper() throws Exception{
+      Configuration configuration= new Configuration();
+      configuration.set(WALPlayer.TABLES_KEY, "table");
+      HLogKeyValueMapper mapper= new HLogKeyValueMapper();
+      HLogKey key = mock(HLogKey.class);
+      when(key.getTablename()).thenReturn(Bytes.toBytes("table"));
+      Mapper<HLogKey,WALEdit,ImmutableBytesWritable,KeyValue>.Context context= mock(Context.class);
+      when(context.getConfiguration()).thenReturn(configuration);
+      
+      WALEdit value= mock(WALEdit.class);
+      List<KeyValue> values= new ArrayList<KeyValue>();
+      KeyValue kv1= mock(KeyValue.class);
+      when (kv1.getFamily()).thenReturn(Bytes.toBytes("family"));
+      when (kv1.getRow()).thenReturn(Bytes.toBytes("row"));
+      values.add(kv1);
+      when(value.getKeyValues()).thenReturn(values);
+      mapper.setup(context);
+      
+      doAnswer(new Answer<Void>() {
+
+          @Override
+          public Void answer(InvocationOnMock invocation) throws Throwable {
+              ImmutableBytesWritable writer = (ImmutableBytesWritable) invocation.getArguments()[0];
+              KeyValue key = (KeyValue) invocation.getArguments()[1];
+              assertEquals("row", Bytes.toString(writer.get()) );
+              assertEquals("row", Bytes.toString(key.getRow()));
+              return null;
+          }
+      }).when(context).write(any(ImmutableBytesWritable.class), any(KeyValue.class));
+      
+      mapper.map(key, value, context);
+      
   }
 }
