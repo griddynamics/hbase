@@ -39,7 +39,7 @@ public class TestGroupingTableMapper {
     /**
      * Test  GroupingTableMapper class 
      */
-    @Test (timeout=10000)
+    @Test
     public void testGroupingTableMapper() throws Exception{
         
         GroupingTableMapper mapper= new GroupingTableMapper();

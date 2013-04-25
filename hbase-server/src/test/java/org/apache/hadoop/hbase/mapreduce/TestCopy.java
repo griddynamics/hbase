@@ -103,7 +103,7 @@ public class TestCopy {
     }
 
     /**
-     * Test main method.
+     * Test main method of CopyTable.
      */
     @Test
     public void testMainMethod() throws Exception {
@@ -131,8 +131,6 @@ public class TestCopy {
     }
 
     private boolean runCopy(String[] args) throws IOException, InterruptedException, ClassNotFoundException {
-        // need to make a copy of the configuration because to make sure
-        // different temp dirs are used.
         GenericOptionsParser opts = new GenericOptionsParser(new Configuration(UTIL.getConfiguration()), args);
         Configuration conf = opts.getConfiguration();
         args = opts.getRemainingArgs();

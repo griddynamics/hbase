@@ -79,7 +79,6 @@ public class TestCellCounter {
      * Test CellCounter all data should print to output
      * 
      */
-    @SuppressWarnings("deprecation")
     @Test
     public void testCellCounter() throws Exception {
         String sourceTable = "sourceTable";
@@ -122,6 +121,9 @@ public class TestCellCounter {
         return job.isSuccessful();
     }
 
+    /**
+     * Test main method of CellCounter
+     */
     @Test
     public void testMain() throws Exception {
 

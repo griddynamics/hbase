@@ -64,7 +64,6 @@ import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
 
 import static org.mockito.Mockito.*;
-import static org.junit.Assert.*;
 
 /**
  * Tests the table import and table export MR job functionality
@@ -202,7 +201,7 @@ public class TestImportExport {
    * Test export scanner batching
    */
    @SuppressWarnings("resource")
-@Test
+   @Test
    public void testExportScannerBatching() throws Exception {
     String BATCH_TABLE = "exportWithBatch";
     HTableDescriptor desc = new HTableDescriptor(BATCH_TABLE);
@@ -375,7 +374,7 @@ public class TestImportExport {
   /**
    * test maim method. Import should  print help and call System.exit  
    */
-  @Test (timeout=30000)
+  @Test
   public void testImportMain() throws Exception{
       PrintStream oldPrintStream=System.err;
       SecurityManager SECURITY_MANAGER=System.getSecurityManager();
@@ -402,7 +401,7 @@ public class TestImportExport {
     /**
      * test maim method. Export should print help and call System.exit
      */
-    @Test(timeout = 30000)
+    @Test 
     public void testExportMain() throws Exception {
         PrintStream oldPrintStream = System.err;
         SecurityManager SECURITY_MANAGER = System.getSecurityManager();
@@ -433,7 +432,9 @@ public class TestImportExport {
             System.setSecurityManager(SECURITY_MANAGER);
         }
     }
-    
+    /**
+     *  Test map method of Importer
+     */
     @SuppressWarnings({ "unchecked", "rawtypes" })
     @Test 
     public void testKeyValueImporter () throws Exception{
@@ -464,14 +465,18 @@ public class TestImportExport {
         importer.map(new ImmutableBytesWritable(Bytes.toBytes("Key")), value, ctx);
         
     }
+    /**
+     * Test addFilterAndArguments method of Import 
+     * This method set couple parameters into Configuration    
+     */
     @Test
-    public void testaddFilterAndArguments(){
+    public void testaddFilterAndArguments() {
         Configuration configuration = new Configuration();
 
         List<String> args = new ArrayList<String>();
         args.add("param1");
         args.add("param2");
-                
+
         Import.addFilterAndArguments(configuration, FilterBase.class, args);
         assertEquals("org.apache.hadoop.hbase.filter.FilterBase", configuration.get(Import.FILTER_CLASS_CONF_KEY));
         assertEquals("param1,param2", configuration.get(Import.FILTER_ARGS_CONF_KEY));
