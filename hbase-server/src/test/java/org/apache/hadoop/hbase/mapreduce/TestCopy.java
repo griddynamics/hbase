@@ -87,7 +87,7 @@ public class TestCopy {
         t.put(p);
 
         long currentTime = System.currentTimeMillis();
-        String[] args = new String[] { "--new.name=" + targetTable, "--families=a", "--all.cells",
+        String[] args = new String[] { "--new.name=" + targetTable, "--families=a:b", "--all.cells",
                 "--starttime=" + (currentTime - 100000), "--endtime=" + (currentTime + 100000), sourceTable };
 //        sourceTable };
         assertNull(t2.get(new Get(ROW1)).getRow());
@@ -95,11 +95,11 @@ public class TestCopy {
 
         assertNotNull(t2.get(new Get(ROW1)).getRow());
         Result res = t2.get(new Get(ROW1));
-        byte[] b1 = res.getValue(FAMILYA, QUAL);
+        byte[] b1 = res.getValue(FAMILYB, QUAL);
         assertEquals("Data13", new String(b1));
         assertNotNull(t2.get(new Get(ROW2)).getRow());
         res = t2.get(new Get(ROW2));
-        b1 = res.getValue(FAMILYB, QUAL);
+        b1 = res.getValue(FAMILYA, QUAL);
         // Data from the family of B is not copied
         assertNull(b1);
 
