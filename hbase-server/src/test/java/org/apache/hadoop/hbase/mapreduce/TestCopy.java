@@ -86,7 +86,10 @@ public class TestCopy {
         p.add(FAMILYB, QUAL, now + 2, Bytes.toBytes("Data23"));
         t.put(p);
 
-        String[] args = new String[] { "--new.name=" + targetTable, "--families=a","--all.cells", sourceTable };
+        long currentTime = System.currentTimeMillis();
+        String[] args = new String[] { "--new.name=" + targetTable, "--families=a", "--all.cells",
+                "--starttime=" + (currentTime - 100000), "--endtime=" + (currentTime + 100000), sourceTable };
+//        sourceTable };
         assertNull(t2.get(new Get(ROW1)).getRow());
         assertTrue(runCopy(args));
 
@@ -107,7 +110,7 @@ public class TestCopy {
      */
     @Test
     public void testMainMethod() throws Exception {
-        String[] emptyArgs = {};
+        String[] emptyArgs = { "-h" };
         PrintStream oldWriter = System.err;
         ByteArrayOutputStream data = new ByteArrayOutputStream();
         PrintStream writer = new PrintStream(data);
