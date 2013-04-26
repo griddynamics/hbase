@@ -19,11 +19,9 @@ package org.apache.hadoop.hbase.mapreduce;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.assertNull;
 import static org.junit.Assert.fail;
 
 import java.io.ByteArrayOutputStream;
-import java.io.IOException;
 import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.List;
@@ -53,7 +51,6 @@ import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
-import org.mockito.Mockito;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
 
@@ -111,10 +108,16 @@ public class TestWALPlayer {
     String walInputDir = new Path(cluster.getMaster().getMasterFileSystem()
         .getRootDir(), HConstants.HREGION_LOGDIR_NAME).toString();
 
-    WALPlayer player = new WALPlayer(TEST_UTIL.getConfiguration());
+    Configuration configuration= TEST_UTIL.getConfiguration();
+    WALPlayer player = new WALPlayer(configuration);
+    String optionName="_test_.name";
+    configuration.set(optionName, "1000");
+    player.setupTime(configuration, optionName);
+    assertEquals(1000,configuration.getLong(optionName,0));
     assertEquals(0, player.run(new String[] { walInputDir, Bytes.toString(TABLENAME1),
         Bytes.toString(TABLENAME2) }));
 
+    
     // verify the WAL was player into table 2
     Get g = new Get(ROW);
     Result r = t2.get(g);
@@ -188,6 +191,6 @@ public class TestWALPlayer {
           System.setSecurityManager(SECURITY_MANAGER);
       }      
       
-      
   }
+  
 }

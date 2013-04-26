@@ -99,13 +99,6 @@ public class TestTableMapReduceUtil {
 
     }
 
-    @Test
-    public void testSubMapStatusReporter() throws Exception {
-        
-        MultithreadedTableMapper.SubMapStatusReporter
-        SubMapStatusReporter reporter=
-        
-        new SubMapStatusReporter();
-    }
+  
 
 }
