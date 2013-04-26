@@ -88,8 +88,7 @@ public class TestCopy {
 
         long currentTime = System.currentTimeMillis();
         String[] args = new String[] { "--new.name=" + targetTable, "--families=a:b", "--all.cells",
-                "--starttime=" + (currentTime - 100000), "--endtime=" + (currentTime + 100000), sourceTable };
-//        sourceTable };
+                "--starttime=" + (currentTime - 100000), "--endtime=" + (currentTime + 100000),"--versions=1", sourceTable };
         assertNull(t2.get(new Get(ROW1)).getRow());
         assertTrue(runCopy(args));
 
