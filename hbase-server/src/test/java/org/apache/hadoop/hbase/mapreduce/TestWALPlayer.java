@@ -20,8 +20,11 @@ package org.apache.hadoop.hbase.mapreduce;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.fail;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -43,6 +46,7 @@ import org.apache.hadoop.hbase.regionserver.wal.HLog;
 import org.apache.hadoop.hbase.regionserver.wal.HLogKey;
 import org.apache.hadoop.hbase.regionserver.wal.WALEdit;
 import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.hbase.util.LauncherSecurityManager;
 import org.apache.hadoop.mapreduce.Mapper;
 import org.apache.hadoop.mapreduce.Mapper.Context;
 import org.junit.AfterClass;
@@ -117,7 +121,9 @@ public class TestWALPlayer {
     assertEquals(1, r.size());
     assertTrue(Bytes.equals(COLUMN2, r.raw()[0].getQualifier()));
   }
-  
+  /**
+   * Test HLogKeyValueMapper setup and map
+   */
   @Test
   public void testHLogKeyValueMapper() throws Exception{
       Configuration configuration= new Configuration();
@@ -125,7 +131,8 @@ public class TestWALPlayer {
       HLogKeyValueMapper mapper= new HLogKeyValueMapper();
       HLogKey key = mock(HLogKey.class);
       when(key.getTablename()).thenReturn(Bytes.toBytes("table"));
-      Mapper<HLogKey,WALEdit,ImmutableBytesWritable,KeyValue>.Context context= mock(Context.class);
+      @SuppressWarnings("unchecked")
+     Mapper<HLogKey,WALEdit,ImmutableBytesWritable,KeyValue>.Context context= mock(Context.class);
       when(context.getConfiguration()).thenReturn(configuration);
       
       WALEdit value= mock(WALEdit.class);
@@ -150,6 +157,37 @@ public class TestWALPlayer {
       }).when(context).write(any(ImmutableBytesWritable.class), any(KeyValue.class));
       
       mapper.map(key, value, context);
+      
+  }
+
+  /**
+   * Test main method 
+   */
+  @Test 
+  public void testMainMethod() throws Exception{
+      
+      PrintStream oldPrintStream = System.err;
+      SecurityManager SECURITY_MANAGER = System.getSecurityManager();
+      new LauncherSecurityManager();
+      ByteArrayOutputStream data = new ByteArrayOutputStream();
+      String[] args = {};
+      System.setErr(new PrintStream(data));
+      try {
+          System.setErr(new PrintStream(data));
+          try {
+              WALPlayer.main(args);
+              fail("should be SecurityException");
+          } catch (SecurityException e) {
+              assertTrue(data.toString().contains("ERROR: Wrong number of arguments:"));
+              assertTrue(data.toString().contains("Usage: WALPlayer [options] <wal inputdir> <tables> [<tableMappings>]"));
+              assertTrue(data.toString().contains("-Dhlog.bulk.output=/path/for/output"));
+          }
+
+      } finally {
+          System.setErr(oldPrintStream);
+          System.setSecurityManager(SECURITY_MANAGER);
+      }      
+      
       
   }
 }

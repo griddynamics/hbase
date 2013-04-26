@@ -86,7 +86,7 @@ public class TestCopy {
         p.add(FAMILYB, QUAL, now + 2, Bytes.toBytes("Data23"));
         t.put(p);
 
-        String[] args = new String[] { "--new.name=" + targetTable, "--families=a", sourceTable };
+        String[] args = new String[] { "--new.name=" + targetTable, "--families=a","--all.cells", sourceTable };
         assertNull(t2.get(new Get(ROW1)).getRow());
         assertTrue(runCopy(args));
 
