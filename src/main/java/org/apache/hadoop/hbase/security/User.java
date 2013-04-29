@@ -20,6 +20,13 @@
 
 package org.apache.hadoop.hbase.security;
 
+import java.io.IOException;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.UndeclaredThrowableException;
+import java.security.PrivilegedAction;
+import java.security.PrivilegedExceptionAction;
+
+import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.CommonConfigurationKeys;
@@ -29,13 +36,7 @@ import org.apache.hadoop.mapred.JobConf;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.security.UserGroupInformation;
 
-import java.io.IOException;
-import java.lang.reflect.Constructor;
-import java.lang.reflect.UndeclaredThrowableException;
-import java.security.PrivilegedAction;
-import java.security.PrivilegedExceptionAction;
-
-import org.apache.commons.logging.Log;
+import com.google.common.annotations.VisibleForTesting;
 
 /**
  * Wrapper to abstract out usage of user and group information in HBase.
@@ -57,7 +58,8 @@ public abstract class User {
    * {@link org.apache.hadoop.security.UserGroupInformation} between vanilla
    * Hadoop 0.20.x and secure Hadoop 0.20+.
    */
-  private static boolean IS_SECURE_HADOOP = true;
+  @VisibleForTesting
+  static boolean IS_SECURE_HADOOP = true;
   static {
     try {
       UserGroupInformation.class.getMethod("isSecurityEnabled");

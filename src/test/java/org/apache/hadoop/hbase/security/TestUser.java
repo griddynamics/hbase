@@ -34,6 +34,7 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.CommonConfigurationKeys;
 import org.apache.hadoop.hbase.HBaseConfiguration;
 import org.apache.hadoop.hbase.SmallTests;
+import org.apache.hadoop.security.UserGroupInformation;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
@@ -95,7 +96,7 @@ public class TestUser {
       }
     });
 
-  //check the non exception version
+    //check the non exception version
     username = user.runAs(new PrivilegedAction<String>(){
       @Override
       public String run() {
@@ -177,8 +178,32 @@ public class TestUser {
         User.isHBaseSecurityEnabled(conf));
   }
 
+  @Test
+  public void testUserCreation() throws IOException {
+    UserGroupInformation userInfo = UserGroupInformation.getCurrentUser();
+    User hadoopUser = User.create(userInfo);
+    assertTrue(userInfo.equals(hadoopUser.ugi));
+
+    //
+    User.IS_SECURE_HADOOP = false;
+    userInfo = UserGroupInformation.getCurrentUser();
+    hadoopUser = User.create(userInfo);
+    //non secure hadoop user
+    assertFalse(hadoopUser.isSecurityEnabled());
+    assertTrue(userInfo.equals(hadoopUser.ugi));
+    User.IS_SECURE_HADOOP = true;
+
+    User.IS_SECURE_HADOOP = false;
+    try {
+      User.createUserForTesting(HBaseConfiguration.create(),
+        "simple", new String[]{"foo"});
+    } catch (RuntimeException rex) {
+      //expected class not found org.apache.hadoop.security.UnixUserGroupInformation
+    }
+    User.IS_SECURE_HADOOP = true;
+  }
+
   @org.junit.Rule
   public org.apache.hadoop.hbase.ResourceCheckerJUnitRule cu =
     new org.apache.hadoop.hbase.ResourceCheckerJUnitRule();
 }
-
