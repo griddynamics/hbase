@@ -391,6 +391,22 @@
         <enabled>true</enabled>
       </releases>
     </repository>
+    <repository>
+      <id>aws-nexus</id>
+      <name>aws-nexus-repo</name>
+      <releases>
+        <enabled>true</enabled>
+        <updatePolicy>always</updatePolicy>
+        <checksumPolicy>warn</checksumPolicy>
+      </releases>
+      <snapshots>
+        <enabled>true</enabled>
+        <updatePolicy>always</updatePolicy>
+        <checksumPolicy>fail</checksumPolicy>
+      </snapshots>
+      <url>http://ec2-54-235-46-104.compute-1.amazonaws.com:8081/nexus/content/repositories/releases</url>
+      <layout>default</layout>
+    </repository>
   </repositories>
   <pluginRepositories>
     <pluginRepository>
@@ -403,6 +419,22 @@
       <releases>
         <enabled>true</enabled>
       </releases>
+    </pluginRepository>
+    <pluginRepository>
+      <id>aws-nexus</id>
+      <name>aws-nexus-plugins-repo</name>
+      <releases>
+        <enabled>true</enabled>
+        <updatePolicy>always</updatePolicy>
+        <checksumPolicy>warn</checksumPolicy>
+      </releases>
+      <snapshots>
+        <enabled>true</enabled>
+        <updatePolicy>always</updatePolicy>
+        <checksumPolicy>fail</checksumPolicy>
+      </snapshots>
+      <url>http://ec2-54-235-46-104.compute-1.amazonaws.com:8081/nexus/content/repositories/releases</url>
+      <layout>default</layout>
     </pluginRepository>
   </pluginRepositories>
   <build>
@@ -512,7 +544,7 @@
               <configuration>
                 <skip>${surefire.skipSecondPart}</skip>
                 <testFailureIgnore>false</testFailureIgnore>
-                <forkMode>perThread</forkMode>
+                <forkMode>perthread</forkMode>
                 <perCoreThreadCount>false</perCoreThreadCount>
                 <threadCount>${surefire.secondPartThreadCount}</threadCount>
                 <parallel>classes</parallel>
