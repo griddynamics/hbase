@@ -528,7 +528,7 @@
             <parallel>classes</parallel>
             <!-- surefire hack, if not we're
               using method parallelization class ! -->
-            <testFailureIgnore>false</testFailureIgnore>
+            <testFailureIgnore>true</testFailureIgnore>
             <forkedProcessTimeoutInSeconds>${surefire.timeout}</forkedProcessTimeoutInSeconds>
             <argLine>-enableassertions -Xmx1900m
               -Djava.security.egd=file:/dev/./urandom -Djava.net.preferIPv4Stack=true</argLine>
@@ -543,8 +543,8 @@
               </goals>
               <configuration>
                 <skip>${surefire.skipSecondPart}</skip>
-                <testFailureIgnore>false</testFailureIgnore>
-                <forkMode>perthread</forkMode>
+                <testFailureIgnore>true</testFailureIgnore>
+                <forkMode>${surefire.perthread}</forkMode>
                 <perCoreThreadCount>false</perCoreThreadCount>
                 <threadCount>${surefire.secondPartThreadCount}</threadCount>
                 <parallel>classes</parallel>
@@ -943,6 +943,8 @@
     <surefire.skipFirstPart>false</surefire.skipFirstPart>
     <surefire.skipSecondPart>false</surefire.skipSecondPart>
     <surefire.firstPartForkMode>once</surefire.firstPartForkMode>
+    <!-- perthread mode: "perThread" for custom surefire (2.12-HBASE) and "perthread" for 2.12.3+: -->
+    <surefire.perthread>perThread</surefire.perthread>
     <surefire.firstPartParallel>classes</surefire.firstPartParallel>
     <surefire.firstPartThreadCount>1</surefire.firstPartThreadCount>
     <surefire.secondPartThreadCount>2</surefire.secondPartThreadCount>
