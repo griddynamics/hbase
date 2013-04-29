@@ -20,8 +20,13 @@ package org.apache.hadoop.hbase.mapreduce;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.PrintStream;
+import java.util.ArrayList;
+import java.util.List;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
@@ -40,9 +45,14 @@ import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.ResultScanner;
 import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.filter.Filter;
+import org.apache.hadoop.hbase.filter.FilterBase;
 import org.apache.hadoop.hbase.filter.PrefixFilter;
+import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
+import org.apache.hadoop.hbase.mapreduce.Import.KeyValueImporter;
 import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.hbase.util.LauncherSecurityManager;
 import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.Mapper.Context;
 import org.apache.hadoop.util.GenericOptionsParser;
 import org.junit.After;
 import org.junit.AfterClass;
@@ -51,7 +61,14 @@ import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
+import org.mockito.invocation.InvocationOnMock;
+import org.mockito.stubbing.Answer;
 
+import static org.mockito.Mockito.*;
+
+/**
+ * Tests the table import and table export MR job functionality
+ */
 @Category(MediumTests.class)
 public class TestImportExport {
   private static final HBaseTestingUtility UTIL = new HBaseTestingUtility();
@@ -63,6 +80,8 @@ public class TestImportExport {
   private static final byte[] FAMILYB = Bytes.toBytes(FAMILYB_STRING);
   private static final byte[] QUAL = Bytes.toBytes("q");
   private static final String OUTPUT_DIR = "outputdir";
+  private static String FQ_OUTPUT_DIR;
+  private static final String EXPORT_BATCH_SIZE = "100";
 
   private static MiniHBaseCluster cluster;
   private static long now = System.currentTimeMillis();
@@ -71,6 +90,7 @@ public class TestImportExport {
   public static void beforeClass() throws Exception {
     cluster = UTIL.startMiniCluster();
     UTIL.startMiniMapReduceCluster();
+    FQ_OUTPUT_DIR =  new Path(OUTPUT_DIR).makeQualified(FileSystem.get(UTIL.getConfiguration())).toString();
   }
 
   @AfterClass
@@ -84,6 +104,42 @@ public class TestImportExport {
   public void cleanup() throws Exception {
     FileSystem fs = FileSystem.get(UTIL.getConfiguration());
     fs.delete(new Path(OUTPUT_DIR), true);
+  }
+
+  /**
+   * Runs an export job with the specified command line args
+   * @param args
+   * @return true if job completed successfully
+   * @throws IOException
+   * @throws InterruptedException
+   * @throws ClassNotFoundException
+   */
+  boolean runExport(String[] args) throws IOException, InterruptedException, ClassNotFoundException {
+    // need to make a copy of the configuration because to make sure different temp dirs are used.
+    GenericOptionsParser opts = new GenericOptionsParser(new Configuration(UTIL.getConfiguration()), args);
+    Configuration conf = opts.getConfiguration();
+    args = opts.getRemainingArgs();
+    Job job = Export.createSubmittableJob(conf, args);
+    job.waitForCompletion(false);
+    return job.isSuccessful();
+  }
+
+  /**
+   * Runs an import job with the specified command line args
+   * @param args
+   * @return true if job completed successfully
+   * @throws IOException
+   * @throws InterruptedException
+   * @throws ClassNotFoundException
+   */
+  boolean runImport(String[] args) throws IOException, InterruptedException, ClassNotFoundException {
+    // need to make a copy of the configuration because to make sure different temp dirs are used.
+    GenericOptionsParser opts = new GenericOptionsParser(new Configuration(UTIL.getConfiguration()), args);
+    Configuration conf = opts.getConfiguration();
+    args = opts.getRemainingArgs();
+    Job job = Import.createSubmittableJob(conf, args);
+    job.waitForCompletion(false);
+    return job.isSuccessful();
   }
 
   /**
@@ -110,33 +166,16 @@ public class TestImportExport {
         OUTPUT_DIR,
         "1000"
     };
-
-    GenericOptionsParser opts = new GenericOptionsParser(new Configuration(cluster.getConfiguration()), args);
-    Configuration conf = opts.getConfiguration();
-    args = opts.getRemainingArgs();
-
-    Job job = Export.createSubmittableJob(conf, args);
-    job.getConfiguration().set("mapreduce.framework.name", "yarn");
-    job.waitForCompletion(false);
-    assertTrue(job.isSuccessful());
-
+    assertTrue(runExport(args));
 
     String IMPORT_TABLE = "importTableSimpleCase";
     t = UTIL.createTable(Bytes.toBytes(IMPORT_TABLE), FAMILYB);
     args = new String[] {
         "-D" + Import.CF_RENAME_PROP + "="+FAMILYA_STRING+":"+FAMILYB_STRING,
         IMPORT_TABLE,
-        OUTPUT_DIR
+        FQ_OUTPUT_DIR
     };
-
-    opts = new GenericOptionsParser(new Configuration(cluster.getConfiguration()), args);
-    conf = opts.getConfiguration();
-    args = opts.getRemainingArgs();
-
-    job = Import.createSubmittableJob(conf, args);
-    job.getConfiguration().set("mapreduce.framework.name", "yarn");
-    job.waitForCompletion(false);
-    assertTrue(job.isSuccessful());
+    assertTrue(runImport(args));
 
     Get g = new Get(ROW1);
     g.setMaxVersions();
@@ -168,6 +207,39 @@ public class TestImportExport {
     assertTrue(job.isSuccessful());
   }
 
+  /**
+   * Test export scanner batching
+   */
+   @SuppressWarnings("resource")
+   @Test
+   public void testExportScannerBatching() throws Exception {
+    String BATCH_TABLE = "exportWithBatch";
+    HTableDescriptor desc = new HTableDescriptor(BATCH_TABLE);
+    desc.addFamily(new HColumnDescriptor(FAMILYA)
+        .setMaxVersions(1)
+    );
+    UTIL.getHBaseAdmin().createTable(desc);
+    HTable t = new HTable(UTIL.getConfiguration(), BATCH_TABLE);
+
+    Put p = new Put(ROW1);
+    p.add(FAMILYA, QUAL, now, QUAL);
+    p.add(FAMILYA, QUAL, now+1, QUAL);
+    p.add(FAMILYA, QUAL, now+2, QUAL);
+    p.add(FAMILYA, QUAL, now+3, QUAL);
+    p.add(FAMILYA, QUAL, now+4, QUAL);
+    t.put(p);
+
+    String[] args = new String[] {
+        "-D" + "hbase.export.scanner.batch" + "=" + EXPORT_BATCH_SIZE,  // added scanner batching arg.
+        BATCH_TABLE,
+        FQ_OUTPUT_DIR
+    };
+    assertTrue(runExport(args));
+
+    FileSystem fs = FileSystem.get(UTIL.getConfiguration());
+    fs.delete(new Path(FQ_OUTPUT_DIR), true);
+  }
+
   @Test
   public void testWithDeletes() throws Exception {
     String EXPORT_TABLE = "exportWithDeletes";
@@ -187,7 +259,7 @@ public class TestImportExport {
     p.add(FAMILYA, QUAL, now+4, QUAL);
     t.put(p);
 
-    Delete d = new Delete(ROW1, now+3, null);
+    Delete d = new Delete(ROW1, now+3);
     t.delete(d);
     d = new Delete(ROW1);
     d.deleteColumns(FAMILYA, QUAL, now+2);
@@ -196,19 +268,10 @@ public class TestImportExport {
     String[] args = new String[] {
         "-D" + Export.RAW_SCAN + "=true",
         EXPORT_TABLE,
-        OUTPUT_DIR,
-        "1000"
+        FQ_OUTPUT_DIR,
+        "1000", // max number of key versions per key to export
     };
-
-    GenericOptionsParser opts = new GenericOptionsParser(new Configuration(cluster.getConfiguration()), args);
-    Configuration conf = opts.getConfiguration();
-    args = opts.getRemainingArgs();
-
-    Job job = Export.createSubmittableJob(conf, args);
-    job.getConfiguration().set("mapreduce.framework.name", "yarn");
-    job.waitForCompletion(false);
-    assertTrue(job.isSuccessful());
-
+    assertTrue(runExport(args));
 
     String IMPORT_TABLE = "importWithDeletes";
     desc = new HTableDescriptor(IMPORT_TABLE);
@@ -221,17 +284,9 @@ public class TestImportExport {
     t = new HTable(UTIL.getConfiguration(), IMPORT_TABLE);
     args = new String[] {
         IMPORT_TABLE,
-        OUTPUT_DIR
+        FQ_OUTPUT_DIR
     };
-
-    opts = new GenericOptionsParser(new Configuration(cluster.getConfiguration()), args);
-    conf = opts.getConfiguration();
-    args = opts.getRemainingArgs();
-
-    job = Import.createSubmittableJob(conf, args);
-    job.getConfiguration().set("mapreduce.framework.name", "yarn");
-    job.waitForCompletion(false);
-    assertTrue(job.isSuccessful());
+    assertTrue(runImport(args));
 
     Scan s = new Scan();
     s.setMaxVersions();
@@ -249,8 +304,13 @@ public class TestImportExport {
     t.close();
   }
 
+  /**
+   * Create a simple table, run an Export Job on it, Import with filtering on,  verify counts,
+   * attempt with invalid values.
+   */
   @Test
   public void testWithFilter() throws Exception {
+    // Create simple table to export
     String EXPORT_TABLE = "exportSimpleCase_ImportWithFilter";
     HTableDescriptor desc = new HTableDescriptor(EXPORT_TABLE);
     desc.addFamily(new HColumnDescriptor(FAMILYA).setMaxVersions(5));
@@ -265,18 +325,11 @@ public class TestImportExport {
     p.add(FAMILYA, QUAL, now + 4, QUAL);
     exportTable.put(p);
 
-    String[] args = new String[] { EXPORT_TABLE, OUTPUT_DIR, "1000" };
+    // Export the simple table
+    String[] args = new String[] { EXPORT_TABLE, FQ_OUTPUT_DIR, "1000" };
+    assertTrue(runExport(args));
 
-    GenericOptionsParser opts = new GenericOptionsParser(new Configuration(
-        cluster.getConfiguration()), args);
-    Configuration conf = opts.getConfiguration();
-    args = opts.getRemainingArgs();
-
-    Job job = Export.createSubmittableJob(conf, args);
-    job.getConfiguration().set("mapreduce.framework.name", "yarn");
-    job.waitForCompletion(false);
-    assertTrue(job.isSuccessful());
-
+    // Import to a new table
     String IMPORT_TABLE = "importWithFilter";
     desc = new HTableDescriptor(IMPORT_TABLE);
     desc.addFamily(new HColumnDescriptor(FAMILYA).setMaxVersions(5));
@@ -284,17 +337,9 @@ public class TestImportExport {
 
     HTable importTable = new HTable(UTIL.getConfiguration(), IMPORT_TABLE);
     args = new String[] { "-D" + Import.FILTER_CLASS_CONF_KEY + "=" + PrefixFilter.class.getName(),
-        "-D" + Import.FILTER_ARGS_CONF_KEY + "=" + Bytes.toString(ROW1), IMPORT_TABLE, OUTPUT_DIR,
+        "-D" + Import.FILTER_ARGS_CONF_KEY + "=" + Bytes.toString(ROW1), IMPORT_TABLE, FQ_OUTPUT_DIR,
         "1000" };
-
-    opts = new GenericOptionsParser(new Configuration(cluster.getConfiguration()), args);
-    conf = opts.getConfiguration();
-    args = opts.getRemainingArgs();
-
-    job = Import.createSubmittableJob(conf, args);
-    job.getConfiguration().set("mapreduce.framework.name", "yarn");
-    job.waitForCompletion(false);
-    assertTrue(job.isSuccessful());
+    assertTrue(runImport(args));
 
     // get the count of the source table for that time range
     PrefixFilter filter = new PrefixFilter(ROW1);
@@ -308,16 +353,8 @@ public class TestImportExport {
 
     args = new String[] { "-D" + Import.FILTER_CLASS_CONF_KEY + "=" + Filter.class.getName(),
         "-D" + Import.FILTER_ARGS_CONF_KEY + "=" + Bytes.toString(ROW1) + "", EXPORT_TABLE,
-        OUTPUT_DIR, "1000" };
-
-    opts = new GenericOptionsParser(new Configuration(cluster.getConfiguration()), args);
-    conf = opts.getConfiguration();
-    args = opts.getRemainingArgs();
-
-    job = Import.createSubmittableJob(conf, args);
-    job.getConfiguration().set("mapreduce.framework.name", "yarn");
-    job.waitForCompletion(false);
-    assertFalse("Job succeeedd, but it had a non-instantiable filter!", job.isSuccessful());
+        FQ_OUTPUT_DIR, "1000" };
+    assertFalse(runImport(args));
 
     // cleanup
     exportTable.close();
@@ -343,4 +380,115 @@ public class TestImportExport {
     results.close();
     return count;
   }
+  
+  /**
+   * test maim method. Import should  print help and call System.exit  
+   */
+  @Test
+  public void testImportMain() throws Exception{
+      PrintStream oldPrintStream=System.err;
+      SecurityManager SECURITY_MANAGER=System.getSecurityManager();
+      new LauncherSecurityManager();
+      ByteArrayOutputStream data= new ByteArrayOutputStream();
+      String[] args= {};
+      System.setErr(new PrintStream(data));
+      try{
+          System.setErr(new PrintStream(data));
+          Import.main(args);
+        fail("should be SecurityException");
+      }catch(SecurityException e){
+          assertTrue(data.toString().contains("Wrong number of arguments:"));
+          assertTrue(data.toString().contains("-Dimport.bulk.output=/path/for/output"));
+          assertTrue(data.toString().contains("-Dimport.filter.class=<name of filter class>"));
+          assertTrue(data.toString().contains("-Dimport.bulk.output=/path/for/output"));
+          assertTrue(data.toString().contains("-Dmapred.reduce.tasks.speculative.execution=false"));
+      }finally{
+          System.setErr(oldPrintStream);
+          System.setSecurityManager(SECURITY_MANAGER);
+      }
+  }
+  
+    /**
+     * test maim method. Export should print help and call System.exit
+     */
+    @Test 
+    public void testExportMain() throws Exception {
+        PrintStream oldPrintStream = System.err;
+        SecurityManager SECURITY_MANAGER = System.getSecurityManager();
+        new LauncherSecurityManager();
+        ByteArrayOutputStream data = new ByteArrayOutputStream();
+        String[] args = {};
+        System.setErr(new PrintStream(data));
+        try {
+            System.setErr(new PrintStream(data));
+            Export.main(args);
+            fail("should be SecurityException");
+        } catch (SecurityException e) {
+            assertTrue(data.toString().contains("Wrong number of arguments:"));
+            assertTrue(data
+                    .toString()
+                    .contains(
+                            "Usage: Export [-D <property=value>]* <tablename> <outputdir> [<versions> [<starttime> [<endtime>]] [^[regex pattern] or [Prefix] to filter]]"));
+            assertTrue(data.toString().contains(
+                    "-D hbase.mapreduce.scan.column.family=<familyName>"));
+            assertTrue(data.toString().contains("-D hbase.mapreduce.include.deleted.rows=true"));
+            assertTrue(data.toString().contains("-Dhbase.client.scanner.caching=100"));
+            assertTrue(data.toString().contains("-Dmapred.map.tasks.speculative.execution=false"));
+            assertTrue(data.toString()
+                    .contains("-Dmapred.reduce.tasks.speculative.execution=false"));
+            assertTrue(data.toString().contains("-Dhbase.export.scanner.batch=10"));
+        } finally {
+            System.setErr(oldPrintStream);
+            System.setSecurityManager(SECURITY_MANAGER);
+        }
+    }
+    /**
+     *  Test map method of Importer
+     */
+    @SuppressWarnings({ "unchecked", "rawtypes" })
+    @Test 
+    public void testKeyValueImporter () throws Exception{
+        KeyValueImporter importer= new KeyValueImporter();
+        Configuration configuration = new Configuration();
+        Context ctx= mock(Context.class);
+        when(ctx.getConfiguration()).thenReturn(configuration);
+        
+        doAnswer(new Answer<Void>() {
+
+            @Override
+            public Void answer(InvocationOnMock invocation) throws Throwable {
+                ImmutableBytesWritable writer = (ImmutableBytesWritable) invocation.getArguments()[0];
+                KeyValue key = (KeyValue) invocation.getArguments()[1];
+                assertEquals("Key", Bytes.toString(writer.get()) );
+                assertEquals("row", Bytes.toString(key.getRow()));
+                return null;
+            }
+        }).when(ctx).write(any(ImmutableBytesWritable.class), any(KeyValue.class));
+        
+        
+        importer.setup(ctx);
+        Result value= mock(Result.class);
+        KeyValue[] keys={
+                new KeyValue(Bytes.toBytes("row"),Bytes.toBytes("family"),Bytes.toBytes("qualifier"),Bytes.toBytes("value")), 
+                new KeyValue(Bytes.toBytes("row"),Bytes.toBytes("family"),Bytes.toBytes("qualifier"),Bytes.toBytes("value1"))};
+        when(value.raw()).thenReturn(keys);
+        importer.map(new ImmutableBytesWritable(Bytes.toBytes("Key")), value, ctx);
+        
+    }
+    /**
+     * Test addFilterAndArguments method of Import 
+     * This method set couple parameters into Configuration    
+     */
+    @Test
+    public void testaddFilterAndArguments() {
+        Configuration configuration = new Configuration();
+
+        List<String> args = new ArrayList<String>();
+        args.add("param1");
+        args.add("param2");
+
+        Import.addFilterAndArguments(configuration, FilterBase.class, args);
+        assertEquals("org.apache.hadoop.hbase.filter.FilterBase", configuration.get(Import.FILTER_CLASS_CONF_KEY));
+        assertEquals("param1,param2", configuration.get(Import.FILTER_ARGS_CONF_KEY));
+    }
 }
