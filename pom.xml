@@ -745,7 +745,7 @@
                 <threadCount>${surefire.firstPartThreadCount}</threadCount>
                 <parallel>classes</parallel><!-- surefire hack, if not we're using method parallelisation class !-->
                 <groups>${surefire.firstPartGroups}</groups>
-                <testFailureIgnore>false</testFailureIgnore>
+                <testFailureIgnore>true</testFailureIgnore>
         </configuration>
         <executions>
           <execution>
@@ -754,7 +754,7 @@
             <goals><goal>test</goal></goals>
             <configuration>
               <skip>${surefire.skipSecondPart}</skip>
-              <testFailureIgnore>false</testFailureIgnore>
+              <testFailureIgnore>true</testFailureIgnore>
               <forkMode>perThread</forkMode>
               <perCoreThreadCount>false</perCoreThreadCount>
               <threadCount>${surefire.secondPartThreadCount}</threadCount>
@@ -776,7 +776,7 @@
             <forkedProcessTimeoutInSeconds>1800</forkedProcessTimeoutInSeconds>
             <argLine>-enableassertions -Xmx1900m
               -Djava.security.egd=file:/dev/./urandom -Djava.net.preferIPv4Stack=true</argLine>
-            <testFailureIgnore>false</testFailureIgnore>
+            <testFailureIgnore>true</testFailureIgnore>
           </configuration>
       </plugin>
       <plugin>
