@@ -85,7 +85,7 @@ public class TestCellCounter {
     p.add(FAMILY_B, QUALIFIER, now + 1, Bytes.toBytes("Data12"));
     p.add(FAMILY_A, QUALIFIER, now + 2, Bytes.toBytes("Data13"));
     t.put(p);
-    p = new Put(ROW2);                                                                                                                                                                             ˜
+    p = new Put(ROW2);
     p.add(FAMILY_B, QUALIFIER, now, Bytes.toBytes("Dat21"));
     p.add(FAMILY_A, QUALIFIER, now + 1, Bytes.toBytes("Data22"));
     p.add(FAMILY_B, QUALIFIER, now + 2, Bytes.toBytes("Data23"));
