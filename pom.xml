@@ -513,7 +513,7 @@
             <parallel>classes</parallel>
             <!-- surefire hack, if not we're
               using method parallelization class ! -->
-            <testFailureIgnore>false</testFailureIgnore>
+            <testFailureIgnore>true</testFailureIgnore>
             <forkedProcessTimeoutInSeconds>${surefire.timeout}</forkedProcessTimeoutInSeconds>
             <argLine>-enableassertions -Xmx1900m
               -Djava.security.egd=file:/dev/./urandom -Djava.net.preferIPv4Stack=true</argLine>
@@ -528,7 +528,7 @@
               </goals>
               <configuration>
                 <skip>${surefire.skipSecondPart}</skip>
-                <testFailureIgnore>false</testFailureIgnore>
+                <testFailureIgnore>true</testFailureIgnore>
                 <forkMode>perThread</forkMode>
                 <perCoreThreadCount>false</perCoreThreadCount>
                 <threadCount>${surefire.secondPartThreadCount}</threadCount>
