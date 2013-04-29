@@ -80,6 +80,7 @@ import org.apache.hadoop.hbase.KeyValueUtil;
 import org.apache.hadoop.hbase.backup.HFileArchiver;
 import org.apache.hadoop.hbase.client.Append;
 import org.apache.hadoop.hbase.client.Delete;
+import org.apache.hadoop.hbase.client.Durability;
 import org.apache.hadoop.hbase.client.Get;
 import org.apache.hadoop.hbase.client.Increment;
 import org.apache.hadoop.hbase.client.IsolationLevel;
@@ -89,7 +90,6 @@ import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.Row;
 import org.apache.hadoop.hbase.client.RowMutations;
 import org.apache.hadoop.hbase.client.Scan;
-import org.apache.hadoop.hbase.client.Durability;
 import org.apache.hadoop.hbase.errorhandling.ForeignExceptionSnare;
 import org.apache.hadoop.hbase.exceptions.DroppedSnapshotException;
 import org.apache.hadoop.hbase.exceptions.FailedSanityCheckException;
@@ -115,6 +115,7 @@ import org.apache.hadoop.hbase.monitoring.TaskMonitor;
 import org.apache.hadoop.hbase.protobuf.generated.AdminProtos.GetRegionInfoResponse.CompactionState;
 import org.apache.hadoop.hbase.protobuf.generated.ClientProtos.CoprocessorServiceCall;
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.SnapshotDescription;
+import org.apache.hadoop.hbase.protobuf.generated.WAL.CompactionDescriptor;
 import org.apache.hadoop.hbase.regionserver.MultiVersionConsistencyControl.WriteEntry;
 import org.apache.hadoop.hbase.regionserver.compactions.CompactionContext;
 import org.apache.hadoop.hbase.regionserver.wal.HLog;
@@ -235,7 +236,7 @@ public class HRegion implements HeapSize { // , Writable{
 
   private final HLog log;
   private final HRegionFileSystem fs;
-  private final Configuration conf;
+  protected final Configuration conf;
   private final Configuration baseConf;
   private final KeyValue.KVComparator comparator;
   private final int rowLockWaitDuration;
@@ -347,6 +348,7 @@ public class HRegion implements HeapSize { // , Writable{
   final RegionServerServices rsServices;
   private RegionServerAccounting rsAccounting;
   private List<Pair<Long, Long>> recentFlushes = new ArrayList<Pair<Long,Long>>();
+  private long flushCheckInterval;
   private long blockingMemStoreSize;
   final long threadWakeFrequency;
   // Used to guard closes
@@ -438,6 +440,8 @@ public class HRegion implements HeapSize { // , Writable{
       .add(confParam)
       .addStringMap(htd.getConfiguration())
       .addWritableMap(htd.getValues());
+    this.flushCheckInterval = conf.getInt(MEMSTORE_PERIODIC_FLUSH_INTERVAL,
+        DEFAULT_CACHE_FLUSH_INTERVAL);
     this.rowLockWaitDuration = conf.getInt("hbase.rowlock.wait.duration",
                     DEFAULT_ROWLOCK_WAIT_DURATION);
 
@@ -478,7 +482,7 @@ public class HRegion implements HeapSize { // , Writable{
     // When hbase.regionserver.optionallogflushinterval <= 0 , deferred log sync is disabled.
     this.deferredLogSyncDisabled = conf.getLong("hbase.regionserver.optionallogflushinterval",
         1 * 1000) <= 0;
-    
+
     if (rsServices != null) {
       this.rsAccounting = this.rsServices.getRegionServerAccounting();
       // don't initialize coprocessors if not running within a regionserver
@@ -835,6 +839,12 @@ public class HRegion implements HeapSize { // , Writable{
 
   private final Object closeLock = new Object();
 
+  /** Conf key for the periodic flush interval */
+  public static final String MEMSTORE_PERIODIC_FLUSH_INTERVAL = 
+      "hbase.regionserver.optionalcacheflushinterval";
+  /** Default interval for the memstore flush */
+  public static final int DEFAULT_CACHE_FLUSH_INTERVAL = 3600000;
+
   /**
    * Close down this HRegion.  Flush the cache unless abort parameter is true,
    * Shut down each HStore, don't service any more calls.
@@ -1118,7 +1128,7 @@ public class HRegion implements HeapSize { // , Writable{
    * Do preparation for pending compaction.
    * @throws IOException
    */
-  void doRegionCompactionPrep() throws IOException {
+  protected void doRegionCompactionPrep() throws IOException {
   }
 
   void triggerMajorCompaction() {
@@ -1323,6 +1333,26 @@ public class HRegion implements HeapSize { // , Writable{
   }
 
   /**
+   * Should the memstore be flushed now
+   */
+  boolean shouldFlush() {
+    long now = EnvironmentEdgeManager.currentTimeMillis();
+    //if we flushed in the recent past, we don't need to do again now
+    if ((now - getLastFlushTime() < flushCheckInterval)) {
+      return false;
+    }
+    //since we didn't flush in the recent past, flush now if certain conditions
+    //are met. Return true on first such memstore hit.
+    for (Store s : this.getStores().values()) {
+      if (s.timeOfOldestEdit() < now - flushCheckInterval) {
+        // we have an old enough edit in the memstore, flush
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
    * Flush the memstore.
    *
    * Flushing the memstore is a little tricky. We have a lot of updates in the
@@ -1410,7 +1440,7 @@ public class HRegion implements HeapSize { // , Writable{
     this.updatesLock.writeLock().lock();
     long flushsize = this.memstoreSize.get();
     status.setStatus("Preparing to flush by snapshotting stores");
-    List<StoreFlusher> storeFlushers = new ArrayList<StoreFlusher>(stores.size());
+    List<StoreFlushContext> storeFlushCtxs = new ArrayList<StoreFlushContext>(stores.size());
     long flushSeqId = -1L;
     try {
       // Record the mvcc for all transactions in progress.
@@ -1430,12 +1460,12 @@ public class HRegion implements HeapSize { // , Writable{
       }
 
       for (Store s : stores.values()) {
-        storeFlushers.add(s.getStoreFlusher(flushSeqId));
+        storeFlushCtxs.add(s.createFlushContext(flushSeqId));
       }
 
       // prepare flush (take a snapshot)
-      for (StoreFlusher flusher : storeFlushers) {
-        flusher.prepare();
+      for (StoreFlushContext flush : storeFlushCtxs) {
+        flush.prepare();
       }
     } finally {
       this.updatesLock.writeLock().unlock();
@@ -1472,19 +1502,19 @@ public class HRegion implements HeapSize { // , Writable{
       // just-made new flush store file. The new flushed file is still in the
       // tmp directory.
 
-      for (StoreFlusher flusher : storeFlushers) {
-        flusher.flushCache(status);
+      for (StoreFlushContext flush : storeFlushCtxs) {
+        flush.flushCache(status);
       }
 
       // Switch snapshot (in memstore) -> new hfile (thus causing
       // all the store scanners to reset/reseek).
-      for (StoreFlusher flusher : storeFlushers) {
-        boolean needsCompaction = flusher.commit(status);
+      for (StoreFlushContext flush : storeFlushCtxs) {
+        boolean needsCompaction = flush.commit(status);
         if (needsCompaction) {
           compactionRequested = true;
         }
       }
-      storeFlushers.clear();
+      storeFlushCtxs.clear();
 
       // Set down the memstore size by amount of flush.
       this.addAndGetGlobalMemstoreSize(-flushsize);
@@ -2049,8 +2079,8 @@ public class HRegion implements HeapSize { // , Writable{
 
       // calling the pre CP hook for batch mutation
       if (coprocessorHost != null) {
-        MiniBatchOperationInProgress<Pair<Mutation, Integer>> miniBatchOp = 
-          new MiniBatchOperationInProgress<Pair<Mutation, Integer>>(batchOp.operations, 
+        MiniBatchOperationInProgress<Pair<Mutation, Integer>> miniBatchOp =
+          new MiniBatchOperationInProgress<Pair<Mutation, Integer>>(batchOp.operations,
           batchOp.retCodeDetails, batchOp.walEditsFromCoprocessors, firstIndex, lastIndexExclusive);
         if (coprocessorHost.preBatchMutate(miniBatchOp)) return 0L;
       }
@@ -2086,7 +2116,7 @@ public class HRegion implements HeapSize { // , Writable{
         batchOp.retCodeDetails[i] = OperationStatus.SUCCESS;
 
         Mutation m = batchOp.operations[i].getFirst();
-        Durability tmpDur = m.getDurability(); 
+        Durability tmpDur = m.getDurability();
         if (tmpDur.ordinal() > durability.ordinal()) {
           durability = tmpDur;
         }
@@ -2136,8 +2166,8 @@ public class HRegion implements HeapSize { // , Writable{
       walSyncSuccessful = true;
       // calling the post CP hook for batch mutation
       if (coprocessorHost != null) {
-        MiniBatchOperationInProgress<Pair<Mutation, Integer>> miniBatchOp = 
-          new MiniBatchOperationInProgress<Pair<Mutation, Integer>>(batchOp.operations, 
+        MiniBatchOperationInProgress<Pair<Mutation, Integer>> miniBatchOp =
+          new MiniBatchOperationInProgress<Pair<Mutation, Integer>>(batchOp.operations,
           batchOp.retCodeDetails, batchOp.walEditsFromCoprocessors, firstIndex, lastIndexExclusive);
         coprocessorHost.postBatchMutate(miniBatchOp);
       }
@@ -2848,9 +2878,16 @@ public class HRegion implements HeapSize { // , Writable{
           for (KeyValue kv: val.getKeyValues()) {
             // Check this edit is for me. Also, guard against writing the special
             // METACOLUMN info such as HBASE::CACHEFLUSH entries
-            if (kv.matchingFamily(HLog.METAFAMILY) ||
+            if (kv.matchingFamily(WALEdit.METAFAMILY) ||
                 !Bytes.equals(key.getEncodedRegionName(),
                   this.getRegionInfo().getEncodedNameAsBytes())) {
+              //this is a special edit, we should handle it
+              CompactionDescriptor compaction = WALEdit.getCompaction(kv);
+              if (compaction != null) {
+                //replay the compaction
+                completeCompactionMarker(compaction);
+              }
+
               skippedEdits++;
               continue;
                 }
@@ -2922,6 +2959,23 @@ public class HRegion implements HeapSize { // , Writable{
          reader.close();
       }
     }
+  }
+
+  /**
+   * Call to complete a compaction. Its for the case where we find in the WAL a compaction
+   * that was not finished.  We could find one recovering a WAL after a regionserver crash.
+   * See HBASE-2331.
+   * @param fs
+   * @param compaction
+   */
+  void completeCompactionMarker(CompactionDescriptor compaction)
+      throws IOException {
+    Store store = this.getStore(compaction.getFamilyName().toByteArray());
+    if (store == null) {
+      LOG.warn("Found Compaction WAL edit for deleted family:" + Bytes.toString(compaction.getFamilyName().toByteArray()));
+      return;
+    }
+    store.completeCompactionMarker(compaction);
   }
 
   /**
@@ -3396,10 +3450,10 @@ public class HRegion implements HeapSize { // , Writable{
     public long getMvccReadPoint() {
       return this.readPt;
     }
-    
+
     /**
      * Reset both the filter and the old filter.
-     * 
+     *
      * @throws IOException in case a filter raises an I/O exception.
      */
     protected void resetFilters() throws IOException {
@@ -3608,7 +3662,7 @@ public class HRegion implements HeapSize { // , Writable{
             // If joinedHeap is pointing to some other row, try to seek to a correct one.
             boolean mayHaveData =
               (nextJoinedKv != null && nextJoinedKv.matchingRow(currentRow, offset, length))
-              || (this.joinedHeap.requestSeek(KeyValue.createFirstOnRow(currentRow, offset, length), 
+              || (this.joinedHeap.requestSeek(KeyValue.createFirstOnRow(currentRow, offset, length),
                 true, true)
                 && joinedHeap.peek() != null
                 && joinedHeap.peek().matchingRow(currentRow, offset, length));
@@ -4216,7 +4270,7 @@ public class HRegion implements HeapSize { // , Writable{
       LOG.debug("Files for region: " + b);
       b.getRegionFileSystem().logFileSystemState(LOG);
     }
-    
+
     RegionMergeTransaction rmt = new RegionMergeTransaction(a, b, true);
     if (!rmt.prepare(null)) {
       throw new IOException("Unable to merge regions " + a + " and " + b);
@@ -4242,7 +4296,7 @@ public class HRegion implements HeapSize { // , Writable{
       LOG.debug("Files for new region");
       dstRegion.getRegionFileSystem().logFileSystemState(LOG);
     }
-    
+
     if (dstRegion.getRegionFileSystem().hasReferences(dstRegion.getTableDesc())) {
       throw new IOException("Merged region " + dstRegion
           + " still has references after the compaction, is compaction canceled?");
@@ -4898,7 +4952,7 @@ public class HRegion implements HeapSize { // , Writable{
       ClassSize.OBJECT +
       ClassSize.ARRAY +
       38 * ClassSize.REFERENCE + 2 * Bytes.SIZEOF_INT +
-      (10 * Bytes.SIZEOF_LONG) +
+      (11 * Bytes.SIZEOF_LONG) +
       Bytes.SIZEOF_BOOLEAN);
 
   public static final long DEEP_OVERHEAD = FIXED_OVERHEAD +
