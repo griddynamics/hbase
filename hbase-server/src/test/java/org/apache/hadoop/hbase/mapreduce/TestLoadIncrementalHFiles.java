@@ -209,7 +209,6 @@ public class TestLoadIncrementalHFiles {
     admin.close();
   }
 
- 
   @Test
   public void testSplitStoreFile() throws IOException {
     Path dir = util.getDataTestDirOnTestFS("testSplitHFile");

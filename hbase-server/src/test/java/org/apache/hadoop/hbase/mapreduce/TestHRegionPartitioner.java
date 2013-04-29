@@ -20,7 +20,7 @@ package org.apache.hadoop.hbase.mapreduce;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
-import org.apache.hadoop.hbase.SmallTests;
+import org.apache.hadoop.hbase.LargeTests;
 import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
 import org.apache.hadoop.hbase.mapreduce.HRegionPartitioner;
 import org.apache.hadoop.hbase.mapreduce.TableOutputFormat;
@@ -31,40 +31,39 @@ import org.junit.Test;
 import org.junit.experimental.categories.Category;
 import static org.junit.Assert.*;
 
-@Category(SmallTests.class)
+@Category(LargeTests.class)
 public class TestHRegionPartitioner {
-    private static final HBaseTestingUtility UTIL = new HBaseTestingUtility();
+  private static final HBaseTestingUtility UTIL = new HBaseTestingUtility();
 
-    @BeforeClass
-    public static void beforeClass() throws Exception {
-        UTIL.startMiniCluster();
-        UTIL.startMiniMapReduceCluster();
-    }
+  @BeforeClass
+  public static void beforeClass() throws Exception {
+    UTIL.startMiniCluster();
+    UTIL.startMiniMapReduceCluster();
+  }
 
-    @AfterClass
-    public static void afterClass() throws Exception {
-        UTIL.shutdownMiniMapReduceCluster();
-        UTIL.shutdownMiniCluster();
-    }
+  @AfterClass
+  public static void afterClass() throws Exception {
+    UTIL.shutdownMiniMapReduceCluster();
+    UTIL.shutdownMiniCluster();
+  }
 
-    /**
-     * Test HRegionPartitioner
-     */
-    @Test
-    public void testHRegionPartitioner() throws Exception {
+  /**
+   * Test HRegionPartitioner
+   */
+  @Test
+  public void testHRegionPartitioner() throws Exception {
 
-        byte[][] families = { Bytes.toBytes("familiya"), Bytes.toBytes("familyb") };
+    byte[][] families = { Bytes.toBytes("familiya"), Bytes.toBytes("familyb") };
 
-        UTIL.createTable(Bytes.toBytes("out_table"), families, 1, Bytes.toBytes("aa"),
-                Bytes.toBytes("cc"), 3);
+    UTIL.createTable(Bytes.toBytes("out_table"), families, 1, Bytes.toBytes("aa"), Bytes.toBytes("cc"), 3);
 
-        HRegionPartitioner<Long, Long> partitioner = new HRegionPartitioner<Long, Long>();
-        Configuration configuration = UTIL.getConfiguration();
-        configuration.set(TableOutputFormat.OUTPUT_TABLE, "out_table");
-        partitioner.setConf(configuration);
-        ImmutableBytesWritable writable = new ImmutableBytesWritable(Bytes.toBytes("bb"));
+    HRegionPartitioner<Long, Long> partitioner = new HRegionPartitioner<Long, Long>();
+    Configuration configuration = UTIL.getConfiguration();
+    configuration.set(TableOutputFormat.OUTPUT_TABLE, "out_table");
+    partitioner.setConf(configuration);
+    ImmutableBytesWritable writable = new ImmutableBytesWritable(Bytes.toBytes("bb"));
 
-        assertEquals(1, partitioner.getPartition(writable, 10L, 3));
-        assertEquals(0, partitioner.getPartition(writable, 10L, 1));
-    }
+    assertEquals(1, partitioner.getPartition(writable, 10L, 3));
+    assertEquals(0, partitioner.getPartition(writable, 10L, 1));
+  }
 }

@@ -18,7 +18,6 @@
 
 package org.apache.hadoop.hbase.mapreduce;
 
-
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.SmallTests;
 import org.apache.hadoop.hbase.client.Scan;
@@ -30,11 +29,18 @@ import org.junit.Test;
 import org.junit.experimental.categories.Category;
 import static org.junit.Assert.*;
 
+/**
+ * Test TableMapReduceUtil 
+ */
+
 @Category(SmallTests.class)
 public class TestTableMapReduceUtil {
 
+  /**
+   * Test initTableMapperJob method
+   */
     @Test
-    public void tsest1() throws Exception {
+    public void testInitTableMapperJob() throws Exception {
         Configuration configuration = new Configuration();
         Job job = new Job(configuration, "tableName");
         TableMapReduceUtil.initTableMapperJob("Table", new Scan(), Import.Importer.class, Text.class, Text.class, job, false,
@@ -46,7 +52,8 @@ public class TestTableMapReduceUtil {
         assertNull(job.getCombinerClass());
         assertEquals("Table", job.getConfiguration().get(TableInputFormat.INPUT_TABLE));
         assertEquals(
-                "org.apache.hadoop.io.serializer.WritableSerialization,org.apache.hadoop.hbase.mapreduce.MutationSerialization,org.apache.hadoop.hbase.mapreduce.ResultSerialization,org.apache.hadoop.hbase.mapreduce.KeyValueSerialization",
+                "org.apache.hadoop.io.serializer.WritableSerialization,org.apache.hadoop.hbase.mapreduce.MutationSerialization," +
+                "org.apache.hadoop.hbase.mapreduce.ResultSerialization,org.apache.hadoop.hbase.mapreduce.KeyValueSerialization",
                 job.getConfiguration().get("io.serializations"));
 
         configuration = new Configuration();
@@ -93,9 +100,5 @@ public class TestTableMapReduceUtil {
             "org.apache.hadoop.io.serializer.WritableSerialization,org.apache.hadoop.hbase.mapreduce.MutationSerialization," +
             "org.apache.hadoop.hbase.mapreduce.ResultSerialization,org.apache.hadoop.hbase.mapreduce.KeyValueSerialization",
                 job.getConfiguration().get("io.serializations"));
-
     }
-
-  
-
 }

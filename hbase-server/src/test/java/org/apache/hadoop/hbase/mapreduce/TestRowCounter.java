@@ -50,169 +50,174 @@ import org.junit.experimental.categories.Category;
  */
 @Category(MediumTests.class)
 public class TestRowCounter {
-    final Log LOG = LogFactory.getLog(getClass());
-    private final static HBaseTestingUtility TEST_UTIL = new HBaseTestingUtility();
-    private final static String TABLE_NAME = "testRowCounter";
-    private final static String COL_FAM = "col_fam";
-    private final static String COL1 = "c1";
-    private final static String COL2 = "c2";
-    private final static int TOTAL_ROWS = 10;
-    private final static int ROWS_WITH_ONE_COL = 2;
+  final Log LOG = LogFactory.getLog(getClass());
+  private final static HBaseTestingUtility TEST_UTIL = new HBaseTestingUtility();
+  private final static String TABLE_NAME = "testRowCounter";
+  private final static String COL_FAM = "col_fam";
+  private final static String COL1 = "c1";
+  private final static String COL2 = "c2";
+  private final static int TOTAL_ROWS = 10;
+  private final static int ROWS_WITH_ONE_COL = 2;
 
-    /**
-     * @throws java.lang.Exception
-     */
-    @BeforeClass
-    public static void setUpBeforeClass() throws Exception {
-        TEST_UTIL.startMiniCluster();
-        TEST_UTIL.startMiniMapReduceCluster();
-        HTable table = TEST_UTIL.createTable(Bytes.toBytes(TABLE_NAME), Bytes.toBytes(COL_FAM));
-        writeRows(table);
-        table.close();
+  /**
+   * @throws java.lang.Exception
+   */
+  @BeforeClass
+  public static void setUpBeforeClass() throws Exception {
+    TEST_UTIL.startMiniCluster();
+    TEST_UTIL.startMiniMapReduceCluster();
+    HTable table = TEST_UTIL.createTable(Bytes.toBytes(TABLE_NAME),
+        Bytes.toBytes(COL_FAM));
+    writeRows(table);
+    table.close();
+  }
+
+  /**
+   * @throws java.lang.Exception
+   */
+  @AfterClass
+  public static void tearDownAfterClass() throws Exception {
+    TEST_UTIL.shutdownMiniCluster();
+    TEST_UTIL.shutdownMiniMapReduceCluster();
+  }
+
+  /**
+   * Test a case when no column was specified in command line arguments.
+   * 
+   * @throws Exception
+   */
+  @Test
+  public void testRowCounterNoColumn() throws Exception {
+    String[] args = new String[] {
+        TABLE_NAME
+    };
+    runRowCount(args, 10);
+  }
+
+  /**
+   * Test a case when the column specified in command line arguments is
+   * exclusive for few rows.
+   * 
+   * @throws Exception
+   */
+  @Test
+  public void testRowCounterExclusiveColumn() throws Exception {
+    String[] args = new String[] {
+        TABLE_NAME, COL_FAM + ":" + COL1
+    };
+    runRowCount(args, 8);
+  }
+
+  /**
+   * Test a case when the column specified in command line arguments is not part
+   * of first KV for a row.
+   * 
+   * @throws Exception
+   */
+  @Test
+  public void testRowCounterHiddenColumn() throws Exception {
+    String[] args = new String[] {
+        TABLE_NAME, COL_FAM + ":" + COL2
+    };
+    runRowCount(args, 10);
+  }
+
+  /**
+   * Run the RowCounter map reduce job and verify the row count.
+   * 
+   * @param args the command line arguments to be used for rowcounter job.
+   * @param expectedCount the expected row count (result of map reduce job).
+   * @throws Exception
+   */
+  private void runRowCount(String[] args, int expectedCount) throws Exception {
+    GenericOptionsParser opts = new GenericOptionsParser(
+        TEST_UTIL.getConfiguration(), args);
+    Configuration conf = opts.getConfiguration();
+    args = opts.getRemainingArgs();
+    Job job = RowCounter.createSubmittableJob(conf, args);
+    job.waitForCompletion(true);
+    assertTrue(job.isSuccessful());
+    Counter counter = job.getCounters().findCounter(
+        RowCounterMapper.Counters.ROWS);
+    assertEquals(expectedCount, counter.getValue());
+  }
+
+  /**
+   * Writes TOTAL_ROWS number of distinct rows in to the table. Few rows have
+   * two columns, Few have one.
+   * 
+   * @param table
+   * @throws IOException
+   */
+  private static void writeRows(HTable table) throws IOException {
+    final byte[] family = Bytes.toBytes(COL_FAM);
+    final byte[] value = Bytes.toBytes("abcd");
+    final byte[] col1 = Bytes.toBytes(COL1);
+    final byte[] col2 = Bytes.toBytes(COL2);
+    ArrayList<Put> rowsUpdate = new ArrayList<Put>();
+    // write few rows with two columns
+    int i = 0;
+    for (; i < TOTAL_ROWS - ROWS_WITH_ONE_COL; i++) {
+      byte[] row = Bytes.toBytes("row" + i);
+      Put put = new Put(row);
+      put.add(family, col1, value);
+      put.add(family, col2, value);
+      rowsUpdate.add(put);
     }
 
-    /**
-     * @throws java.lang.Exception
-     */
-    @AfterClass
-    public static void tearDownAfterClass() throws Exception {
-        TEST_UTIL.shutdownMiniCluster();
-        TEST_UTIL.shutdownMiniMapReduceCluster();
+    // write few rows with only one column
+    for (; i < TOTAL_ROWS; i++) {
+      byte[] row = Bytes.toBytes("row" + i);
+      Put put = new Put(row);
+      put.add(family, col2, value);
+      rowsUpdate.add(put);
+    }
+    table.put(rowsUpdate);
+  }
+
+  /**
+   * test maim method. Import should print help and call System.exit
+   */
+  @Test
+  public void testImportMain() throws Exception {
+    PrintStream oldPrintStream = System.err;
+    SecurityManager SECURITY_MANAGER = System.getSecurityManager();
+    new LauncherSecurityManager();
+    ByteArrayOutputStream data = new ByteArrayOutputStream();
+    String[] args = {};
+    System.setErr(new PrintStream(data));
+    try {
+      System.setErr(new PrintStream(data));
+
+      try {
+        RowCounter.main(args);
+        fail("should be SecurityException");
+      } catch (SecurityException e) {
+        assertTrue(data.toString().contains("Wrong number of parameters:"));
+        assertTrue(data.toString().contains(
+            "Usage: RowCounter [options] <tablename> [--range=[startKey],[endKey]] [<column1> <column2>...]"));
+        assertTrue(data.toString().contains("-Dhbase.client.scanner.caching=100"));
+        assertTrue(data.toString().contains("-Dmapred.map.tasks.speculative.execution=false"));
+      }
+      data.reset();
+      try {
+        args = new String[2];
+        args[0] = "table";
+        args[1] = "--range=1";
+        RowCounter.main(args);
+        fail("should be SecurityException");
+      } catch (SecurityException e) {
+        assertTrue(data.toString().contains(
+            "Please specify range in such format as \"--range=a,b\" or, with only one boundary, \"--range=,b\" or \"--range=a,\""));
+        assertTrue(data.toString().contains(
+            "Usage: RowCounter [options] <tablename> [--range=[startKey],[endKey]] [<column1> <column2>...]"));
+      }
+
+    } finally {
+      System.setErr(oldPrintStream);
+      System.setSecurityManager(SECURITY_MANAGER);
     }
 
-    /**
-     * Test a case when no column was specified in command line arguments.
-     * 
-     * @throws Exception
-     */
-    @Test
-    public void testRowCounterNoColumn() throws Exception {
-        String[] args = new String[] { TABLE_NAME };
-        runRowCount(args, 10);
-    }
-
-    /**
-     * Test a case when the column specified in command line arguments is
-     * exclusive for few rows.
-     * 
-     * @throws Exception
-     */
-    @Test
-    public void testRowCounterExclusiveColumn() throws Exception {
-        String[] args = new String[] { TABLE_NAME, COL_FAM + ":" + COL1 };
-        runRowCount(args, 8);
-    }
-
-    /**
-     * Test a case when the column specified in command line arguments is not
-     * part of first KV for a row.
-     * 
-     * @throws Exception
-     */
-    @Test
-    public void testRowCounterHiddenColumn() throws Exception {
-        String[] args = new String[] { TABLE_NAME, COL_FAM + ":" + COL2 };
-        runRowCount(args, 10);
-    }
-
-    /**
-     * Run the RowCounter map reduce job and verify the row count.
-     * 
-     * @param args
-     *            the command line arguments to be used for rowcounter job.
-     * @param expectedCount
-     *            the expected row count (result of map reduce job).
-     * @throws Exception
-     */
-    private void runRowCount(String[] args, int expectedCount) throws Exception {
-        GenericOptionsParser opts = new GenericOptionsParser(TEST_UTIL.getConfiguration(), args);
-        Configuration conf = opts.getConfiguration();
-        args = opts.getRemainingArgs();
-        Job job = RowCounter.createSubmittableJob(conf, args);
-        job.waitForCompletion(true);
-        assertTrue(job.isSuccessful());
-        Counter counter = job.getCounters().findCounter(RowCounterMapper.Counters.ROWS);
-        assertEquals(expectedCount, counter.getValue());
-    }
-
-    /**
-     * Writes TOTAL_ROWS number of distinct rows in to the table. Few rows have
-     * two columns, Few have one.
-     * 
-     * @param table
-     * @throws IOException
-     */
-    private static void writeRows(HTable table) throws IOException {
-        final byte[] family = Bytes.toBytes(COL_FAM);
-        final byte[] value = Bytes.toBytes("abcd");
-        final byte[] col1 = Bytes.toBytes(COL1);
-        final byte[] col2 = Bytes.toBytes(COL2);
-        ArrayList<Put> rowsUpdate = new ArrayList<Put>();
-        // write few rows with two columns
-        int i = 0;
-        for (; i < TOTAL_ROWS - ROWS_WITH_ONE_COL; i++) {
-            byte[] row = Bytes.toBytes("row" + i);
-            Put put = new Put(row);
-            put.add(family, col1, value);
-            put.add(family, col2, value);
-            rowsUpdate.add(put);
-        }
-
-        // write few rows with only one column
-        for (; i < TOTAL_ROWS; i++) {
-            byte[] row = Bytes.toBytes("row" + i);
-            Put put = new Put(row);
-            put.add(family, col2, value);
-            rowsUpdate.add(put);
-        }
-        table.put(rowsUpdate);
-    }
-
-    /**
-     * test maim method. Import should print help and call System.exit
-     */
-    @Test
-    public void testImportMain() throws Exception {
-        PrintStream oldPrintStream = System.err;
-        SecurityManager SECURITY_MANAGER = System.getSecurityManager();
-        new LauncherSecurityManager();
-        ByteArrayOutputStream data = new ByteArrayOutputStream();
-        String[] args = {};
-        System.setErr(new PrintStream(data));
-        try {
-            System.setErr(new PrintStream(data));
-
-            try {
-                RowCounter.main(args);
-                fail("should be SecurityException");
-            } catch (SecurityException e) {
-                assertTrue(data.toString().contains("Wrong number of parameters:"));
-                assertTrue(data.toString().contains(
-                        "Usage: RowCounter [options] <tablename> [--range=[startKey],[endKey]] [<column1> <column2>...]"));
-                assertTrue(data.toString().contains("-Dhbase.client.scanner.caching=100"));
-                assertTrue(data.toString().contains("-Dmapred.map.tasks.speculative.execution=false"));
-            }
-            data.reset();
-            try {
-                args = new String[2];
-                args[0] = "table";
-                args[1] = "--range=1";
-                RowCounter.main(args);
-                fail("should be SecurityException");
-            } catch (SecurityException e) {
-                assertTrue(data
-                        .toString()
-                        .contains(
-                                "Please specify range in such format as \"--range=a,b\" or, with only one boundary, \"--range=,b\" or \"--range=a,\""));
-                assertTrue(data.toString().contains(
-                        "Usage: RowCounter [options] <tablename> [--range=[startKey],[endKey]] [<column1> <column2>...]"));
-            }
-
-        } finally {
-            System.setErr(oldPrintStream);
-            System.setSecurityManager(SECURITY_MANAGER);
-        }
-
-    }
+  }
 
 }

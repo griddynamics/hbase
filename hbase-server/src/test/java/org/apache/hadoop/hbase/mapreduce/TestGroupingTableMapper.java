@@ -36,32 +36,31 @@ import static org.mockito.Mockito.*;
 @Category(SmallTests.class)
 public class TestGroupingTableMapper {
 
-    /**
-     * Test  GroupingTableMapper class 
-     */
-    @Test
-    public void testGroupingTableMapper() throws Exception{
-        
-        GroupingTableMapper mapper= new GroupingTableMapper();
-        Configuration configuration = new Configuration();
-        configuration.set(GroupingTableMapper.GROUP_COLUMNS,"family1:clm family2:clm");
-        mapper.setConf(configuration);
-        
-        Result result= mock(Result.class);
-        @SuppressWarnings("unchecked")
-        Mapper<ImmutableBytesWritable,Result,ImmutableBytesWritable,Result>.Context context=mock(Mapper.Context.class);
-        context.write(any(ImmutableBytesWritable.class),any(Result.class));
-        List<KeyValue> keyValue= new ArrayList<KeyValue>();
-        byte[] row= {};
-        keyValue.add(new KeyValue(row, Bytes.toBytes("family2"), Bytes.toBytes("clm"), Bytes.toBytes("value1")));
-        keyValue.add(new KeyValue(row, Bytes.toBytes("family1"), Bytes.toBytes("clm"), Bytes.toBytes("value2")));
-        when(result.list()).thenReturn(keyValue);
-        mapper.map(null, result, context);
-        // template data
-        byte[][] data={Bytes.toBytes("value1"),Bytes.toBytes("value2")};
-        ImmutableBytesWritable ibw=mapper.createGroupKey(data);
-        verify(context).write(ibw, result);
-    }
-    
-    
+  /**
+   * Test GroupingTableMapper class
+   */
+  @Test
+  public void testGroupingTableMapper() throws Exception {
+
+    GroupingTableMapper mapper = new GroupingTableMapper();
+    Configuration configuration = new Configuration();
+    configuration.set(GroupingTableMapper.GROUP_COLUMNS, "family1:clm family2:clm");
+    mapper.setConf(configuration);
+
+    Result result = mock(Result.class);
+    @SuppressWarnings("unchecked")
+    Mapper<ImmutableBytesWritable, Result, ImmutableBytesWritable, Result>.Context context = mock(Mapper.Context.class);
+    context.write(any(ImmutableBytesWritable.class), any(Result.class));
+    List<KeyValue> keyValue = new ArrayList<KeyValue>();
+    byte[] row = {};
+    keyValue.add(new KeyValue(row, Bytes.toBytes("family2"), Bytes.toBytes("clm"), Bytes.toBytes("value1")));
+    keyValue.add(new KeyValue(row, Bytes.toBytes("family1"), Bytes.toBytes("clm"), Bytes.toBytes("value2")));
+    when(result.list()).thenReturn(keyValue);
+    mapper.map(null, result, context);
+    // template data
+    byte[][] data = { Bytes.toBytes("value1"), Bytes.toBytes("value2") };
+    ImmutableBytesWritable ibw = mapper.createGroupKey(data);
+    verify(context).write(ibw, result);
+  }
+
 }
