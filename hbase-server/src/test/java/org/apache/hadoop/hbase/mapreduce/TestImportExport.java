@@ -200,7 +200,6 @@ public class TestImportExport {
   /**
    * Test export scanner batching
    */
-   @SuppressWarnings("resource")
    @Test
    public void testExportScannerBatching() throws Exception {
     String BATCH_TABLE = "exportWithBatch";
@@ -469,7 +468,7 @@ public class TestImportExport {
    * parameters into Configuration
    */
   @Test
-  public void testaddFilterAndArguments() {
+  public void testAddFilterAndArguments() {
     Configuration configuration = new Configuration();
 
     List<String> args = new ArrayList<String>();

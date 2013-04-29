@@ -17,9 +17,6 @@
  */
 package org.apache.hadoop.hbase.mapreduce;
 
-import java.io.ByteArrayOutputStream;
-import java.io.PrintStream;
-
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
@@ -42,13 +39,15 @@ import org.junit.experimental.categories.Category;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
 
-import static org.mockito.Mockito.*;
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+
 import static org.junit.Assert.*;
+import static org.mockito.Mockito.*;
 
 @Category(LargeTests.class)
 public class TestExamples {
   private static HBaseTestingUtility util = new HBaseTestingUtility();
-  int counter = 1;
 
   /**
    * Test SampleUploader from examples

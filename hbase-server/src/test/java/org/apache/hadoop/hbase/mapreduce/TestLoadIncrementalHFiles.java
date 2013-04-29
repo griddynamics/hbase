@@ -18,13 +18,6 @@
  */
 package org.apache.hadoop.hbase.mapreduce;
 
-import static org.junit.Assert.assertArrayEquals;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-
-import java.io.IOException;
-import java.util.TreeMap;
-
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
@@ -38,8 +31,15 @@ import org.apache.hadoop.hbase.io.hfile.HFileScanner;
 import org.apache.hadoop.hbase.regionserver.BloomType;
 import org.apache.hadoop.hbase.regionserver.StoreFile;
 import org.apache.hadoop.hbase.util.Bytes;
-import org.junit.*;
+import org.junit.AfterClass;
+import org.junit.BeforeClass;
+import org.junit.Test;
 import org.junit.experimental.categories.Category;
+
+import java.io.IOException;
+import java.util.TreeMap;
+
+import static org.junit.Assert.*;
 
 /**
  * Test cases for the "load" half of the HFileOutputFormat bulk load
@@ -162,7 +162,7 @@ public class TestLoadIncrementalHFiles {
   @Test
   public void testNonexistentColumnFamilyLoad() throws Exception {
     String testName = "testNonexistentColumnFamilyLoad";
-    byte[][][] hfileRanges = new byte[][][] {
+    byte[][][] hFileRanges = new byte[][][] {
       new byte[][]{ Bytes.toBytes("aaa"), Bytes.toBytes("ccc") },
       new byte[][]{ Bytes.toBytes("ddd"), Bytes.toBytes("ooo") },
     }; 
@@ -172,12 +172,12 @@ public class TestLoadIncrementalHFiles {
     dir = dir.makeQualified(fs);
     Path familyDir = new Path(dir, Bytes.toString(FAMILY));
 
-    int hfileIdx = 0;
-    for (byte[][] range : hfileRanges) {
+    int hFileIdx = 0;
+    for (byte[][] range : hFileRanges) {
       byte[] from = range[0];
       byte[] to = range[1];
       createHFile(util.getConfiguration(), fs, new Path(familyDir, "hfile_"
-          + hfileIdx++), FAMILY, QUALIFIER, from, to, 1000);
+          + hFileIdx++), FAMILY, QUALIFIER, from, to, 1000);
     }
 
     final byte[] TABLE = Bytes.toBytes("mytable_"+testName);
@@ -233,9 +233,9 @@ public class TestLoadIncrementalHFiles {
   }
 
   private int verifyHFile(Path p) throws IOException {
-    Configuration conf = util.getConfiguration();
+    Configuration configuration = util.getConfiguration();
     HFile.Reader reader = HFile.createReader(
-        p.getFileSystem(conf), p, new CacheConfig(conf));
+        p.getFileSystem(configuration), p, new CacheConfig(configuration));
     reader.loadFileInfo();
     HFileScanner scanner = reader.getScanner(false, false);
     scanner.seekTo();
@@ -255,12 +255,12 @@ public class TestLoadIncrementalHFiles {
    * TODO put me in an HFileTestUtil or something?
    */
   static void createHFile(
-      Configuration conf,
+      Configuration configuration,
       FileSystem fs, Path path,
       byte[] family, byte[] qualifier,
       byte[] startKey, byte[] endKey, int numRows) throws IOException
   {
-    HFile.Writer writer = HFile.getWriterFactory(conf, new CacheConfig(conf))
+    HFile.Writer writer = HFile.getWriterFactory(configuration, new CacheConfig(configuration))
         .withPath(fs, path)
         .withBlockSize(BLOCKSIZE)
         .withCompression(COMPRESSION)
@@ -281,10 +281,10 @@ public class TestLoadIncrementalHFiles {
   }
 
   private void addStartEndKeysForTest(TreeMap<byte[], Integer> map, byte[] first, byte[] last) {
-    Integer value = map.containsKey(first)?(Integer)map.get(first):0;
+    Integer value = map.containsKey(first)?map.get(first):0;
     map.put(first, value+1);
 
-    value = map.containsKey(last)?(Integer)map.get(last):0;
+    value = map.containsKey(last)?map.get(last):0;
     map.put(last, value-1);
   }
 

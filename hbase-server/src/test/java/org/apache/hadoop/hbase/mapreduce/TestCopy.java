@@ -17,12 +17,6 @@
  */
 package org.apache.hadoop.hbase.mapreduce;
 
-import static org.junit.Assert.*;
-
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.PrintStream;
-
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.LargeTests;
@@ -38,16 +32,22 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.PrintStream;
+
+import static org.junit.Assert.*;
+
 @Category(LargeTests.class)
 public class TestCopy {
   private static final HBaseTestingUtility UTIL = new HBaseTestingUtility();
   private static final byte[] ROW1 = Bytes.toBytes("row1");
   private static final byte[] ROW2 = Bytes.toBytes("row2");
-  private static final String FAMILYA_STRING = "a";
-  private static final String FAMILYB_STRING = "b";
-  private static final byte[] FAMILYA = Bytes.toBytes(FAMILYA_STRING);
-  private static final byte[] FAMILYB = Bytes.toBytes(FAMILYB_STRING);
-  private static final byte[] QUAL = Bytes.toBytes("q");
+  private static final String FAMILY_A_STRING = "a";
+  private static final String FAMILY_B_STRING = "b";
+  private static final byte[] FAMILY_A = Bytes.toBytes(FAMILY_A_STRING);
+  private static final byte[] FAMILY_B = Bytes.toBytes(FAMILY_B_STRING);
+  private static final byte[] QUALIFIER = Bytes.toBytes("q");
 
   private static long now = System.currentTimeMillis();
 
@@ -71,19 +71,19 @@ public class TestCopy {
     String sourceTable = "sourceTable";
     String targetTable = "targetTable";
 
-    byte[][] families = { FAMILYA, FAMILYB };
+    byte[][] families = {FAMILY_A, FAMILY_B};
 
     HTable t = UTIL.createTable(Bytes.toBytes(sourceTable), families);
     HTable t2 = UTIL.createTable(Bytes.toBytes(targetTable), families);
     Put p = new Put(ROW1);
-    p.add(FAMILYA, QUAL, now, Bytes.toBytes("Data11"));
-    p.add(FAMILYB, QUAL, now + 1, Bytes.toBytes("Data12"));
-    p.add(FAMILYA, QUAL, now + 2, Bytes.toBytes("Data13"));
+    p.add(FAMILY_A, QUALIFIER, now, Bytes.toBytes("Data11"));
+    p.add(FAMILY_B, QUALIFIER, now + 1, Bytes.toBytes("Data12"));
+    p.add(FAMILY_A, QUALIFIER, now + 2, Bytes.toBytes("Data13"));
     t.put(p);
     p = new Put(ROW2);
-    p.add(FAMILYB, QUAL, now, Bytes.toBytes("Dat21"));
-    p.add(FAMILYA, QUAL, now + 1, Bytes.toBytes("Data22"));
-    p.add(FAMILYB, QUAL, now + 2, Bytes.toBytes("Data23"));
+    p.add(FAMILY_B, QUALIFIER, now, Bytes.toBytes("Dat21"));
+    p.add(FAMILY_A, QUALIFIER, now + 1, Bytes.toBytes("Data22"));
+    p.add(FAMILY_B, QUALIFIER, now + 2, Bytes.toBytes("Data23"));
     t.put(p);
 
     long currentTime = System.currentTimeMillis();
@@ -94,11 +94,11 @@ public class TestCopy {
 
     assertNotNull(t2.get(new Get(ROW1)).getRow());
     Result res = t2.get(new Get(ROW1));
-    byte[] b1 = res.getValue(FAMILYB, QUAL);
+    byte[] b1 = res.getValue(FAMILY_B, QUALIFIER);
     assertEquals("Data13", new String(b1));
     assertNotNull(t2.get(new Get(ROW2)).getRow());
     res = t2.get(new Get(ROW2));
-    b1 = res.getValue(FAMILYA, QUAL);
+    b1 = res.getValue(FAMILY_A, QUALIFIER);
     // Data from the family of B is not copied
     assertNull(b1);
 
@@ -134,9 +134,9 @@ public class TestCopy {
 
   private boolean runCopy(String[] args) throws IOException, InterruptedException, ClassNotFoundException {
     GenericOptionsParser opts = new GenericOptionsParser(new Configuration(UTIL.getConfiguration()), args);
-    Configuration conf = opts.getConfiguration();
+    Configuration configuration = opts.getConfiguration();
     args = opts.getRemainingArgs();
-    Job job = CopyTable.createSubmittableJob(conf, args);
+    Job job = CopyTable.createSubmittableJob(configuration, args);
     job.waitForCompletion(false);
     return job.isSuccessful();
   }
