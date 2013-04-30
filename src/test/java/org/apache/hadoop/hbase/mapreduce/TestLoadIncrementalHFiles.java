@@ -36,7 +36,6 @@ import org.apache.hadoop.hbase.io.hfile.CacheConfig;
 import org.apache.hadoop.hbase.io.hfile.Compression;
 import org.apache.hadoop.hbase.io.hfile.HFile;
 import org.apache.hadoop.hbase.io.hfile.HFileScanner;
-import org.apache.hadoop.hbase.regionserver.StoreFile;
 import org.apache.hadoop.hbase.regionserver.StoreFile.BloomType;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.junit.*;
@@ -51,7 +50,6 @@ import org.junit.experimental.categories.Category;
 public class TestLoadIncrementalHFiles {
   private static final byte[] QUALIFIER = Bytes.toBytes("myqual");
   private static final byte[] FAMILY = Bytes.toBytes("myfam");
-  private static final String EXPECTED_MSG_FOR_NON_EXISTING_FAMILY = "Unmatched family names found";
 
   private static final byte[][] SPLIT_KEYS = new byte[][] {
     Bytes.toBytes("ddd"),
@@ -144,16 +142,18 @@ public class TestLoadIncrementalHFiles {
 
     final byte[] TABLE = Bytes.toBytes("mytable_"+testName);
 
+    HBaseAdmin admin = new HBaseAdmin(util.getConfiguration());
     HTableDescriptor htd = new HTableDescriptor(TABLE);
     HColumnDescriptor familyDesc = new HColumnDescriptor(FAMILY);
     familyDesc.setBloomFilterType(bloomType);
     htd.addFamily(familyDesc);
+    admin.createTable(htd, SPLIT_KEYS);
 
-    LoadIncrementalHFiles loader = new LoadIncrementalHFiles(util.getConfiguration(), useSecure);
-    String [] args= {dir.toString(),"mytable_"+testName};
-    loader.run(args);
     HTable table = new HTable(util.getConfiguration(), TABLE);
-    
+    util.waitTableAvailable(TABLE, 30000);
+    LoadIncrementalHFiles loader = new LoadIncrementalHFiles(util.getConfiguration(), useSecure);
+    loader.doBulkLoad(dir, table);
+
     assertEquals(expectedRows, util.countRows(table));
   }
 
@@ -185,26 +185,16 @@ public class TestLoadIncrementalHFiles {
 
     HBaseAdmin admin = new HBaseAdmin(util.getConfiguration());
     HTableDescriptor htd = new HTableDescriptor(TABLE);
-    // set real family name to upper case in purpose to simulate the case that
-    // family name in HFiles is invalid
-    HColumnDescriptor family =
-        new HColumnDescriptor(Bytes.toBytes(new String(FAMILY).toUpperCase()));
-    htd.addFamily(family);
     admin.createTable(htd, SPLIT_KEYS);
 
     HTable table = new HTable(util.getConfiguration(), TABLE);
-    util.waitTableAvailable(TABLE,30000);
+    util.waitTableAvailable(TABLE, 30000);
     LoadIncrementalHFiles loader = new LoadIncrementalHFiles(util.getConfiguration(), false);
     try {
       loader.doBulkLoad(dir, table);
       assertTrue("Loading into table with non-existent family should have failed", false);
     } catch (Exception e) {
       assertTrue("IOException expected", e instanceof IOException);
-      // further check whether the exception message is correct
-      String errMsg = e.getMessage();
-      assertTrue("Incorrect exception message, expected message: ["
-          + EXPECTED_MSG_FOR_NON_EXISTING_FAMILY + "], current message: [" + errMsg + "]",
-          errMsg.contains(EXPECTED_MSG_FOR_NON_EXISTING_FAMILY));
     }
     table.close();
     admin.close();
@@ -275,8 +265,6 @@ public class TestLoadIncrementalHFiles {
         writer.append(kv);
       }
     } finally {
-      writer.appendFileInfo(StoreFile.BULKLOAD_TIME_KEY,
-          Bytes.toBytes(System.currentTimeMillis()));
       writer.close();
     }
   }
@@ -347,5 +335,8 @@ public class TestLoadIncrementalHFiles {
   }
 
 
+  @org.junit.Rule
+  public org.apache.hadoop.hbase.ResourceCheckerJUnitRule cu =
+    new org.apache.hadoop.hbase.ResourceCheckerJUnitRule();
 }
 
