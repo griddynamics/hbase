@@ -408,7 +408,7 @@
 
           <configuration>
             <forkedProcessTimeoutInSeconds>${surefire.timeout}</forkedProcessTimeoutInSeconds>
-            <argLine>-enableassertions -Xmx1900m -Djava.security.egd=file:/dev/./urandom</argLine>
+            <argLine>-enableassertions -Xmx2400m -Djava.security.egd=file:/dev/./urandom</argLine>
             <redirectTestOutputToFile>${test.output.tofile}</redirectTestOutputToFile>
           </configuration>
         </plugin>
