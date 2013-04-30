@@ -23,6 +23,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import java.io.IOException;
 import java.security.PrivilegedAction;
@@ -103,7 +104,7 @@ public class TestUser {
         try {
           return User.getCurrent().getName();
         } catch (Exception e) {
-          LOG.error(e.getMessage());
+          LOG.debug(e.getMessage());
         }
         return "empty";
       }
@@ -178,8 +179,13 @@ public class TestUser {
         User.isHBaseSecurityEnabled(conf));
   }
 
+  /**
+   *
+   * tests for non secure hadoop user
+   *
+   */
   @Test
-  public void testUserCreation() throws IOException {
+  public void testHadoopUserCreation() throws IOException {
     UserGroupInformation userInfo = UserGroupInformation.getCurrentUser();
     User hadoopUser = User.create(userInfo);
     assertTrue(userInfo.equals(hadoopUser.ugi));
@@ -201,6 +207,65 @@ public class TestUser {
       //expected class not found org.apache.hadoop.security.UnixUserGroupInformation
     }
     User.IS_SECURE_HADOOP = true;
+
+    //with HadoopUser
+    //can't find method getCurrentUGI in org.apache.hadoop.security.UserGroupInformation!
+    User.IS_SECURE_HADOOP = false;
+    try {
+      userInfo = UserGroupInformation.getCurrentUser();
+      hadoopUser = User.create(userInfo);
+      hadoopUser.runAs(new PrivilegedAction<String>() {
+        @Override
+        public String run() {
+          try {
+            return User.getCurrent().getName();
+          } catch (Exception ex) {
+            LOG.debug(ex.getMessage());
+          }
+          return "empty";
+        }
+      });
+    } catch (RuntimeException rex) {
+      rex.printStackTrace();
+      //expected
+    } catch (Exception ex) {
+      fail("UserGroupInformation.getCurrentUGI should be not found");
+    }
+    User.IS_SECURE_HADOOP = true;
+    //
+
+    //with HadoopUser
+    //Can't find method getCurrentUGI in org.apache.hadoop.security.UserGroupInformation!
+    User.IS_SECURE_HADOOP = false;
+    try {
+      userInfo = UserGroupInformation.getCurrentUser();
+      hadoopUser = User.create(userInfo);
+
+      hadoopUser.runAs(new PrivilegedExceptionAction() {
+        @Override
+        public Object run() throws Exception {
+          return User.getCurrent().getName();
+        }
+      });
+    } catch (RuntimeException rex) {
+      LOG.debug(rex.getMessage());
+    } catch (Exception ex) {
+      fail("UserGroupInformation.getCurrentUGI should be not found");
+    }
+    User.IS_SECURE_HADOOP = true;
+    //
+
+    //Can't find method getCurrentUGI in org.apache.hadoop.security.UserGroupInformation.getCurrentUGI
+    User.IS_SECURE_HADOOP = false;
+    try {
+      hadoopUser = User.getCurrent();
+    } catch (RuntimeException rex) {
+      LOG.debug(rex.getMessage());
+    } catch (Exception e) {
+      fail("UserGroupInformation.getCurrentUGI should be not found");
+    }
+    User.IS_SECURE_HADOOP = true;
+
   }
 
   @org.junit.Rule
