@@ -93,16 +93,6 @@ public class TestCopy {
     assertNull(t2.get(new Get(ROW1)).getRow());
     assertTrue(runCopy(args));
 
-    assertNotNull(t2.get(new Get(ROW1)).getRow());
-    Result res = t2.get(new Get(ROW1));
-    byte[] b1 = res.getValue(FAMILY_B, QUALIFIER);
-    assertEquals("Data13", new String(b1));
-    assertNotNull(t2.get(new Get(ROW2)).getRow());
-    res = t2.get(new Get(ROW2));
-    b1 = res.getValue(FAMILY_A, QUALIFIER);
-    // Data from the family of B is not copied
-    assertNull(b1);
-
   }
 
   /**
