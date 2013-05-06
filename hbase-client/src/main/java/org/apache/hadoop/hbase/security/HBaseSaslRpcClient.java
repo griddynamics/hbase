@@ -18,14 +18,13 @@
 
 package org.apache.hadoop.hbase.security;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
-import org.apache.hadoop.io.WritableUtils;
-import org.apache.hadoop.ipc.RemoteException;
-import org.apache.hadoop.security.SaslInputStream;
-import org.apache.hadoop.security.SaslOutputStream;
-import org.apache.hadoop.security.token.Token;
-import org.apache.hadoop.security.token.TokenIdentifier;
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 
 import javax.security.auth.callback.Callback;
 import javax.security.auth.callback.CallbackHandler;
@@ -37,13 +36,18 @@ import javax.security.sasl.RealmChoiceCallback;
 import javax.security.sasl.Sasl;
 import javax.security.sasl.SaslClient;
 import javax.security.sasl.SaslException;
-import java.io.BufferedInputStream;
-import java.io.BufferedOutputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
+
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.hbase.ipc.SaslClients;
+import org.apache.hadoop.io.WritableUtils;
+import org.apache.hadoop.ipc.RemoteException;
+import org.apache.hadoop.security.SaslInputStream;
+import org.apache.hadoop.security.SaslOutputStream;
+import org.apache.hadoop.security.token.Token;
+import org.apache.hadoop.security.token.TokenIdentifier;
+
+import com.google.common.annotations.VisibleForTesting;
 
 /**
  * A utility class that encapsulates SASL logic for RPC client.
@@ -70,9 +74,9 @@ public class HBaseSaslRpcClient {
       if (LOG.isDebugEnabled())
         LOG.debug("Creating SASL " + AuthMethod.DIGEST.getMechanismName()
             + " client to authenticate to service at " + token.getService());
-      saslClient = Sasl.createSaslClient(new String[] { AuthMethod.DIGEST
-          .getMechanismName() }, null, null, SaslUtil.SASL_DEFAULT_REALM,
-          SaslUtil.SASL_PROPS, new SaslClientCallbackHandler(token));
+      saslClient = SaslClients.getDigestSaslClient(
+          new String[] { AuthMethod.DIGEST.getMechanismName() },
+          SaslUtil.SASL_DEFAULT_REALM, new SaslClientCallbackHandler(token));
       break;
     case KERBEROS:
       if (LOG.isDebugEnabled()) {
@@ -91,9 +95,9 @@ public class HBaseSaslRpcClient {
           "Kerberos principal does not have the expected format: "
                 + serverPrincipal);
       }
-      saslClient = Sasl.createSaslClient(new String[] { AuthMethod.KERBEROS
-          .getMechanismName() }, null, names[0], names[1],
-          SaslUtil.SASL_PROPS, null);
+      saslClient = SaslClients.getKerberosSaslClients(
+          new String[] { AuthMethod.KERBEROS.getMechanismName() }, 
+          names[0], names[1]);
       break;
     default:
       throw new IOException("Unknown authentication method " + method);
@@ -227,7 +231,8 @@ public class HBaseSaslRpcClient {
     saslClient.dispose();
   }
 
-  private static class SaslClientCallbackHandler implements CallbackHandler {
+  @VisibleForTesting
+  static class SaslClientCallbackHandler implements CallbackHandler {
     private final String userName;
     private final char[] userPassword;
 
@@ -236,6 +241,7 @@ public class HBaseSaslRpcClient {
       this.userPassword = SaslUtil.encodePassword(token.getPassword());
     }
 
+    @Override
     public void handle(Callback[] callbacks)
         throws UnsupportedCallbackException {
       NameCallback nc = null;
