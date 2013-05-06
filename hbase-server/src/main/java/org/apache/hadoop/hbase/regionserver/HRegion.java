@@ -108,14 +108,14 @@ import org.apache.hadoop.hbase.io.HeapSize;
 import org.apache.hadoop.hbase.io.TimeRange;
 import org.apache.hadoop.hbase.io.hfile.BlockCache;
 import org.apache.hadoop.hbase.io.hfile.CacheConfig;
-import org.apache.hadoop.hbase.ipc.HBaseServer;
+import org.apache.hadoop.hbase.ipc.RpcServer;
 import org.apache.hadoop.hbase.ipc.RpcCallContext;
 import org.apache.hadoop.hbase.monitoring.MonitoredTask;
 import org.apache.hadoop.hbase.monitoring.TaskMonitor;
 import org.apache.hadoop.hbase.protobuf.generated.AdminProtos.GetRegionInfoResponse.CompactionState;
 import org.apache.hadoop.hbase.protobuf.generated.ClientProtos.CoprocessorServiceCall;
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.SnapshotDescription;
-import org.apache.hadoop.hbase.protobuf.generated.WAL.CompactionDescriptor;
+import org.apache.hadoop.hbase.protobuf.generated.WALProtos.CompactionDescriptor;
 import org.apache.hadoop.hbase.regionserver.MultiVersionConsistencyControl.WriteEntry;
 import org.apache.hadoop.hbase.regionserver.compactions.CompactionContext;
 import org.apache.hadoop.hbase.regionserver.wal.HLog;
@@ -2890,7 +2890,7 @@ public class HRegion implements HeapSize { // , Writable{
 
               skippedEdits++;
               continue;
-                }
+            }
             // Figure which store the edit is meant for.
             if (store == null || !kv.matchingFamily(store.getFamily().getName())) {
               store = this.stores.get(kv.getFamily());
@@ -2972,7 +2972,8 @@ public class HRegion implements HeapSize { // , Writable{
       throws IOException {
     Store store = this.getStore(compaction.getFamilyName().toByteArray());
     if (store == null) {
-      LOG.warn("Found Compaction WAL edit for deleted family:" + Bytes.toString(compaction.getFamilyName().toByteArray()));
+      LOG.warn("Found Compaction WAL edit for deleted family:" +
+          Bytes.toString(compaction.getFamilyName().toByteArray()));
       return;
     }
     store.completeCompactionMarker(compaction);
@@ -3575,7 +3576,7 @@ public class HRegion implements HeapSize { // , Writable{
       if (!results.isEmpty()) {
         throw new IllegalArgumentException("First parameter should be an empty list");
       }
-      RpcCallContext rpcCall = HBaseServer.getCurrentCall();
+      RpcCallContext rpcCall = RpcServer.getCurrentCall();
       // The loop here is used only when at some point during the next we determine
       // that due to effects of filters or otherwise, we have an empty row in the result.
       // Then we loop and try again. Otherwise, we must get out on the first iteration via return,
