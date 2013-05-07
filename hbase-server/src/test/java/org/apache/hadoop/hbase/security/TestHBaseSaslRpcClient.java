@@ -18,6 +18,7 @@
  */
 package org.apache.hadoop.hbase.security;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -45,6 +46,8 @@ import org.apache.hadoop.hbase.SmallTests;
 import org.apache.hadoop.hbase.ipc.SaslClients;
 import org.apache.hadoop.hbase.ipc.SaslClients.SaslClientProvider;
 import org.apache.hadoop.hbase.security.HBaseSaslRpcClient.SaslClientCallbackHandler;
+import org.apache.hadoop.io.DataInputBuffer;
+import org.apache.hadoop.io.DataOutputBuffer;
 import org.apache.hadoop.security.token.Token;
 import org.apache.hadoop.security.token.TokenIdentifier;
 import org.apache.log4j.Level;
@@ -127,6 +130,33 @@ public class TestHBaseSaslRpcClient {
     assertTrue(assertIOExceptionThenSaslClientIsNull(DEFAULT_USER_NAME, DEFAULT_USER_PASSWORD));
     assertTrue(assertIOExceptionWhenGetStreamsBeforeConnectCall(
         DEFAULT_USER_NAME, DEFAULT_USER_PASSWORD));
+  }
+
+  @Test
+  public void testAuthMethodReadWrite() throws IOException {
+    DataInputBuffer in = new DataInputBuffer();
+    DataOutputBuffer out = new DataOutputBuffer();
+
+    assertAuthMethodRead(in, AuthMethod.SIMPLE);
+    assertAuthMethodRead(in, AuthMethod.KERBEROS);
+    assertAuthMethodRead(in, AuthMethod.DIGEST);
+
+    assertAuthMethodWrite(out, AuthMethod.SIMPLE);
+    assertAuthMethodWrite(out, AuthMethod.KERBEROS);
+    assertAuthMethodWrite(out, AuthMethod.DIGEST);   
+  }
+
+  private void assertAuthMethodRead(DataInputBuffer in, AuthMethod authMethod) 
+      throws IOException {
+    in.reset(new byte[] {authMethod.code}, 1);
+    assertEquals(authMethod, AuthMethod.read(in));
+  }
+
+  private void assertAuthMethodWrite(DataOutputBuffer out, AuthMethod authMethod) 
+      throws IOException {
+    authMethod.write(out);
+    assertEquals(authMethod.code, out.getData()[0]);
+    out.reset();
   }
 
   private boolean assertIOExceptionWhenGetStreamsBeforeConnectCall(String principal, String password)

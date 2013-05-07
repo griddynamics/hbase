@@ -60,7 +60,8 @@ public final class SaslClients {
 
   public static SaslClient getDigestSaslClient(String[] mechanismNames, 
       String saslDefaultRealm, CallbackHandler saslClientCallbackHandler) throws IOException {
-    return provider.createDigestSaslClient(mechanismNames, saslDefaultRealm, saslClientCallbackHandler);
+    return provider.createDigestSaslClient(mechanismNames, saslDefaultRealm, 
+        saslClientCallbackHandler);
   }
 
   public static SaslClient getKerberosSaslClients(String[] mechanismNames,

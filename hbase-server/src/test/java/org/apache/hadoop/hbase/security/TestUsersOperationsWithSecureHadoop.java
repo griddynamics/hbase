@@ -18,7 +18,7 @@
  */
 package org.apache.hadoop.hbase.security;
 
-import static org.apache.hadoop.hbase.security.HBaseKerberosUtils.getConfigurationWithoutPrincipal;
+import static org.apache.hadoop.hbase.security.HBaseKerberosUtils.getConfigurationWoPrincipal;
 import static org.apache.hadoop.hbase.security.HBaseKerberosUtils.getKeytabFileForTesting;
 import static org.apache.hadoop.hbase.security.HBaseKerberosUtils.getPrincipalForTesting;
 import static org.apache.hadoop.hbase.security.HBaseKerberosUtils.getSecuredConfiguration;
@@ -54,7 +54,7 @@ public class TestUsersOperationsWithSecureHadoop {
   @Test
   public void testUserLoginInSecureHadoop() throws Exception {
     UserGroupInformation defaultLogin = UserGroupInformation.getLoginUser();
-    Configuration conf = getConfigurationWithoutPrincipal();
+    Configuration conf = getConfigurationWoPrincipal();
     User.login(conf, HBaseKerberosUtils.KRB_KEYTAB_FILE,
         HBaseKerberosUtils.KRB_PRINCIPAL, "localhost");
 

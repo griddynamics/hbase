@@ -119,16 +119,19 @@ public class TestDelayedRpc {
     Configuration conf = getSecuredConfiguration();
 
     SecurityInfo securityInfoMock = Mockito.mock(SecurityInfo.class);
-    Mockito.when(securityInfoMock.getServerPrincipal()).thenReturn(HBaseKerberosUtils.KRB_PRINCIPAL);
+    Mockito.when(securityInfoMock.getServerPrincipal())
+      .thenReturn(HBaseKerberosUtils.KRB_PRINCIPAL);
     SecurityInfo.addInfo("TestDelayedService", securityInfoMock);
 
     boolean delayReturnValue = false;
     InetSocketAddress isa = new InetSocketAddress("localhost", 0);    
     TestDelayedImplementation instance = new TestDelayedImplementation(delayReturnValue);
-    BlockingService service = TestDelayedRpcProtos.TestDelayedService.newReflectiveBlockingService(instance);
+    BlockingService service = 
+        TestDelayedRpcProtos.TestDelayedService.newReflectiveBlockingService(instance);
 
     rpcServer = new RpcServer(null, "testSecuredDelayedRpc",
-        Lists.newArrayList(new RpcServer.BlockingServiceAndInterface(service, null)), isa, 1, 0, conf, 0);
+        Lists.newArrayList(new RpcServer.BlockingServiceAndInterface(service, null)), 
+          isa, 1, 0, conf, 0);
     rpcServer.start();
     RpcClient rpcClient = new RpcClient(conf, HConstants.DEFAULT_CLUSTER_ID.toString());
     try {
