@@ -142,17 +142,15 @@ public class TestLoadIncrementalHFiles {
 
     final byte[] TABLE = Bytes.toBytes("mytable_"+testName);
 
-    HBaseAdmin admin = new HBaseAdmin(util.getConfiguration());
     HTableDescriptor htd = new HTableDescriptor(TABLE);
     HColumnDescriptor familyDesc = new HColumnDescriptor(FAMILY);
     familyDesc.setBloomFilterType(bloomType);
     htd.addFamily(familyDesc);
-    admin.createTable(htd, SPLIT_KEYS);
 
-    HTable table = new HTable(util.getConfiguration(), TABLE);
-    util.waitTableAvailable(TABLE, 30000);
     LoadIncrementalHFiles loader = new LoadIncrementalHFiles(util.getConfiguration(), useSecure);
-    loader.doBulkLoad(dir, table);
+    String [] args= {dir.toString(),"mytable_"+testName};    
+    loader.run(args);
+    HTable table = new HTable(util.getConfiguration(), TABLE); 
 
     assertEquals(expectedRows, util.countRows(table));
   }
