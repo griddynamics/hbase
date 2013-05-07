@@ -19,9 +19,11 @@
  */
 package org.apache.hadoop.hbase.mapreduce;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.OutputStream;
+import java.io.PrintStream;
 import java.io.UnsupportedEncodingException;
 import java.util.List;
 import java.util.ArrayList;
@@ -360,10 +362,28 @@ public class TestImportTsv {
   }
 
   @org.junit.Rule
-  public org.apache.hadoop.hbase.ResourceCheckerJUnitRule cu = new org.apache.hadoop.hbase.ResourceCheckerJUnitRule();
+  public org.apache.hadoop.hbase.ResourceCheckerJUnitRule cu =
+    new org.apache.hadoop.hbase.ResourceCheckerJUnitRule();
 
   @Test
   public void testMain() throws Exception {
+    PrintStream oldErrorStream = System.err;
+    ByteArrayOutputStream data = new ByteArrayOutputStream();
+    System.setErr(new PrintStream(data));
+    SecurityManager oldSecurityManager = System.getSecurityManager();
+    new LauncherSecurityManager();
+
+    try {
+      String args[] = {};
+      ImportTsv.main(args);
+
+    } catch (SecurityException e) {
+      assertTrue(data.toString().contains("ERROR: Wrong number of arguments: 0"));
+      assertTrue(data.toString().contains("Usage: importtsv -Dimporttsv.columns=a,b,c <tablename> <inputdir>"));
+      assertEquals("java.lang.SecurityException: Intercepted System.exit(-1)", e.toString());
+
+    }
+
     HBaseTestingUtility htu1 = new HBaseTestingUtility();
 
     htu1.startMiniCluster();
@@ -374,10 +394,10 @@ public class TestImportTsv {
     String inputFile = "InputFile2.esv";
     FileSystem fs = FileSystem.get(conf);
     FSDataOutputStream op = fs.create(new Path(inputFile), true);
-   
+
     op.write(Bytes.toBytes("KEY\u001bVALUE1\u001bVALUE2\n"));
     op.close();
-    
+
     final byte[] FAM = Bytes.toBytes("family");
     final byte[] TAB = Bytes.toBytes("Mytablename");
     HTableDescriptor desc = new HTableDescriptor(TAB);
@@ -386,19 +406,19 @@ public class TestImportTsv {
     admin.createTable(desc);
     admin.close();
 
-    File fconfig = new File("target"+File.separator+"test-classes"+File.separator+"hbase-site.xml");
+    File fconfig = new File("target" + File.separator + "test-classes" + File.separator + "hbase-site.xml");
     OutputStream out = new FileOutputStream(fconfig);
     conf.writeXml(out);
-    SecurityManager sm= System.getSecurityManager();
-    try{
-    new LauncherSecurityManager();
-    String[] args = { "-Dimporttsv.columns=a,b,HBASE_ROW_KEY", "Mytablename",inputFile };
-    ImportTsv.main(args);
-    fail("should be exit!");
-    }catch(SecurityException e){
+
+    try {
+      String[] args = { "-Dimporttsv.columns=a,b,HBASE_ROW_KEY", "Mytablename", inputFile };
+      ImportTsv.main(args);
+      fail("should be exit!");
+    } catch (SecurityException e) {
       assertEquals("Intercepted System.exit(0)", e.getMessage());
-    }finally{
-      System.setSecurityManager(sm);
+    } finally {
+      System.setErr(oldErrorStream);
+      System.setSecurityManager(oldSecurityManager);
       htu1.shutdownMiniMapReduceCluster();
       htu1.shutdownMiniCluster();
     }
