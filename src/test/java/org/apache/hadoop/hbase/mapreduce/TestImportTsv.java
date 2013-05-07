@@ -19,6 +19,9 @@
  */
 package org.apache.hadoop.hbase.mapreduce;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.OutputStream;
 import java.io.UnsupportedEncodingException;
 import java.util.List;
 import java.util.ArrayList;
@@ -37,6 +40,7 @@ import org.apache.hadoop.hbase.mapreduce.ImportTsv.TsvParser;
 import org.apache.hadoop.hbase.mapreduce.ImportTsv.TsvParser.BadTsvLineException;
 import org.apache.hadoop.hbase.mapreduce.ImportTsv.TsvParser.ParsedLine;
 import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.hbase.util.LauncherSecurityManager;
 import org.apache.hadoop.hbase.client.HTable;
 import org.apache.hadoop.hbase.client.ResultScanner;
 import org.apache.hadoop.hbase.client.Scan;
@@ -360,3 +364,21 @@ public class TestImportTsv {
     new org.apache.hadoop.hbase.ResourceCheckerJUnitRule();
 }
 
+    File fconfig = new File("target"+File.separator+"test-classes"+File.separator+"hbase-site.xml");
+    OutputStream out = new FileOutputStream(fconfig);
+    conf.writeXml(out);
+    SecurityManager sm= System.getSecurityManager();
+    try{
+    new LauncherSecurityManager();
+    String[] args = { "-Dimporttsv.columns=a,b,HBASE_ROW_KEY", "Mytablename",inputFile };
+    ImportTsv.main(args);
+    fail("should be exit!");
+    }catch(SecurityException e){
+      assertEquals("Intercepted System.exit(0)", e.getMessage());
+    }finally{
+      System.setSecurityManager(sm);
+      htu1.shutdownMiniMapReduceCluster();
+      htu1.shutdownMiniCluster();
+    }
+  }
+}
