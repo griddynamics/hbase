@@ -157,11 +157,13 @@ public class TestImportExport {
     p.add(FAMILYA, QUAL, now+1, QUAL);
     p.add(FAMILYA, QUAL, now+2, QUAL);
     t.put(p);
-
     String[] args = new String[] {
         EXPORT_TABLE,
         OUTPUT_DIR,
-        "1000"
+        "1000",
+        Long.toString(0),
+        Long.toString(System.currentTimeMillis()),
+        "^row."
     };
 
     GenericOptionsParser opts = new GenericOptionsParser(new Configuration(cluster.getConfiguration()), args);
