@@ -18,14 +18,17 @@
  */
 package org.apache.hadoop.hbase.security;
 
-import static org.apache.hadoop.hbase.security.HBaseKerberosUtils.getConfigurationWithoutPrincipal;
+import static org.apache.hadoop.hbase.security.HBaseKerberosUtils.getConfigurationWoPrincipal;
 import static org.apache.hadoop.hbase.security.HBaseKerberosUtils.getKeytabFileForTesting;
 import static org.apache.hadoop.hbase.security.HBaseKerberosUtils.getPrincipalForTesting;
 import static org.apache.hadoop.hbase.security.HBaseKerberosUtils.getSecuredConfiguration;
 import static org.apache.hadoop.hbase.security.HBaseKerberosUtils.isKerberosPropertySetted;
+import static org.apache.hadoop.hbase.security.HBaseKerberosUtils.setKeytabFileForTesting;
+import static org.apache.hadoop.hbase.security.HBaseKerberosUtils.setPrincipalForTesting;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assume.assumeTrue;
 
 import java.io.IOException;
 
@@ -33,7 +36,6 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HBaseConfiguration;
 import org.apache.hadoop.hbase.SmallTests;
 import org.apache.hadoop.security.UserGroupInformation;
-import org.junit.Assume;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
@@ -73,7 +75,10 @@ public class TestUsersOperationsWithSecureHadoop {
   @Test
   public void testLoginInSecureHadoop() throws IOException {
     UserGroupInformation defaultLogin = UserGroupInformation.getLoginUser();
-    Configuration conf = getConfigurationWithoutPrincipal();
+    setKeytabFileForTesting("/etc/krb5.keytab");
+    setPrincipalForTesting("a/localhost@EXAMPLE.COM");
+
+    Configuration conf = getConfigurationWoPrincipal();
     User.login(conf, HBaseKerberosUtils.KRB_KEYTAB_FILE,
         HBaseKerberosUtils.KRB_PRINCIPAL, "localhost");
 
@@ -81,7 +86,7 @@ public class TestUsersOperationsWithSecureHadoop {
     assertTrue("ugi should be the same in case fail login",
         defaultLogin.equals(failLogin));
 
-    Assume.assumeTrue(isKerberosPropertySetted());
+    assumeTrue(isKerberosPropertySetted());
     String nnKeyTab = getKeytabFileForTesting();
     String dnPrincipal = getPrincipalForTesting();
     assertNotNull("KerberosKeytab was not specified", nnKeyTab);

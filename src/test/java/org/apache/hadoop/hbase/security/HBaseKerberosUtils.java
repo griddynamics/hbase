@@ -76,7 +76,7 @@ public class HBaseKerberosUtils {
    * 
    * @return Configuration
    */
-  public static Configuration getConfigurationWithoutPrincipal() {
+  public static Configuration getConfigurationWoPrincipal() {
     Configuration conf = new Configuration();
     conf.set(CommonConfigurationKeys.HADOOP_SECURITY_AUTHENTICATION, "kerberos");
     conf.set("hbase.security.authentication", "kerberos");

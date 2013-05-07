@@ -254,8 +254,11 @@ public class TestUser {
     }
     User.IS_SECURE_HADOOP = true;
     //
-
-    //Can't find method getCurrentUGI in org.apache.hadoop.security.UserGroupInformation.getCurrentUGI
+    
+   /*
+    * Can't find method getCurrentUGI in 
+    * org.apache.hadoop.security.UserGroupInformation.getCurrentUGI
+    */
     User.IS_SECURE_HADOOP = false;
     try {
       hadoopUser = User.getCurrent();
