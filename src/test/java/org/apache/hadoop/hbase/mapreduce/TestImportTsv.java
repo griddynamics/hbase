@@ -360,9 +360,31 @@ public class TestImportTsv {
   }
 
   @org.junit.Rule
-  public org.apache.hadoop.hbase.ResourceCheckerJUnitRule cu =
-    new org.apache.hadoop.hbase.ResourceCheckerJUnitRule();
-}
+  public org.apache.hadoop.hbase.ResourceCheckerJUnitRule cu = new org.apache.hadoop.hbase.ResourceCheckerJUnitRule();
+
+  @Test
+  public void testMain() throws Exception {
+    HBaseTestingUtility htu1 = new HBaseTestingUtility();
+
+    htu1.startMiniCluster();
+    htu1.startMiniMapReduceCluster();
+
+    Configuration conf = htu1.getConfiguration();
+
+    String inputFile = "InputFile2.esv";
+    FileSystem fs = FileSystem.get(conf);
+    FSDataOutputStream op = fs.create(new Path(inputFile), true);
+   
+    op.write(Bytes.toBytes("KEY\u001bVALUE1\u001bVALUE2\n"));
+    op.close();
+    
+    final byte[] FAM = Bytes.toBytes("family");
+    final byte[] TAB = Bytes.toBytes("Mytablename");
+    HTableDescriptor desc = new HTableDescriptor(TAB);
+    desc.addFamily(new HColumnDescriptor(FAM));
+    HBaseAdmin admin = new HBaseAdmin(conf);
+    admin.createTable(desc);
+    admin.close();
 
     File fconfig = new File("target"+File.separator+"test-classes"+File.separator+"hbase-site.xml");
     OutputStream out = new FileOutputStream(fconfig);
