@@ -25,6 +25,7 @@ import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.lib.partition.KeyFieldBasedPartitioner;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 import static org.junit.Assert.*;
@@ -88,4 +89,23 @@ public class TestTableMapReduceUtil {
     assertEquals("Table", job.getConfiguration().get(TableInputFormat.INPUT_TABLE));
     assertEquals("org.apache.hadoop.io.serializer.WritableSerialization", job.getConfiguration().get("io.serializations"));
   }
+  
+  /**
+   * test initTableReducerJob method
+   * @throws Exception
+   */
+  @Test
+  public void testinitCredentials() throws Exception{
+    Configuration configuration = new Configuration();
+    Job job= new Job(configuration);
+    TableMapReduceUtil.initTableReducerJob("table", IdentityTableReducer.class, job, KeyFieldBasedPartitioner.class, "quorum:12345:directory", "serverClass", "serverImpl", true);
+    configuration= job.getConfiguration();
+    assertEquals("quorum:12345:directory",configuration.get(TableOutputFormat.QUORUM_ADDRESS));
+    assertEquals(TableOutputFormat.class,job.getOutputFormatClass());
+    assertEquals("serverClass",configuration.get(TableOutputFormat.REGION_SERVER_CLASS));
+    assertEquals("serverImpl",configuration.get(TableOutputFormat.REGION_SERVER_IMPL));
+    assertEquals(KeyFieldBasedPartitioner.class,job.getPartitionerClass());
+    
+  }
+
 }

@@ -43,5 +43,20 @@ public class TestTableSplit {
   @org.junit.Rule
   public org.apache.hadoop.hbase.ResourceCheckerJUnitRule cu =
     new org.apache.hadoop.hbase.ResourceCheckerJUnitRule();
+  
+
+  @Test
+  public void testCompareTo() {
+    TableSplit split1 = new TableSplit("table".getBytes(), "row-start".getBytes(), "row-end".getBytes(), "location");
+    TableSplit split2 = new TableSplit("table".getBytes(), "row-start".getBytes(), "row-end".getBytes(), "location");
+    TableSplit split3 = new TableSplit("table2".getBytes(), "row-start".getBytes(), "row-end".getBytes(), "location");
+    TableSplit split4 = new TableSplit("table".getBytes(), "row-start1".getBytes(), "row-end".getBytes(), "location");
+
+    assertEquals   (0, split1.compareTo(split2));
+    assertEquals   (-1, split1.compareTo(split3));
+    assertEquals   (-1, split1.compareTo(split4));
+
+  }
+
 }
 
