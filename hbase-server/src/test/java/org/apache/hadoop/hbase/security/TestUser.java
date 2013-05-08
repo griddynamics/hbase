@@ -151,7 +151,7 @@ public class TestUser {
 
     for (String group : user.getGroupNames()) {
       assertTrue("groupName should be in set ", groups.contains(group));
-    }    
+    }
   }
 
   @Test
@@ -166,12 +166,12 @@ public class TestUser {
 
     conf = HBaseConfiguration.create();
     conf.set(CommonConfigurationKeys.HADOOP_SECURITY_AUTHENTICATION, "kerberos");
-    assertFalse("Single property shouldn't be enoght for enable security", 
+    assertFalse("Single property shouldn't be enoght for enable security",
         User.isHBaseSecurityEnabled(conf));
 
     conf = HBaseConfiguration.create();
     conf.set("hbase.security.authentication", "kerberos");
-    assertFalse("Single property shouldn't be enoght for enable security", 
+    assertFalse("Single property shouldn't be enoght for enable security",
         User.isHBaseSecurityEnabled(conf));
   }
 }

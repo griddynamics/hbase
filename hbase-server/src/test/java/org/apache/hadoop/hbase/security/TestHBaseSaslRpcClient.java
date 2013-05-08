@@ -60,11 +60,11 @@ import org.mockito.Mockito;
 import com.google.common.base.Strings;
 
 @Category(SmallTests.class)
-public class TestHBaseSaslRpcClient {  
+public class TestHBaseSaslRpcClient {
   static final String DEFAULT_USER_NAME = "principal";
   static final String DEFAULT_USER_PASSWORD = "password";
 
-  private static final Logger LOG = Logger.getLogger(TestHBaseSaslRpcClient.class);  
+  private static final Logger LOG = Logger.getLogger(TestHBaseSaslRpcClient.class);
 
   @BeforeClass
   public static void before() {
@@ -82,7 +82,7 @@ public class TestHBaseSaslRpcClient {
     final RealmCallback realmCallback = mock(RealmCallback.class);
     final RealmChoiceCallback realmChoiceCallback = mock(RealmChoiceCallback.class);
 
-    Callback[] callbackArray = {nameCallback, passwordCallback, 
+    Callback[] callbackArray = {nameCallback, passwordCallback,
         realmCallback, realmChoiceCallback};
     final SaslClientCallbackHandler saslClCallbackHandler = new SaslClientCallbackHandler(token);
     saslClCallbackHandler.handle(callbackArray);
@@ -95,7 +95,7 @@ public class TestHBaseSaslRpcClient {
   public void testSaslClientCallbackHandlerWithException() {
     final Token<? extends TokenIdentifier> token = createTokenMock();
     when(token.getIdentifier()).thenReturn(DEFAULT_USER_NAME.getBytes());
-    when(token.getPassword()).thenReturn(DEFAULT_USER_PASSWORD.getBytes());    
+    when(token.getPassword()).thenReturn(DEFAULT_USER_PASSWORD.getBytes());
     final SaslClientCallbackHandler saslClCallbackHandler = new SaslClientCallbackHandler(token);
     try {
       saslClCallbackHandler.handle(new Callback[] { mock(TextOutputCallback.class) });
@@ -143,23 +143,24 @@ public class TestHBaseSaslRpcClient {
 
     assertAuthMethodWrite(out, AuthMethod.SIMPLE);
     assertAuthMethodWrite(out, AuthMethod.KERBEROS);
-    assertAuthMethodWrite(out, AuthMethod.DIGEST);   
+    assertAuthMethodWrite(out, AuthMethod.DIGEST);
   }
 
-  private void assertAuthMethodRead(DataInputBuffer in, AuthMethod authMethod) 
+  private void assertAuthMethodRead(DataInputBuffer in, AuthMethod authMethod)
       throws IOException {
     in.reset(new byte[] {authMethod.code}, 1);
     assertEquals(authMethod, AuthMethod.read(in));
   }
 
-  private void assertAuthMethodWrite(DataOutputBuffer out, AuthMethod authMethod) 
+  private void assertAuthMethodWrite(DataOutputBuffer out, AuthMethod authMethod)
       throws IOException {
     authMethod.write(out);
     assertEquals(authMethod.code, out.getData()[0]);
     out.reset();
   }
 
-  private boolean assertIOExceptionWhenGetStreamsBeforeConnectCall(String principal, String password)
+  private boolean assertIOExceptionWhenGetStreamsBeforeConnectCall(String principal, String password
+)
       throws IOException {
     boolean inState = false;
     boolean outState = false;
@@ -256,7 +257,8 @@ public class TestHBaseSaslRpcClient {
     return new HBaseSaslRpcClient(AuthMethod.KERBEROS, createTokenMock(), principal);
   }
 
-  private HBaseSaslRpcClient createSaslRpcClientForDigest(String principal, String password) throws IOException {    
+  private HBaseSaslRpcClient createSaslRpcClientForDigest(String principal, String password) 
+      throws IOException {
     Token<? extends TokenIdentifier> token = createTokenMock();
     if (!Strings.isNullOrEmpty(principal) && !Strings.isNullOrEmpty(password)) {
       when(token.getIdentifier()).thenReturn(DEFAULT_USER_NAME.getBytes());
@@ -265,7 +267,8 @@ public class TestHBaseSaslRpcClient {
     return new HBaseSaslRpcClient(AuthMethod.DIGEST, token, principal);
   }
 
-  private HBaseSaslRpcClient createSaslRpcClientSimple(String principal, String password) throws IOException {
+  private HBaseSaslRpcClient createSaslRpcClientSimple(String principal, String password) 
+      throws IOException {
     return new HBaseSaslRpcClient(AuthMethod.SIMPLE, createTokenMock(), principal);
   }
 

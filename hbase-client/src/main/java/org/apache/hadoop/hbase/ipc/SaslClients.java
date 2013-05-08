@@ -29,7 +29,7 @@ public final class SaslClients {
 
   public interface SaslClientProvider {
 
-    SaslClient createDigestSaslClient(String[] mechanismNames, String saslDefaultRealm, 
+    SaslClient createDigestSaslClient(String[] mechanismNames, String saslDefaultRealm,
         CallbackHandler saslClientCallbackHandler) throws IOException;
 
     SaslClient createKerberosSaslClient(String[] mechanismNames,
@@ -44,7 +44,7 @@ public final class SaslClients {
 
   private static final class DefaultSaslClientProvider implements SaslClientProvider {
     @Override
-    public SaslClient createDigestSaslClient(String[] mechanismNames, String saslDefaultRealm, 
+    public SaslClient createDigestSaslClient(String[] mechanismNames, String saslDefaultRealm,
         CallbackHandler saslClientCallbackHandler) throws IOException {
       return Sasl.createSaslClient(mechanismNames, null, null, saslDefaultRealm,
           SaslUtil.SASL_PROPS, saslClientCallbackHandler);
@@ -58,15 +58,15 @@ public final class SaslClients {
     }
   }
 
-  public static SaslClient getDigestSaslClient(String[] mechanismNames, 
+  public static SaslClient getDigestSaslClient(String[] mechanismNames,
       String saslDefaultRealm, CallbackHandler saslClientCallbackHandler) throws IOException {
-    return provider.createDigestSaslClient(mechanismNames, saslDefaultRealm, 
+    return provider.createDigestSaslClient(mechanismNames, saslDefaultRealm,
         saslClientCallbackHandler);
   }
 
   public static SaslClient getKerberosSaslClients(String[] mechanismNames,
       String userFirstPart, String userSecondPart) throws IOException {
-    return provider.createKerberosSaslClient(mechanismNames, userFirstPart, 
+    return provider.createKerberosSaslClient(mechanismNames, userFirstPart,
         userSecondPart);
   }
 }

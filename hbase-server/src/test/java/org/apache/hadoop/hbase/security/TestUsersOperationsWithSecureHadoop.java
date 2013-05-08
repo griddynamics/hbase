@@ -42,13 +42,13 @@ import org.junit.experimental.categories.Category;
 public class TestUsersOperationsWithSecureHadoop {
   /**
    * test login with security enabled configuration
-   * 
+   *
    * To run this test, we must specify the following system properties:
    * <p>
    * <b> hbase.regionserver.kerberos.principal </b>
    * <p>
    * <b> hbase.regionserver.keytab.file </b>
-   * @throws IOException 
+   * @throws IOException
    *
    */
   @Test
@@ -78,7 +78,7 @@ public class TestUsersOperationsWithSecureHadoop {
 
     User.login(conf, HBaseKerberosUtils.KRB_KEYTAB_FILE,
         HBaseKerberosUtils.KRB_PRINCIPAL, "localhost");
-    UserGroupInformation successLogin = UserGroupInformation.getLoginUser();    
+    UserGroupInformation successLogin = UserGroupInformation.getLoginUser();
     assertFalse("ugi should be different in in case success login",
        defaultLogin.equals(successLogin));
   }

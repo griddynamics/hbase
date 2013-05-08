@@ -60,7 +60,7 @@ public class HBaseSaslRpcClient {
 
   /**
    * Create a HBaseSaslRpcClient for an authentication method
-   * 
+   *
    * @param method
    *          the requested authentication method
    * @param token
@@ -96,7 +96,7 @@ public class HBaseSaslRpcClient {
                 + serverPrincipal);
       }
       saslClient = SaslClients.getKerberosSaslClients(
-          new String[] { AuthMethod.KERBEROS.getMechanismName() }, 
+          new String[] { AuthMethod.KERBEROS.getMechanismName() },
           names[0], names[1]);
       break;
     default:
@@ -113,16 +113,16 @@ public class HBaseSaslRpcClient {
           WritableUtils.readString(inStream));
     }
   }
-  
+
   /**
    * Do client side SASL authentication with server via the given InputStream
    * and OutputStream
-   * 
+   *
    * @param inS
    *          InputStream to use
    * @param outS
    *          OutputStream to use
-   * @return true if connection is set up, or false if needs to switch 
+   * @return true if connection is set up, or false if needs to switch
    *             to simple Auth.
    * @throws IOException
    */
@@ -197,7 +197,7 @@ public class HBaseSaslRpcClient {
   /**
    * Get a SASL wrapped InputStream. Can be called only after saslConnect() has
    * been called.
-   * 
+   *
    * @param in
    *          the InputStream to wrap
    * @return a SASL wrapped InputStream
@@ -213,7 +213,7 @@ public class HBaseSaslRpcClient {
   /**
    * Get a SASL wrapped OutputStream. Can be called only after saslConnect() has
    * been called.
-   * 
+   *
    * @param out
    *          the OutputStream to wrap
    * @return a SASL wrapped OutputStream

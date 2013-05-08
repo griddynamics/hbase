@@ -43,7 +43,7 @@ public class HBaseKerberosUtils {
   public static void setKeytabFileForTesting(String keytabFile) {
     setSystemProperty(KRB_KEYTAB_FILE, keytabFile);
   }
-  
+
   private static void setSystemProperty(String propertyName, String propertyValue) {
     System.setProperty(propertyName, propertyValue);
   }
@@ -63,7 +63,7 @@ public class HBaseKerberosUtils {
     conf.setBoolean("hbase.security.authorization", true);
     return conf;
   }
-  
+
   public static Configuration getSecuredConfiguration() {
     Configuration conf = HBaseConfiguration.create();
     conf.set(CommonConfigurationKeys.HADOOP_SECURITY_AUTHENTICATION, "kerberos");

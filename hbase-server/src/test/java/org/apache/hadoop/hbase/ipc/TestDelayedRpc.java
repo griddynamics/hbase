@@ -124,13 +124,13 @@ public class TestDelayedRpc {
     SecurityInfo.addInfo("TestDelayedService", securityInfoMock);
 
     boolean delayReturnValue = false;
-    InetSocketAddress isa = new InetSocketAddress("localhost", 0);    
+    InetSocketAddress isa = new InetSocketAddress("localhost", 0);
     TestDelayedImplementation instance = new TestDelayedImplementation(delayReturnValue);
-    BlockingService service = 
+    BlockingService service =
         TestDelayedRpcProtos.TestDelayedService.newReflectiveBlockingService(instance);
 
     rpcServer = new RpcServer(null, "testSecuredDelayedRpc",
-        Lists.newArrayList(new RpcServer.BlockingServiceAndInterface(service, null)), 
+        Lists.newArrayList(new RpcServer.BlockingServiceAndInterface(service, null)),
           isa, 1, 0, conf, 0);
     rpcServer.start();
     RpcClient rpcClient = new RpcClient(conf, HConstants.DEFAULT_CLUSTER_ID.toString());
@@ -142,10 +142,10 @@ public class TestDelayedRpc {
       TestDelayedRpcProtos.TestDelayedService.BlockingInterface stub =
         TestDelayedRpcProtos.TestDelayedService.newBlockingStub(channel);
       List<Integer> results = new ArrayList<Integer>();
-      TestThread th1 = new TestThread(stub, true, results);  
+      TestThread th1 = new TestThread(stub, true, results);
       th1.start();
       Thread.sleep(100);
-      th1.join();     
+      th1.join();
 
       assertEquals(0xDEADBEEF, results.get(0).intValue());
     } finally {
@@ -273,7 +273,7 @@ public class TestDelayedRpc {
     }
   }
 
-  static class TestDelayedImplementationWithSecurity implements 
+  static class TestDelayedImplementationWithSecurity implements
     TestDelayedRpcProtos.TestDelayedService.BlockingInterface {
 
     private final boolean delayReturnValue;
@@ -299,7 +299,7 @@ public class TestDelayedRpc {
           try {
             Thread.sleep(500);
             TestResponse.Builder responseBuilder = TestResponse.newBuilder();
-            call.endDelay(delayReturnValue ? 
+            call.endDelay(delayReturnValue ?
                 responseBuilder.setResponse(DELAYED).build() : null);
           } catch (Exception e) {
             e.printStackTrace();
@@ -346,7 +346,7 @@ public class TestDelayedRpc {
           try {
             Thread.sleep(500);
             TestResponse.Builder responseBuilder = TestResponse.newBuilder();
-            call.endDelay(delayReturnValue ? 
+            call.endDelay(delayReturnValue ?
                 responseBuilder.setResponse(DELAYED).build() : null);
           } catch (Exception e) {
             e.printStackTrace();
