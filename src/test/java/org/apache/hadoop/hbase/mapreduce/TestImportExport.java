@@ -44,6 +44,7 @@ import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.ResultScanner;
 import org.apache.hadoop.hbase.client.Scan;
+import org.apache.hadoop.hbase.client.ScannerCallable;
 import org.apache.hadoop.hbase.filter.Filter;
 import org.apache.hadoop.hbase.filter.FilterBase;
 import org.apache.hadoop.hbase.filter.PrefixFilter;
@@ -168,6 +169,7 @@ public class TestImportExport {
 
     GenericOptionsParser opts = new GenericOptionsParser(new Configuration(cluster.getConfiguration()), args);
     Configuration conf = opts.getConfiguration();
+    conf.setBoolean(ScannerCallable.LOG_SCANNER_ACTIVITY, true);
     args = opts.getRemainingArgs();
 
     Job job = Export.createSubmittableJob(conf, args);
