@@ -22,6 +22,7 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.List;
@@ -123,6 +124,52 @@ public class TestWALPlayer {
     Result r = t2.get(g);
     assertEquals(1, r.size());
     assertTrue(Bytes.equals(COLUMN2, r.raw()[0].getQualifier()));
+  }
+  /**
+   * Simple end-to-end test
+   * @throws Exception
+   */
+  @Test
+  public void testWALPlayerFileOut() throws Exception {
+    final byte[] TABLENAME1 = Bytes.toBytes("testWALPlayer11");
+    final byte[] TABLENAME2 = Bytes.toBytes("testWALPlayer12");
+    final byte[] FAMILY = Bytes.toBytes("family");
+    final byte[] COLUMN1 = Bytes.toBytes("c1");
+    final byte[] COLUMN2 = Bytes.toBytes("c2");
+    final byte[] ROW = Bytes.toBytes("row");
+    HTable t1 = TEST_UTIL.createTable(TABLENAME1, FAMILY);
+    HTable t2 = TEST_UTIL.createTable(TABLENAME2, FAMILY);
+
+    // put a row into the first table
+    Put p = new Put(ROW);
+    p.add(FAMILY, COLUMN1, COLUMN1);
+    p.add(FAMILY, COLUMN2, COLUMN2);
+    t1.put(p);
+    // delete one column
+    Delete d = new Delete(ROW);
+    d.deleteColumns(FAMILY, COLUMN1);
+    t1.delete(d);
+
+    // replay the WAL, map table 1 to table 2
+    HLog log = cluster.getRegionServer(0).getWAL();
+    log.rollWriter();
+    String walInputDir = new Path(cluster.getMaster().getMasterFileSystem()
+        .getRootDir(), HConstants.HREGION_LOGDIR_NAME).toString();
+
+    Configuration configuration= TEST_UTIL.getConfiguration();
+    configuration.set(WALPlayer.BULK_OUTPUT_CONF_KEY,new File("myout").getAbsolutePath());    
+    WALPlayer player = new WALPlayer(configuration);
+    String optionName="_test_.name";
+    configuration.set(optionName, "1000");
+    player.setupTime(configuration, optionName);
+    assertEquals(1000,configuration.getLong(optionName,0));
+    assertEquals(0, player.run(new String[] { walInputDir, Bytes.toString(TABLENAME1),
+        Bytes.toString(TABLENAME2) }));
+
+    
+    // verify the WAL was player into table 2
+    Result r = t2.get(new Get(ROW));
+    assertEquals(0, r.size());
   }
   /**
    * Test HLogKeyValueMapper setup and map

@@ -406,7 +406,7 @@ public class TestImportTsv {
     admin.createTable(desc);
     admin.close();
 
-    File fconfig = new File("target" + File.separator + "test-classes" + File.separator + "hbase-site.xml");
+    File fconfig = new File("target" + File.separator + "test-classes" + File.separator + "hbase-default.xml");
     OutputStream out = new FileOutputStream(fconfig);
     conf.writeXml(out);
 
@@ -421,6 +421,7 @@ public class TestImportTsv {
       System.setSecurityManager(oldSecurityManager);
       htu1.shutdownMiniMapReduceCluster();
       htu1.shutdownMiniCluster();
+      fconfig.delete();
     }
   }
 }
