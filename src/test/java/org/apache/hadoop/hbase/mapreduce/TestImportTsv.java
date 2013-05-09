@@ -28,6 +28,7 @@ import java.io.UnsupportedEncodingException;
 import java.util.List;
 import java.util.ArrayList;
 
+import org.apache.commons.io.FileUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hbase.*;
@@ -360,10 +361,9 @@ public class TestImportTsv {
   public static String toU8Str(byte[] bytes) throws UnsupportedEncodingException {
     return new String(bytes);
   }
-
-  @org.junit.Rule
-  public org.apache.hadoop.hbase.ResourceCheckerJUnitRule cu =
-    new org.apache.hadoop.hbase.ResourceCheckerJUnitRule();
+/**
+ * Test main method of ImportTsv
+ */
 
   @Test
   public void testMain() throws Exception {
@@ -372,7 +372,7 @@ public class TestImportTsv {
     System.setErr(new PrintStream(data));
     SecurityManager oldSecurityManager = System.getSecurityManager();
     new LauncherSecurityManager();
-
+    // test print help test
     try {
       String args[] = {};
       ImportTsv.main(args);
@@ -406,10 +406,12 @@ public class TestImportTsv {
     admin.createTable(desc);
     admin.close();
 
-    File fconfig = new File("target" + File.separator + "test-classes" + File.separator + "hbase-default.xml");
+    FileUtils.moveFile(new File("target" + File.separator + "test-classes" + File.separator + "hbase-site.xml"), new File("target" + File.separator + "test-classes" + File.separator + "hbase-site.xml.old"));
+    File fconfig = new File("target" + File.separator + "test-classes" + File.separator + "hbase-site.xml");
     OutputStream out = new FileOutputStream(fconfig);
     conf.writeXml(out);
-
+    out.close();
+    // try to execute ImportTsv
     try {
       String[] args = { "-Dimporttsv.columns=a,b,HBASE_ROW_KEY", "Mytablename", inputFile };
       ImportTsv.main(args);
@@ -419,9 +421,16 @@ public class TestImportTsv {
     } finally {
       System.setErr(oldErrorStream);
       System.setSecurityManager(oldSecurityManager);
+      fconfig.delete();
+      FileUtils.moveFile(new File("target" + File.separator + "test-classes" + File.separator + "hbase-site.xml.old"), new File("target" + File.separator + "test-classes" + File.separator + "hbase-site.xml"));
+
       htu1.shutdownMiniMapReduceCluster();
       htu1.shutdownMiniCluster();
-      fconfig.delete();
+
     }
   }
+  @org.junit.Rule
+  public org.apache.hadoop.hbase.ResourceCheckerJUnitRule cu =
+    new org.apache.hadoop.hbase.ResourceCheckerJUnitRule();
+
 }
