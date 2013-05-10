@@ -94,7 +94,8 @@ public class TestCellCounter {
     System.out.println("file out:" + FQ_OUTPUT_DIR.toString());
     String[] args = { sourceTable, FQ_OUTPUT_DIR.toString(), ";", "^row1" };
     runCount(args);
-    FileInputStream inputStream = new FileInputStream(OUTPUT_DIR + File.separator + "part-r-00000");
+    FileInputStream inputStream = new FileInputStream(OUTPUT_DIR + File.separator + 
+        "part-r-00000");
     String data = IOUtils.toString(inputStream);
     inputStream.close();
     assertTrue(data.contains("Total Families Across all Rows" + "\t" + "2"));
@@ -142,7 +143,8 @@ public class TestCellCounter {
         assertTrue(data
             .toString()
             .contains(
-                "Usage: CellCounter <tablename> <outputDir> <reportSeparator> [^[regex pattern] or [Prefix] for row filter]]"));
+                "Usage: CellCounter <tablename> <outputDir> <reportSeparator> [^[regex pattern]" +
+                " or [Prefix] for row filter]]"));
         assertTrue(data.toString().contains("-D hbase.mapreduce.scan.column.family=<familyName>"));
       }
 
