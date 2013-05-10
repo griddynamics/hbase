@@ -53,7 +53,8 @@ public class TestCellCounter {
   private static final byte[] QUALIFIER = Bytes.toBytes("q");
 
   private static Path FQ_OUTPUT_DIR;
-  private static final String OUTPUT_DIR = "target" + File.separator + "test-data" + File.separator + "output";
+  private static final String OUTPUT_DIR = "target" + File.separator + "test-data" + File.separator
+      + "output";
   private static long now = System.currentTimeMillis();
 
   @BeforeClass
@@ -78,7 +79,7 @@ public class TestCellCounter {
   public void testCellCounter() throws Exception {
     String sourceTable = "sourceTable";
 
-    byte[][] families = {FAMILY_A, FAMILY_B};
+    byte[][] families = { FAMILY_A, FAMILY_B };
     HTable t = UTIL.createTable(Bytes.toBytes(sourceTable), families);
     Put p = new Put(ROW1);
     p.add(FAMILY_A, QUALIFIER, now, Bytes.toBytes("Data11"));
@@ -105,10 +106,12 @@ public class TestCellCounter {
 
   }
 
-  private boolean runCount(String[] args) throws IOException, InterruptedException, ClassNotFoundException {
+  private boolean runCount(String[] args) throws IOException, InterruptedException,
+      ClassNotFoundException {
     // need to make a copy of the configuration because to make sure
     // different temp dirs are used.
-    GenericOptionsParser opts = new GenericOptionsParser(new Configuration(UTIL.getConfiguration()), args);
+    GenericOptionsParser opts = new GenericOptionsParser(
+        new Configuration(UTIL.getConfiguration()), args);
     Configuration configuration = opts.getConfiguration();
     args = opts.getRemainingArgs();
     Job job = CellCounter.createSubmittableJob(configuration, args);
@@ -136,8 +139,10 @@ public class TestCellCounter {
         fail("should be SecurityException");
       } catch (SecurityException e) {
         assertTrue(data.toString().contains("ERROR: Wrong number of parameters:"));
-        assertTrue(data.toString().contains(
-            "Usage: CellCounter <tablename> <outputDir> <reportSeparator> [^[regex pattern] or [Prefix] for row filter]]"));
+        assertTrue(data
+            .toString()
+            .contains(
+                "Usage: CellCounter <tablename> <outputDir> <reportSeparator> [^[regex pattern] or [Prefix] for row filter]]"));
         assertTrue(data.toString().contains("-D hbase.mapreduce.scan.column.family=<familyName>"));
       }
 

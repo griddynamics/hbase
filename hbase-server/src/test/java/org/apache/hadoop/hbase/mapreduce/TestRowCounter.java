@@ -195,7 +195,8 @@ public class TestRowCounter {
       } catch (SecurityException e) {
         assertTrue(data.toString().contains("Wrong number of parameters:"));
         assertTrue(data.toString().contains(
-            "Usage: RowCounter [options] <tablename> [--range=[startKey],[endKey]] [<column1> <column2>...]"));
+            "Usage: RowCounter [options] <tablename> [--range=[startKey],[endKey]] " +
+            "[<column1> <column2>...]"));
         assertTrue(data.toString().contains("-Dhbase.client.scanner.caching=100"));
         assertTrue(data.toString().contains("-Dmapred.map.tasks.speculative.execution=false"));
       }
@@ -208,9 +209,11 @@ public class TestRowCounter {
         fail("should be SecurityException");
       } catch (SecurityException e) {
         assertTrue(data.toString().contains(
-            "Please specify range in such format as \"--range=a,b\" or, with only one boundary, \"--range=,b\" or \"--range=a,\""));
+            "Please specify range in such format as \"--range=a,b\" or, with only one boundary," +
+            " \"--range=,b\" or \"--range=a,\""));
         assertTrue(data.toString().contains(
-            "Usage: RowCounter [options] <tablename> [--range=[startKey],[endKey]] [<column1> <column2>...]"));
+            "Usage: RowCounter [options] <tablename> [--range=[startKey],[endKey]] " +
+            "[<column1> <column2>...]"));
       }
 
     } finally {

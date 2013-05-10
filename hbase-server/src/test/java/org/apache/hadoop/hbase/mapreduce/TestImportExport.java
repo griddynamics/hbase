@@ -417,7 +417,8 @@ public class TestImportExport {
       assertTrue(data
           .toString()
           .contains(
-              "Usage: Export [-D <property=value>]* <tablename> <outputdir> [<versions> [<starttime> [<endtime>]] [^[regex pattern] or [Prefix] to filter]]"));
+              "Usage: Export [-D <property=value>]* <tablename> <outputdir> [<versions> " +
+              "[<starttime> [<endtime>]] [^[regex pattern] or [Prefix] to filter]]"));
       assertTrue(data.toString().contains("-D hbase.mapreduce.scan.column.family=<familyName>"));
       assertTrue(data.toString().contains("-D hbase.mapreduce.include.deleted.rows=true"));
       assertTrue(data.toString().contains("-Dhbase.client.scanner.caching=100"));
@@ -456,8 +457,10 @@ public class TestImportExport {
     importer.setup(ctx);
     Result value = mock(Result.class);
     KeyValue[] keys = {
-        new KeyValue(Bytes.toBytes("row"), Bytes.toBytes("family"), Bytes.toBytes("qualifier"), Bytes.toBytes("value")),
-        new KeyValue(Bytes.toBytes("row"), Bytes.toBytes("family"), Bytes.toBytes("qualifier"), Bytes.toBytes("value1")) };
+        new KeyValue(Bytes.toBytes("row"), Bytes.toBytes("family"), Bytes.toBytes("qualifier"),
+            Bytes.toBytes("value")),
+        new KeyValue(Bytes.toBytes("row"), Bytes.toBytes("family"), Bytes.toBytes("qualifier"),
+            Bytes.toBytes("value1")) };
     when(value.raw()).thenReturn(keys);
     importer.map(new ImmutableBytesWritable(Bytes.toBytes("Key")), value, ctx);
 
@@ -476,7 +479,8 @@ public class TestImportExport {
     args.add("param2");
 
     Import.addFilterAndArguments(configuration, FilterBase.class, args);
-    assertEquals("org.apache.hadoop.hbase.filter.FilterBase", configuration.get(Import.FILTER_CLASS_CONF_KEY));
+    assertEquals("org.apache.hadoop.hbase.filter.FilterBase", 
+        configuration.get(Import.FILTER_CLASS_CONF_KEY));
     assertEquals("param1,param2", configuration.get(Import.FILTER_ARGS_CONF_KEY));
   }
 }

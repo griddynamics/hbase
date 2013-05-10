@@ -30,7 +30,7 @@ import org.junit.experimental.categories.Category;
 import static org.junit.Assert.*;
 
 /**
- * Test TableMapReduceUtil 
+ * Test TableMapReduceUtil
  */
 
 @Category(SmallTests.class)
@@ -39,66 +39,66 @@ public class TestTableMapReduceUtil {
   /**
    * Test initTableMapperJob method
    */
-    @Test
-    public void testInitTableMapperJob() throws Exception {
-        Configuration configuration = new Configuration();
-        Job job = new Job(configuration, "tableName");
-        TableMapReduceUtil.initTableMapperJob("Table", new Scan(), Import.Importer.class, Text.class, Text.class, job, false,
-                HLogInputFormat.class);
-        assertEquals(HLogInputFormat.class, job.getInputFormatClass());
-        assertEquals(Import.Importer.class, job.getMapperClass());
-        assertEquals(LongWritable.class, job.getOutputKeyClass());
-        assertEquals(Text.class, job.getOutputValueClass());
-        assertNull(job.getCombinerClass());
-        assertEquals("Table", job.getConfiguration().get(TableInputFormat.INPUT_TABLE));
-        assertEquals(
-                "org.apache.hadoop.io.serializer.WritableSerialization,org.apache.hadoop.hbase.mapreduce.MutationSerialization," +
-                "org.apache.hadoop.hbase.mapreduce.ResultSerialization,org.apache.hadoop.hbase.mapreduce.KeyValueSerialization",
-                job.getConfiguration().get("io.serializations"));
+  @Test
+  public void testInitTableMapperJob() throws Exception {
+    Configuration configuration = new Configuration();
+    Job job = new Job(configuration, "tableName");
+    TableMapReduceUtil.initTableMapperJob("Table", new Scan(), Import.Importer.class, Text.class,
+        Text.class, job, false, HLogInputFormat.class);
+    assertEquals(HLogInputFormat.class, job.getInputFormatClass());
+    assertEquals(Import.Importer.class, job.getMapperClass());
+    assertEquals(LongWritable.class, job.getOutputKeyClass());
+    assertEquals(Text.class, job.getOutputValueClass());
+    assertNull(job.getCombinerClass());
+    assertEquals("Table", job.getConfiguration().get(TableInputFormat.INPUT_TABLE));
+    assertEquals(
+        "org.apache.hadoop.io.serializer.WritableSerialization,org.apache.hadoop.hbase.mapreduce.MutationSerialization,"
+            + "org.apache.hadoop.hbase.mapreduce.ResultSerialization,org.apache.hadoop.hbase.mapreduce.KeyValueSerialization",
+        job.getConfiguration().get("io.serializations"));
 
-        configuration = new Configuration();
-        job = new Job(configuration, "tableName");
-        TableMapReduceUtil.initTableMapperJob(Bytes.toBytes("Table"), new Scan(), Import.Importer.class, Text.class,
-                Text.class, job, false, HLogInputFormat.class);
-        assertEquals(HLogInputFormat.class, job.getInputFormatClass());
-        assertEquals(Import.Importer.class, job.getMapperClass());
-        assertEquals(LongWritable.class, job.getOutputKeyClass());
-        assertEquals(Text.class, job.getOutputValueClass());
-        assertNull(job.getCombinerClass());
-        assertEquals("Table", job.getConfiguration().get(TableInputFormat.INPUT_TABLE));
-        assertEquals(
-                "org.apache.hadoop.io.serializer.WritableSerialization,org.apache.hadoop.hbase.mapreduce.MutationSerialization," +
-                "org.apache.hadoop.hbase.mapreduce.ResultSerialization,org.apache.hadoop.hbase.mapreduce.KeyValueSerialization",
-                job.getConfiguration().get("io.serializations"));
+    configuration = new Configuration();
+    job = new Job(configuration, "tableName");
+    TableMapReduceUtil.initTableMapperJob(Bytes.toBytes("Table"), new Scan(),
+        Import.Importer.class, Text.class, Text.class, job, false, HLogInputFormat.class);
+    assertEquals(HLogInputFormat.class, job.getInputFormatClass());
+    assertEquals(Import.Importer.class, job.getMapperClass());
+    assertEquals(LongWritable.class, job.getOutputKeyClass());
+    assertEquals(Text.class, job.getOutputValueClass());
+    assertNull(job.getCombinerClass());
+    assertEquals("Table", job.getConfiguration().get(TableInputFormat.INPUT_TABLE));
+    assertEquals(
+        "org.apache.hadoop.io.serializer.WritableSerialization,org.apache.hadoop.hbase.mapreduce.MutationSerialization,"
+            + "org.apache.hadoop.hbase.mapreduce.ResultSerialization,org.apache.hadoop.hbase.mapreduce.KeyValueSerialization",
+        job.getConfiguration().get("io.serializations"));
 
-        configuration = new Configuration();
-        job = new Job(configuration, "tableName");
-        TableMapReduceUtil.initTableMapperJob(Bytes.toBytes("Table"), new Scan(), Import.Importer.class, Text.class,
-                Text.class, job);
-        assertEquals(TableInputFormat.class, job.getInputFormatClass());
-        assertEquals(Import.Importer.class, job.getMapperClass());
-        assertEquals(LongWritable.class, job.getOutputKeyClass());
-        assertEquals(Text.class, job.getOutputValueClass());
-        assertNull(job.getCombinerClass());
-        assertEquals("Table", job.getConfiguration().get(TableInputFormat.INPUT_TABLE));
-        assertEquals(
-                "org.apache.hadoop.io.serializer.WritableSerialization,org.apache.hadoop.hbase.mapreduce.MutationSerialization," +
-                "org.apache.hadoop.hbase.mapreduce.ResultSerialization,org.apache.hadoop.hbase.mapreduce.KeyValueSerialization",
-                job.getConfiguration().get("io.serializations"));
+    configuration = new Configuration();
+    job = new Job(configuration, "tableName");
+    TableMapReduceUtil.initTableMapperJob(Bytes.toBytes("Table"), new Scan(),
+        Import.Importer.class, Text.class, Text.class, job);
+    assertEquals(TableInputFormat.class, job.getInputFormatClass());
+    assertEquals(Import.Importer.class, job.getMapperClass());
+    assertEquals(LongWritable.class, job.getOutputKeyClass());
+    assertEquals(Text.class, job.getOutputValueClass());
+    assertNull(job.getCombinerClass());
+    assertEquals("Table", job.getConfiguration().get(TableInputFormat.INPUT_TABLE));
+    assertEquals(
+        "org.apache.hadoop.io.serializer.WritableSerialization,org.apache.hadoop.hbase.mapreduce.MutationSerialization,"
+            + "org.apache.hadoop.hbase.mapreduce.ResultSerialization,org.apache.hadoop.hbase.mapreduce.KeyValueSerialization",
+        job.getConfiguration().get("io.serializations"));
 
-        configuration = new Configuration();
-        job = new Job(configuration, "tableName");
-        TableMapReduceUtil.initTableMapperJob(Bytes.toBytes("Table"), new Scan(), Import.Importer.class, Text.class,
-                Text.class, job, false);
-        assertEquals(TableInputFormat.class, job.getInputFormatClass());
-        assertEquals(Import.Importer.class, job.getMapperClass());
-        assertEquals(LongWritable.class, job.getOutputKeyClass());
-        assertEquals(Text.class, job.getOutputValueClass());
-        assertNull(job.getCombinerClass());
-        assertEquals("Table", job.getConfiguration().get(TableInputFormat.INPUT_TABLE));
-        assertEquals(
-            "org.apache.hadoop.io.serializer.WritableSerialization,org.apache.hadoop.hbase.mapreduce.MutationSerialization," +
-            "org.apache.hadoop.hbase.mapreduce.ResultSerialization,org.apache.hadoop.hbase.mapreduce.KeyValueSerialization",
-                job.getConfiguration().get("io.serializations"));
-    }
+    configuration = new Configuration();
+    job = new Job(configuration, "tableName");
+    TableMapReduceUtil.initTableMapperJob(Bytes.toBytes("Table"), new Scan(),
+        Import.Importer.class, Text.class, Text.class, job, false);
+    assertEquals(TableInputFormat.class, job.getInputFormatClass());
+    assertEquals(Import.Importer.class, job.getMapperClass());
+    assertEquals(LongWritable.class, job.getOutputKeyClass());
+    assertEquals(Text.class, job.getOutputValueClass());
+    assertNull(job.getCombinerClass());
+    assertEquals("Table", job.getConfiguration().get(TableInputFormat.INPUT_TABLE));
+    assertEquals(
+        "org.apache.hadoop.io.serializer.WritableSerialization,org.apache.hadoop.hbase.mapreduce.MutationSerialization,"
+            + "org.apache.hadoop.hbase.mapreduce.ResultSerialization,org.apache.hadoop.hbase.mapreduce.KeyValueSerialization",
+        job.getConfiguration().get("io.serializations"));
+  }
 }

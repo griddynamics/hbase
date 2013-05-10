@@ -141,7 +141,8 @@ public class TestExamples {
       }
     }).when(ctx).write(any(ImmutableBytesWritable.class), any(Put.class));
     Result result = mock(Result.class);
-    when(result.getValue(Bytes.toBytes("attributes"), Bytes.toBytes("column1"))).thenReturn(Bytes.toBytes("test"));
+    when(result.getValue(Bytes.toBytes("attributes"), Bytes.toBytes("column1"))).thenReturn(
+        Bytes.toBytes("test"));
     map.setup(ctx);
     map.map(rowKey, result, ctx);
   }
@@ -164,7 +165,8 @@ public class TestExamples {
         fail("should be SecurityException");
       } catch (SecurityException e) {
         assertTrue(data.toString().contains("arguments supplied, required: 3"));
-        assertTrue(data.toString().contains("Usage: IndexBuilder <TABLE_NAME> <COLUMN_FAMILY> <ATTR> [<ATTR> ...]"));
+        assertTrue(data.toString().contains(
+            "Usage: IndexBuilder <TABLE_NAME> <COLUMN_FAMILY> <ATTR> [<ATTR> ...]"));
       }
 
     } finally {

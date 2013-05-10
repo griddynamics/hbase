@@ -53,8 +53,10 @@ public class TestGroupingTableMapper {
     context.write(any(ImmutableBytesWritable.class), any(Result.class));
     List<KeyValue> keyValue = new ArrayList<KeyValue>();
     byte[] row = {};
-    keyValue.add(new KeyValue(row, Bytes.toBytes("family2"), Bytes.toBytes("clm"), Bytes.toBytes("value1")));
-    keyValue.add(new KeyValue(row, Bytes.toBytes("family1"), Bytes.toBytes("clm"), Bytes.toBytes("value2")));
+    keyValue.add(new KeyValue(row, Bytes.toBytes("family2"), Bytes.toBytes("clm"), Bytes
+        .toBytes("value1")));
+    keyValue.add(new KeyValue(row, Bytes.toBytes("family1"), Bytes.toBytes("clm"), Bytes
+        .toBytes("value2")));
     when(result.list()).thenReturn(keyValue);
     mapper.map(null, result, context);
     // template data
