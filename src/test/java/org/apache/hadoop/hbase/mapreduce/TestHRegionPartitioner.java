@@ -55,7 +55,8 @@ public class TestHRegionPartitioner {
 
     byte[][] families = { Bytes.toBytes("familiya"), Bytes.toBytes("familyb") };
 
-    UTIL.createTable(Bytes.toBytes("out_table"), families, 1, Bytes.toBytes("aa"), Bytes.toBytes("cc"), 3);
+    UTIL.createTable(Bytes.toBytes("out_table"), families, 1, Bytes.toBytes("aa"),
+        Bytes.toBytes("cc"), 3);
 
     HRegionPartitioner<Long, Long> partitioner = new HRegionPartitioner<Long, Long>();
     Configuration configuration = UTIL.getConfiguration();

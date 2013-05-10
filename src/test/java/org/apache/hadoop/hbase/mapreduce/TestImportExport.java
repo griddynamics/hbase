@@ -106,6 +106,7 @@ public class TestImportExport {
 
   /**
    * Runs an export job with the specified command line args
+   * 
    * @param args
    * @return true if job completed successfully
    * @throws IOException
@@ -113,8 +114,10 @@ public class TestImportExport {
    * @throws ClassNotFoundException
    */
   boolean runExport(String[] args) throws IOException, InterruptedException, ClassNotFoundException {
-    // need to make a copy of the configuration because to make sure different temp dirs are used.
-    GenericOptionsParser opts = new GenericOptionsParser(new Configuration(UTIL.getConfiguration()), args);
+    // need to make a copy of the configuration because to make sure different
+    // temp dirs are used.
+    GenericOptionsParser opts = new GenericOptionsParser(
+        new Configuration(UTIL.getConfiguration()), args);
     Configuration conf = opts.getConfiguration();
     args = opts.getRemainingArgs();
     Job job = Export.createSubmittableJob(conf, args);
@@ -124,6 +127,7 @@ public class TestImportExport {
 
   /**
    * Runs an import job with the specified command line args
+   * 
    * @param args
    * @return true if job completed successfully
    * @throws IOException
@@ -131,8 +135,10 @@ public class TestImportExport {
    * @throws ClassNotFoundException
    */
   boolean runImport(String[] args) throws IOException, InterruptedException, ClassNotFoundException {
-    // need to make a copy of the configuration because to make sure different temp dirs are used.
-    GenericOptionsParser opts = new GenericOptionsParser(new Configuration(UTIL.getConfiguration()), args);
+    // need to make a copy of the configuration because to make sure different
+    // temp dirs are used.
+    GenericOptionsParser opts = new GenericOptionsParser(
+        new Configuration(UTIL.getConfiguration()), args);
     Configuration conf = opts.getConfiguration();
     args = opts.getRemainingArgs();
     Job job = Import.createSubmittableJob(conf, args);
@@ -158,6 +164,7 @@ public class TestImportExport {
     p.add(FAMILYA, QUAL, now+1, QUAL);
     p.add(FAMILYA, QUAL, now+2, QUAL);
     t.put(p);
+
     String[] args = new String[] {
         EXPORT_TABLE,
         OUTPUT_DIR,
@@ -400,7 +407,7 @@ public class TestImportExport {
     results.close();
     return count;
   }
-  
+
   /**
    * test maim method. Import should print help and call System.exit
    */
@@ -486,8 +493,10 @@ public class TestImportExport {
     importer.setup(ctx);
     Result value = mock(Result.class);
     KeyValue[] keys = {
-        new KeyValue(Bytes.toBytes("row"), Bytes.toBytes("family"), Bytes.toBytes("qualifier"), Bytes.toBytes("value")),
-        new KeyValue(Bytes.toBytes("row"), Bytes.toBytes("family"), Bytes.toBytes("qualifier"), Bytes.toBytes("value1")) };
+        new KeyValue(Bytes.toBytes("row"), Bytes.toBytes("family"), Bytes.toBytes("qualifier"),
+            Bytes.toBytes("value")),
+        new KeyValue(Bytes.toBytes("row"), Bytes.toBytes("family"), Bytes.toBytes("qualifier"),
+            Bytes.toBytes("value1")) };
     when(value.raw()).thenReturn(keys);
     importer.map(new ImmutableBytesWritable(Bytes.toBytes("Key")), value, ctx);
 
@@ -506,7 +515,8 @@ public class TestImportExport {
     args.add("param2");
 
     Import.addFilterAndArguments(configuration, FilterBase.class, args);
-    assertEquals("org.apache.hadoop.hbase.filter.FilterBase", configuration.get(Import.FILTER_CLASS_CONF_KEY));
+    assertEquals("org.apache.hadoop.hbase.filter.FilterBase",
+        configuration.get(Import.FILTER_CLASS_CONF_KEY));
     assertEquals("param1,param2", configuration.get(Import.FILTER_ARGS_CONF_KEY));
   }
 }

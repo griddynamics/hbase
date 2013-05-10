@@ -66,8 +66,7 @@ public class TestRowCounter {
   public static void setUpBeforeClass() throws Exception {
     TEST_UTIL.startMiniCluster();
     TEST_UTIL.startMiniMapReduceCluster();
-    HTable table = TEST_UTIL.createTable(Bytes.toBytes(TABLE_NAME),
-        Bytes.toBytes(COL_FAM));
+    HTable table = TEST_UTIL.createTable(Bytes.toBytes(TABLE_NAME), Bytes.toBytes(COL_FAM));
     writeRows(table);
     table.close();
   }
@@ -88,9 +87,7 @@ public class TestRowCounter {
    */
   @Test
   public void testRowCounterNoColumn() throws Exception {
-    String[] args = new String[] {
-        TABLE_NAME
-    };
+    String[] args = new String[] { TABLE_NAME };
     runRowCount(args, 10);
   }
 
@@ -102,9 +99,7 @@ public class TestRowCounter {
    */
   @Test
   public void testRowCounterExclusiveColumn() throws Exception {
-    String[] args = new String[] {
-        TABLE_NAME, COL_FAM + ":" + COL1
-    };
+    String[] args = new String[] { TABLE_NAME, COL_FAM + ":" + COL1 };
     runRowCount(args, 8);
   }
 
@@ -116,29 +111,27 @@ public class TestRowCounter {
    */
   @Test
   public void testRowCounterHiddenColumn() throws Exception {
-    String[] args = new String[] {
-        TABLE_NAME, COL_FAM + ":" + COL2
-    };
+    String[] args = new String[] { TABLE_NAME, COL_FAM + ":" + COL2 };
     runRowCount(args, 2);
   }
 
   /**
    * Run the RowCounter map reduce job and verify the row count.
    * 
-   * @param args the command line arguments to be used for rowcounter job.
-   * @param expectedCount the expected row count (result of map reduce job).
+   * @param args
+   *          the command line arguments to be used for rowcounter job.
+   * @param expectedCount
+   *          the expected row count (result of map reduce job).
    * @throws Exception
    */
   private void runRowCount(String[] args, int expectedCount) throws Exception {
-    GenericOptionsParser opts = new GenericOptionsParser(
-        TEST_UTIL.getConfiguration(), args);
+    GenericOptionsParser opts = new GenericOptionsParser(TEST_UTIL.getConfiguration(), args);
     Configuration conf = opts.getConfiguration();
     args = opts.getRemainingArgs();
     Job job = RowCounter.createSubmittableJob(conf, args);
     job.waitForCompletion(true);
     assertTrue(job.isSuccessful());
-    Counter counter = job.getCounters().findCounter(
-        RowCounterMapper.Counters.ROWS);
+    Counter counter = job.getCounters().findCounter(RowCounterMapper.Counters.ROWS);
     assertEquals(expectedCount, counter.getValue());
   }
 
@@ -194,8 +187,10 @@ public class TestRowCounter {
         fail("should be SecurityException");
       } catch (SecurityException e) {
         assertTrue(data.toString().contains("Wrong number of parameters:"));
-        assertTrue(data.toString().contains(
-            "Usage: RowCounter [options] <tablename> [--range=[startKey],[endKey]] [<column1> <column2>...]"));
+        assertTrue(data
+            .toString()
+            .contains(
+                "Usage: RowCounter [options] <tablename> [--range=[startKey],[endKey]] [<column1> <column2>...]"));
         assertTrue(data.toString().contains("-Dhbase.client.scanner.caching=100"));
         assertTrue(data.toString().contains("-Dmapred.map.tasks.speculative.execution=false"));
       }
@@ -207,10 +202,14 @@ public class TestRowCounter {
         RowCounter.main(args);
         fail("should be SecurityException");
       } catch (SecurityException e) {
-        assertTrue(data.toString().contains(
-            "Please specify range in such format as \"--range=a,b\" or, with only one boundary, \"--range=,b\" or \"--range=a,\""));
-        assertTrue(data.toString().contains(
-            "Usage: RowCounter [options] <tablename> [--range=[startKey],[endKey]] [<column1> <column2>...]"));
+        assertTrue(data
+            .toString()
+            .contains(
+                "Please specify range in such format as \"--range=a,b\" or, with only one boundary, \"--range=,b\" or \"--range=a,\""));
+        assertTrue(data
+            .toString()
+            .contains(
+                "Usage: RowCounter [options] <tablename> [--range=[startKey],[endKey]] [<column1> <column2>...]"));
       }
 
     } finally {

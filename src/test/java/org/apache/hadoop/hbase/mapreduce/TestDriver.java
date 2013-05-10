@@ -51,10 +51,12 @@ public class TestDriver {
         Driver.main(args);
         fail("should be SecurityException");
       } catch (InvocationTargetException e) {
-        assertTrue(data.toString().contains("An example program must be given as the first argument."));
+        assertTrue(data.toString().contains(
+            "An example program must be given as the first argument."));
         assertTrue(data.toString().contains("CellCounter: Count cells in HBase table"));
         assertTrue(data.toString().contains("completebulkload: Complete a bulk data load."));
-        assertTrue(data.toString().contains("copytable: Export a table from local cluster to peer cluster"));
+        assertTrue(data.toString().contains(
+            "copytable: Export a table from local cluster to peer cluster"));
         assertTrue(data.toString().contains("export: Write table data to HDFS."));
         assertTrue(data.toString().contains("import: Import data written by Export."));
         assertTrue(data.toString().contains("importtsv: Import data in TSV format."));

@@ -361,9 +361,10 @@ public class TestImportTsv {
   public static String toU8Str(byte[] bytes) throws UnsupportedEncodingException {
     return new String(bytes);
   }
-/**
- * Test main method of ImportTsv
- */
+
+  /**
+   * Test main method of ImportTsv
+   */
 
   @Test
   public void testMain() throws Exception {
@@ -379,7 +380,8 @@ public class TestImportTsv {
 
     } catch (SecurityException e) {
       assertTrue(data.toString().contains("ERROR: Wrong number of arguments: 0"));
-      assertTrue(data.toString().contains("Usage: importtsv -Dimporttsv.columns=a,b,c <tablename> <inputdir>"));
+      assertTrue(data.toString().contains(
+          "Usage: importtsv -Dimporttsv.columns=a,b,c <tablename> <inputdir>"));
       assertEquals("java.lang.SecurityException: Intercepted System.exit(-1)", e.toString());
 
     }
@@ -406,8 +408,11 @@ public class TestImportTsv {
     admin.createTable(desc);
     admin.close();
 
-    FileUtils.moveFile(new File("target" + File.separator + "test-classes" + File.separator + "hbase-site.xml"), new File("target" + File.separator + "test-classes" + File.separator + "hbase-site.xml.old"));
-    File fconfig = new File("target" + File.separator + "test-classes" + File.separator + "hbase-site.xml");
+    FileUtils.moveFile(new File("target" + File.separator + "test-classes" + File.separator
+        + "hbase-site.xml"), new File("target" + File.separator + "test-classes" + File.separator
+        + "hbase-site.xml.old"));
+    File fconfig = new File("target" + File.separator + "test-classes" + File.separator
+        + "hbase-site.xml");
     OutputStream out = new FileOutputStream(fconfig);
     conf.writeXml(out);
     out.close();
@@ -422,13 +427,16 @@ public class TestImportTsv {
       System.setErr(oldErrorStream);
       System.setSecurityManager(oldSecurityManager);
       fconfig.delete();
-      FileUtils.moveFile(new File("target" + File.separator + "test-classes" + File.separator + "hbase-site.xml.old"), new File("target" + File.separator + "test-classes" + File.separator + "hbase-site.xml"));
+      FileUtils.moveFile(new File("target" + File.separator + "test-classes" + File.separator
+          + "hbase-site.xml.old"), new File("target" + File.separator + "test-classes"
+          + File.separator + "hbase-site.xml"));
 
       htu1.shutdownMiniMapReduceCluster();
       htu1.shutdownMiniCluster();
 
     }
   }
+
   @org.junit.Rule
   public org.apache.hadoop.hbase.ResourceCheckerJUnitRule cu =
     new org.apache.hadoop.hbase.ResourceCheckerJUnitRule();

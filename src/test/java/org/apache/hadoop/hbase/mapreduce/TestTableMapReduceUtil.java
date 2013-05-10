@@ -44,68 +44,77 @@ public class TestTableMapReduceUtil {
   public void testInitTableMapperJob() throws Exception {
     Configuration configuration = new Configuration();
     Job job = new Job(configuration, "tableName");
-    TableMapReduceUtil.initTableMapperJob("Table", new Scan(), Import.Importer.class, Text.class, Text.class, job, false,
-        HLogInputFormat.class);
+    TableMapReduceUtil.initTableMapperJob("Table", new Scan(), Import.Importer.class, Text.class,
+        Text.class, job, false, HLogInputFormat.class);
     assertEquals(HLogInputFormat.class, job.getInputFormatClass());
     assertEquals(Import.Importer.class, job.getMapperClass());
     assertEquals(LongWritable.class, job.getOutputKeyClass());
     assertEquals(Text.class, job.getOutputValueClass());
     assertNull(job.getCombinerClass());
     assertEquals("Table", job.getConfiguration().get(TableInputFormat.INPUT_TABLE));
-    assertEquals("org.apache.hadoop.io.serializer.WritableSerialization", job.getConfiguration().get("io.serializations"));
+    assertEquals("org.apache.hadoop.io.serializer.WritableSerialization", job.getConfiguration()
+        .get("io.serializations"));
 
     configuration = new Configuration();
     job = new Job(configuration, "tableName");
-    TableMapReduceUtil.initTableMapperJob(Bytes.toBytes("Table"), new Scan(), Import.Importer.class, Text.class, Text.class, job,
-        false, HLogInputFormat.class);
+    TableMapReduceUtil.initTableMapperJob(Bytes.toBytes("Table"), new Scan(),
+        Import.Importer.class, Text.class, Text.class, job, false, HLogInputFormat.class);
     assertEquals(HLogInputFormat.class, job.getInputFormatClass());
     assertEquals(Import.Importer.class, job.getMapperClass());
     assertEquals(LongWritable.class, job.getOutputKeyClass());
     assertEquals(Text.class, job.getOutputValueClass());
     assertNull(job.getCombinerClass());
     assertEquals("Table", job.getConfiguration().get(TableInputFormat.INPUT_TABLE));
-    assertEquals("org.apache.hadoop.io.serializer.WritableSerialization", job.getConfiguration().get("io.serializations"));
+    assertEquals("org.apache.hadoop.io.serializer.WritableSerialization", job.getConfiguration()
+        .get("io.serializations"));
 
     configuration = new Configuration();
     job = new Job(configuration, "tableName");
-    TableMapReduceUtil.initTableMapperJob(Bytes.toBytes("Table"), new Scan(), Import.Importer.class, Text.class, Text.class, job);
+    TableMapReduceUtil.initTableMapperJob(Bytes.toBytes("Table"), new Scan(),
+        Import.Importer.class, Text.class, Text.class, job);
     assertEquals(TableInputFormat.class, job.getInputFormatClass());
     assertEquals(Import.Importer.class, job.getMapperClass());
     assertEquals(LongWritable.class, job.getOutputKeyClass());
     assertEquals(Text.class, job.getOutputValueClass());
     assertNull(job.getCombinerClass());
     assertEquals("Table", job.getConfiguration().get(TableInputFormat.INPUT_TABLE));
-    assertEquals("org.apache.hadoop.io.serializer.WritableSerialization", job.getConfiguration().get("io.serializations"));
+    assertEquals("org.apache.hadoop.io.serializer.WritableSerialization", job.getConfiguration()
+        .get("io.serializations"));
 
     configuration = new Configuration();
     job = new Job(configuration, "tableName");
-    TableMapReduceUtil.initTableMapperJob(Bytes.toBytes("Table"), new Scan(), Import.Importer.class, Text.class, Text.class, job,
-        false);
+    TableMapReduceUtil.initTableMapperJob(Bytes.toBytes("Table"), new Scan(),
+        Import.Importer.class, Text.class, Text.class, job, false);
     assertEquals(TableInputFormat.class, job.getInputFormatClass());
     assertEquals(Import.Importer.class, job.getMapperClass());
     assertEquals(LongWritable.class, job.getOutputKeyClass());
     assertEquals(Text.class, job.getOutputValueClass());
     assertNull(job.getCombinerClass());
     assertEquals("Table", job.getConfiguration().get(TableInputFormat.INPUT_TABLE));
-    assertEquals("org.apache.hadoop.io.serializer.WritableSerialization", job.getConfiguration().get("io.serializations"));
+    assertEquals("org.apache.hadoop.io.serializer.WritableSerialization", job.getConfiguration()
+        .get("io.serializations"));
   }
-  
+
   /**
    * test initTableReducerJob method
+   * 
    * @throws Exception
    */
   @Test
-  public void testinitCredentials() throws Exception{
+  public void testinitCredentials() throws Exception {
     Configuration configuration = new Configuration();
-    Job job= new Job(configuration);
-    TableMapReduceUtil.initTableReducerJob("table", IdentityTableReducer.class, job, KeyFieldBasedPartitioner.class, "quorum:12345:directory", "serverClass", "serverImpl", true);
-    configuration= job.getConfiguration();
-    assertEquals("quorum:12345:directory",configuration.get(TableOutputFormat.QUORUM_ADDRESS));
-    assertEquals(TableOutputFormat.class,job.getOutputFormatClass());
-    assertEquals("serverClass",configuration.get(TableOutputFormat.REGION_SERVER_CLASS));
-    assertEquals("serverImpl",configuration.get(TableOutputFormat.REGION_SERVER_IMPL));
-    assertEquals(KeyFieldBasedPartitioner.class,job.getPartitionerClass());
-    
+    Job job = new Job(configuration);
+    TableMapReduceUtil
+        .initTableReducerJob("table", IdentityTableReducer.class, job,
+            KeyFieldBasedPartitioner.class, "quorum:12345:directory", "serverClass", "serverImpl",
+            true);
+    configuration = job.getConfiguration();
+    assertEquals("quorum:12345:directory", configuration.get(TableOutputFormat.QUORUM_ADDRESS));
+    assertEquals(TableOutputFormat.class, job.getOutputFormatClass());
+    assertEquals("serverClass", configuration.get(TableOutputFormat.REGION_SERVER_CLASS));
+    assertEquals("serverImpl", configuration.get(TableOutputFormat.REGION_SERVER_IMPL));
+    assertEquals(KeyFieldBasedPartitioner.class, job.getPartitionerClass());
+
   }
 
 }

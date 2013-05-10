@@ -171,73 +171,75 @@ public class TestWALPlayer {
     Result r = t2.get(new Get(ROW));
     assertEquals(0, r.size());
   }
+
   /**
    * Test HLogKeyValueMapper setup and map
    */
   @Test
-  public void testHLogKeyValueMapper() throws Exception{
-      Configuration configuration= new Configuration();
-      configuration.set(WALPlayer.TABLES_KEY, "table");
-      HLogKeyValueMapper mapper= new HLogKeyValueMapper();
-      HLogKey key = mock(HLogKey.class);
-      when(key.getTablename()).thenReturn(Bytes.toBytes("table"));
-      @SuppressWarnings("unchecked")
-     Mapper<HLogKey,WALEdit,ImmutableBytesWritable,KeyValue>.Context context= mock(Context.class);
-      when(context.getConfiguration()).thenReturn(configuration);
-      
-      WALEdit value= mock(WALEdit.class);
-      List<KeyValue> values= new ArrayList<KeyValue>();
-      KeyValue kv1= mock(KeyValue.class);
-      when (kv1.getFamily()).thenReturn(Bytes.toBytes("family"));
-      when (kv1.getRow()).thenReturn(Bytes.toBytes("row"));
-      values.add(kv1);
-      when(value.getKeyValues()).thenReturn(values);
-      mapper.setup(context);
-      
-      doAnswer(new Answer<Void>() {
+  public void testHLogKeyValueMapper() throws Exception {
+    Configuration configuration = new Configuration();
+    configuration.set(WALPlayer.TABLES_KEY, "table");
+    HLogKeyValueMapper mapper = new HLogKeyValueMapper();
+    HLogKey key = mock(HLogKey.class);
+    when(key.getTablename()).thenReturn(Bytes.toBytes("table"));
+    @SuppressWarnings("unchecked")
+    Mapper<HLogKey, WALEdit, ImmutableBytesWritable, KeyValue>.Context context = mock(Context.class);
+    when(context.getConfiguration()).thenReturn(configuration);
 
-          @Override
-          public Void answer(InvocationOnMock invocation) throws Throwable {
-              ImmutableBytesWritable writer = (ImmutableBytesWritable) invocation.getArguments()[0];
-              KeyValue key = (KeyValue) invocation.getArguments()[1];
-              assertEquals("row", Bytes.toString(writer.get()) );
-              assertEquals("row", Bytes.toString(key.getRow()));
-              return null;
-          }
-      }).when(context).write(any(ImmutableBytesWritable.class), any(KeyValue.class));
-      
-      mapper.map(key, value, context);
-      
+    WALEdit value = mock(WALEdit.class);
+    List<KeyValue> values = new ArrayList<KeyValue>();
+    KeyValue kv1 = mock(KeyValue.class);
+    when(kv1.getFamily()).thenReturn(Bytes.toBytes("family"));
+    when(kv1.getRow()).thenReturn(Bytes.toBytes("row"));
+    values.add(kv1);
+    when(value.getKeyValues()).thenReturn(values);
+    mapper.setup(context);
+
+    doAnswer(new Answer<Void>() {
+
+      @Override
+      public Void answer(InvocationOnMock invocation) throws Throwable {
+        ImmutableBytesWritable writer = (ImmutableBytesWritable) invocation.getArguments()[0];
+        KeyValue key = (KeyValue) invocation.getArguments()[1];
+        assertEquals("row", Bytes.toString(writer.get()));
+        assertEquals("row", Bytes.toString(key.getRow()));
+        return null;
+      }
+    }).when(context).write(any(ImmutableBytesWritable.class), any(KeyValue.class));
+
+    mapper.map(key, value, context);
+
   }
 
   /**
-   * Test main method 
+   * Test main method
    */
-  @Test 
-  public void testMainMethod() throws Exception{
-      
-      PrintStream oldPrintStream = System.err;
-      SecurityManager SECURITY_MANAGER = System.getSecurityManager();
-      new LauncherSecurityManager();
-      ByteArrayOutputStream data = new ByteArrayOutputStream();
-      String[] args = {};
+  @Test
+  public void testMainMethod() throws Exception {
+
+    PrintStream oldPrintStream = System.err;
+    SecurityManager SECURITY_MANAGER = System.getSecurityManager();
+    new LauncherSecurityManager();
+    ByteArrayOutputStream data = new ByteArrayOutputStream();
+    String[] args = {};
+    System.setErr(new PrintStream(data));
+    try {
       System.setErr(new PrintStream(data));
       try {
-          System.setErr(new PrintStream(data));
-          try {
-              WALPlayer.main(args);
-              fail("should be SecurityException");
-          } catch (SecurityException e) {
-              assertTrue(data.toString().contains("ERROR: Wrong number of arguments:"));
-              assertTrue(data.toString().contains("Usage: WALPlayer [options] <wal inputdir> <tables> [<tableMappings>]"));
-              assertTrue(data.toString().contains("-Dhlog.bulk.output=/path/for/output"));
-          }
+        WALPlayer.main(args);
+        fail("should be SecurityException");
+      } catch (SecurityException e) {
+        assertTrue(data.toString().contains("ERROR: Wrong number of arguments:"));
+        assertTrue(data.toString().contains(
+            "Usage: WALPlayer [options] <wal inputdir> <tables> [<tableMappings>]"));
+        assertTrue(data.toString().contains("-Dhlog.bulk.output=/path/for/output"));
+      }
 
-      } finally {
-          System.setErr(oldPrintStream);
-          System.setSecurityManager(SECURITY_MANAGER);
-      }      
-      
+    } finally {
+      System.setErr(oldPrintStream);
+      System.setSecurityManager(SECURITY_MANAGER);
+    }
+
   }
   
 }

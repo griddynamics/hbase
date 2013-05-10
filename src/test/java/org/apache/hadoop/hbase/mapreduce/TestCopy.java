@@ -86,8 +86,9 @@ public class TestCopy {
     t.put(p);
 
     long currentTime = System.currentTimeMillis();
-    String[] args = new String[] { "--new.name=" + targetTable, "--families=a:b", "--starttime=" + (currentTime - 100000),
-        "--endtime=" + (currentTime + 100000), "--versions=1", sourceTable };
+    String[] args = new String[] { "--new.name=" + targetTable, "--families=a:b",
+        "--starttime=" + (currentTime - 100000), "--endtime=" + (currentTime + 100000),
+        "--versions=1", sourceTable };
 
     assertNull(t2.get(new Get(ROW1)).getRow());
     assertTrue(runCopy(args));
@@ -110,20 +111,27 @@ public class TestCopy {
       System.setErr(oldWriter);
     }
     assertTrue(data.toString().contains("rs.class"));
-    assertTrue(data.toString().contains(
-        "Usage: CopyTable [general options] [--starttime=X] [--endtime=Y] [--new.name=NEW] [--peer.adr=ADR] <tablename>"));
+    assertTrue(data
+        .toString()
+        .contains(
+            "Usage: CopyTable [general options] [--starttime=X] [--endtime=Y] [--new.name=NEW] [--peer.adr=ADR] <tablename>"));
     assertTrue(data.toString().contains("rs.impl      hbase.regionserver.impl of the peer cluster"));
-    assertTrue(data.toString().contains("starttime    beginning of the time range (unixtime in millis)"));
-    assertTrue(data.toString().contains("endtime      end of the time range.  Ignored if no starttime specified."));
+    assertTrue(data.toString().contains(
+        "starttime    beginning of the time range (unixtime in millis)"));
+    assertTrue(data.toString().contains(
+        "endtime      end of the time range.  Ignored if no starttime specified."));
     assertTrue(data.toString().contains("versions     number of cell versions to copy"));
     assertTrue(data.toString().contains("new.name     new table's name"));
-    assertTrue(data.toString().contains("peer.adr     Address of the peer cluster given in the format"));
+    assertTrue(data.toString().contains(
+        "peer.adr     Address of the peer cluster given in the format"));
     assertTrue(data.toString().contains("all.cells    also copy delete markers and deleted cells"));
     assertTrue(data.toString().contains("tablename    Name of the table to copy"));
   }
 
-  private boolean runCopy(String[] args) throws IOException, InterruptedException, ClassNotFoundException {
-    GenericOptionsParser opts = new GenericOptionsParser(new Configuration(UTIL.getConfiguration()), args);
+  private boolean runCopy(String[] args) throws IOException, InterruptedException,
+      ClassNotFoundException {
+    GenericOptionsParser opts = new GenericOptionsParser(
+        new Configuration(UTIL.getConfiguration()), args);
     Configuration configuration = opts.getConfiguration();
     args = opts.getRemainingArgs();
     Job job = CopyTable.createSubmittableJob(configuration, args);
