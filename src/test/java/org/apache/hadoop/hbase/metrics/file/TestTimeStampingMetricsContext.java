@@ -83,7 +83,6 @@ public class TestTimeStampingMetricsContext {
 
     Map<String, Collection<org.apache.hadoop.metrics.spi.OutputRecord>> m = mc.getAllRecords();
     assertEquals(1, m.size());
-    assertEquals(1, m.values().size());
     Collection<org.apache.hadoop.metrics.spi.OutputRecord> outputRecords = m.get("testRecord");
     assertNotNull(outputRecords);
     assertEquals(1, outputRecords.size());
