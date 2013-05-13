@@ -22,12 +22,11 @@ import static org.apache.hadoop.hbase.security.HBaseKerberosUtils.getKeytabFileF
 import static org.apache.hadoop.hbase.security.HBaseKerberosUtils.getPrincipalForTesting;
 import static org.apache.hadoop.hbase.security.HBaseKerberosUtils.getSecuredConfiguration;
 import static org.apache.hadoop.hbase.security.HBaseKerberosUtils.isKerberosPropertySetted;
-import static org.apache.hadoop.hbase.security.HBaseKerberosUtils.setKeytabFileForTesting;
-import static org.apache.hadoop.hbase.security.HBaseKerberosUtils.setPrincipalForTesting;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
+import static org.junit.Assume.assumeTrue;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -54,7 +53,6 @@ import org.apache.log4j.AppenderSkeleton;
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
 import org.apache.log4j.spi.LoggingEvent;
-import org.junit.Assume;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 import org.mockito.Mockito;
@@ -98,9 +96,7 @@ public class TestDelayedRpc {
    */
   @Test
   public void testRpcCallWithEnabledKerberosSaslAuth() throws Exception {
-    setKeytabFileForTesting("/etc/krb5.keytab");
-    setPrincipalForTesting("a/localhost@EXAMPLE.COM");
-    Assume.assumeTrue(isKerberosPropertySetted());
+    assumeTrue(isKerberosPropertySetted());
     String krbKeytab = getKeytabFileForTesting();
     String krbPrincipal = getPrincipalForTesting();
 

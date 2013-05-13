@@ -23,18 +23,16 @@ import static org.apache.hadoop.hbase.security.HBaseKerberosUtils.getKeytabFileF
 import static org.apache.hadoop.hbase.security.HBaseKerberosUtils.getPrincipalForTesting;
 import static org.apache.hadoop.hbase.security.HBaseKerberosUtils.getSecuredConfiguration;
 import static org.apache.hadoop.hbase.security.HBaseKerberosUtils.isKerberosPropertySetted;
-import static org.apache.hadoop.hbase.security.HBaseKerberosUtils.setKeytabFileForTesting;
-import static org.apache.hadoop.hbase.security.HBaseKerberosUtils.setPrincipalForTesting;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assume.assumeTrue;
 
 import java.io.IOException;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.SmallTests;
 import org.apache.hadoop.security.UserGroupInformation;
-import org.junit.Assume;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
@@ -48,6 +46,7 @@ public class TestUsersOperationsWithSecureHadoop {
    * <b> hbase.regionserver.kerberos.principal </b>
    * <p>
    * <b> hbase.regionserver.keytab.file </b>
+   *
    * @throws IOException
    *
    */
@@ -62,10 +61,7 @@ public class TestUsersOperationsWithSecureHadoop {
     assertTrue("ugi should be the same in case fail login",
         defaultLogin.equals(failLogin));
 
-    //remote it
-    setKeytabFileForTesting("/etc/krb5.keytab");
-    setPrincipalForTesting("a/localhost@EXAMPLE.COM");
-    Assume.assumeTrue(isKerberosPropertySetted());
+    assumeTrue(isKerberosPropertySetted());
 
     String nnKeyTab = getKeytabFileForTesting();
     String dnPrincipal = getPrincipalForTesting();
