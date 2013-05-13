@@ -21,6 +21,7 @@ package org.apache.hadoop.hbase.rest.client;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 import org.apache.commons.logging.Log;
@@ -236,7 +237,7 @@ public class TestRemoteTable {
     results = remoteTable.get(gets);
     assertNotNull(results);
     assertEquals(2, results.length);
-    assertEquals(1, results[0].size());
+    assertEquals(2, results[0].size());
     assertEquals(3, results[1].size());
 
     //404
@@ -297,7 +298,7 @@ public class TestRemoteTable {
     assertNotNull(value);
     assertTrue(Bytes.equals(VALUE_2, value));
   }
-
+  @Test
   public void testDelete() throws IOException {
     Put put = new Put(ROW_3);
     put.add(COLUMN_1, QUALIFIER_1, VALUE_1);
@@ -341,7 +342,7 @@ public class TestRemoteTable {
     assertNull(value1);
     assertNull(value2);
   }
-
+  @Test
   public void testScanner() throws IOException {
     List<Put> puts = new ArrayList<Put>();
     Put put = new Put(ROW_1);
@@ -374,9 +375,36 @@ public class TestRemoteTable {
 
     results = scanner.next(1);
     assertNull(results);
-
+  //  remoteTable.
+    
     scanner.close();
   }
+  @Test
+  public void testExist() throws IOException {
+    Get get = new Get(ROW_1);
+    Result result = remoteTable.get(get);
+    byte[] value1 = result.getValue(COLUMN_1, QUALIFIER_1);
+    byte[] value2 = result.getValue(COLUMN_2, QUALIFIER_2);
+    assertNotNull(value1);
+    assertTrue(Bytes.equals(VALUE_1, value1));
+    assertNull(value2);
+    assertTrue(remoteTable.exists(get));
+    assertEquals(1,remoteTable.exists(Collections.singletonList(get)).length);
+    Delete delete=new Delete(ROW_1);
+    
+    remoteTable.checkAndDelete(ROW_1,COLUMN_1,QUALIFIER_1,VALUE_1,delete);
+    assertFalse(remoteTable.exists(get));
+   
+    Put put = new Put(ROW_1);
+    put.add(COLUMN_1, QUALIFIER_1, VALUE_1);
+    remoteTable.put(put);
+    
+   assertTrue(remoteTable.checkAndPut(ROW_1, COLUMN_1, QUALIFIER_1, VALUE_1, put));
+   assertFalse(remoteTable.checkAndPut(ROW_1, COLUMN_1, QUALIFIER_1, VALUE_2, put));
+    
 
+  }
+  
+  
 }
 
