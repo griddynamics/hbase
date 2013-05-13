@@ -18,9 +18,6 @@
 
 package org.apache.hadoop.hbase.mapreduce;
 
-import java.util.ArrayList;
-import java.util.List;
-
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.SmallTests;
@@ -30,6 +27,9 @@ import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.mapreduce.Mapper;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
+
+import java.util.ArrayList;
+import java.util.List;
 
 import static org.mockito.Mockito.*;
 
@@ -49,7 +49,8 @@ public class TestGroupingTableMapper {
 
     Result result = mock(Result.class);
     @SuppressWarnings("unchecked")
-    Mapper<ImmutableBytesWritable, Result, ImmutableBytesWritable, Result>.Context context = mock(Mapper.Context.class);
+    Mapper<ImmutableBytesWritable, Result, ImmutableBytesWritable, Result>.Context context =
+              mock(Mapper.Context.class);
     context.write(any(ImmutableBytesWritable.class), any(Result.class));
     List<KeyValue> keyValue = new ArrayList<KeyValue>();
     byte[] row = {};

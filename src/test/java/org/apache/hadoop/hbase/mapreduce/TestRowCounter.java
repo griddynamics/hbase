@@ -18,15 +18,6 @@
 
 package org.apache.hadoop.hbase.mapreduce;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
-
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.PrintStream;
-import java.util.ArrayList;
-
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
@@ -44,6 +35,13 @@ import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
+
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.PrintStream;
+import java.util.ArrayList;
+
+import static org.junit.Assert.*;
 
 /**
  * Test the rowcounter map reduce job.
@@ -190,7 +188,8 @@ public class TestRowCounter {
         assertTrue(data
             .toString()
             .contains(
-                "Usage: RowCounter [options] <tablename> [--range=[startKey],[endKey]] [<column1> <column2>...]"));
+                "Usage: RowCounter [options] <tablename> [--range=[startKey],[endKey]]" +
+                        " [<column1> <column2>...]"));
         assertTrue(data.toString().contains("-Dhbase.client.scanner.caching=100"));
         assertTrue(data.toString().contains("-Dmapred.map.tasks.speculative.execution=false"));
       }
@@ -205,11 +204,13 @@ public class TestRowCounter {
         assertTrue(data
             .toString()
             .contains(
-                "Please specify range in such format as \"--range=a,b\" or, with only one boundary, \"--range=,b\" or \"--range=a,\""));
+                "Please specify range in such format as \"--range=a,b\" or, " +
+                        "with only one boundary, \"--range=,b\" or \"--range=a,\""));
         assertTrue(data
             .toString()
             .contains(
-                "Usage: RowCounter [options] <tablename> [--range=[startKey],[endKey]] [<column1> <column2>...]"));
+                "Usage: RowCounter [options] <tablename> [--range=[startKey],[endKey]]" +
+                        " [<column1> <column2>...]"));
       }
 
     } finally {

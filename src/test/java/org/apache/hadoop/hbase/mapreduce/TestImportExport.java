@@ -455,7 +455,8 @@ public class TestImportExport {
       assertTrue(data
           .toString()
           .contains(
-              "Usage: Export [-D <property=value>]* <tablename> <outputdir> [<versions> [<starttime> [<endtime>]] [^[regex pattern] or [Prefix] to filter]]"));
+              "Usage: Export [-D <property=value>]* <tablename> <outputdir> [<versions> " +
+                      "[<starttime> [<endtime>]] [^[regex pattern] or [Prefix] to filter]]"));
       assertTrue(data.toString().contains("-D hbase.mapreduce.scan.column.family=<familyName>"));
       assertTrue(data.toString().contains("-D hbase.mapreduce.include.deleted.rows=true"));
       assertTrue(data.toString().contains("-Dhbase.client.scanner.caching=100"));

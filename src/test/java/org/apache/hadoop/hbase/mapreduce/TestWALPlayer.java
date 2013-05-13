@@ -17,28 +17,10 @@
  */
 package org.apache.hadoop.hbase.mapreduce;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
-
-import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.PrintStream;
-import java.util.ArrayList;
-import java.util.List;
-
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.hbase.HBaseTestingUtility;
-import org.apache.hadoop.hbase.HConstants;
-import org.apache.hadoop.hbase.KeyValue;
-import org.apache.hadoop.hbase.LargeTests;
-import org.apache.hadoop.hbase.MiniHBaseCluster;
-import org.apache.hadoop.hbase.client.Delete;
-import org.apache.hadoop.hbase.client.Get;
-import org.apache.hadoop.hbase.client.HTable;
-import org.apache.hadoop.hbase.client.Put;
-import org.apache.hadoop.hbase.client.Result;
+import org.apache.hadoop.hbase.*;
+import org.apache.hadoop.hbase.client.*;
 import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
 import org.apache.hadoop.hbase.mapreduce.WALPlayer.HLogKeyValueMapper;
 import org.apache.hadoop.hbase.regionserver.wal.HLog;
@@ -55,6 +37,13 @@ import org.junit.experimental.categories.Category;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
 
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.PrintStream;
+import java.util.ArrayList;
+import java.util.List;
+
+import static org.junit.Assert.*;
 import static org.mockito.Matchers.any;
 import static org.mockito.Mockito.*;
 
@@ -183,7 +172,8 @@ public class TestWALPlayer {
     HLogKey key = mock(HLogKey.class);
     when(key.getTablename()).thenReturn(Bytes.toBytes("table"));
     @SuppressWarnings("unchecked")
-    Mapper<HLogKey, WALEdit, ImmutableBytesWritable, KeyValue>.Context context = mock(Context.class);
+    Mapper<HLogKey, WALEdit, ImmutableBytesWritable, KeyValue>.Context context =
+            mock(Context.class);
     when(context.getConfiguration()).thenReturn(configuration);
 
     WALEdit value = mock(WALEdit.class);

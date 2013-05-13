@@ -22,14 +22,13 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.LargeTests;
 import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
-import org.apache.hadoop.hbase.mapreduce.HRegionPartitioner;
-import org.apache.hadoop.hbase.mapreduce.TableOutputFormat;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
-import static org.junit.Assert.*;
+
+import static org.junit.Assert.assertEquals;
 
 @Category(LargeTests.class)
 public class TestHRegionPartitioner {
@@ -53,7 +52,7 @@ public class TestHRegionPartitioner {
   @Test
   public void testHRegionPartitioner() throws Exception {
 
-    byte[][] families = { Bytes.toBytes("familiya"), Bytes.toBytes("familyb") };
+    byte[][] families = { Bytes.toBytes("familyA"), Bytes.toBytes("familyB") };
 
     UTIL.createTable(Bytes.toBytes("out_table"), families, 1, Bytes.toBytes("aa"),
         Bytes.toBytes("cc"), 3);

@@ -142,7 +142,8 @@ public class TestCellCounter {
         assertTrue(data
             .toString()
             .contains(
-                "Usage: CellCounter <tablename> <outputDir> <reportSeparator> [^[regex pattern] or [Prefix] for row filter]]"));
+                "Usage: CellCounter <tablename> <outputDir> <reportSeparator> [^[regex pattern]" +
+                        " or [Prefix] for row filter]]"));
         assertTrue(data.toString().contains("-D hbase.mapreduce.scan.column.family=<familyName>"));
       }
 

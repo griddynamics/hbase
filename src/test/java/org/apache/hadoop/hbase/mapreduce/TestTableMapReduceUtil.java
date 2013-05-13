@@ -101,7 +101,7 @@ public class TestTableMapReduceUtil {
    * @throws Exception
    */
   @Test
-  public void testinitCredentials() throws Exception {
+  public void testInitCredentials() throws Exception {
     Configuration configuration = new Configuration();
     Job job = new Job(configuration);
     TableMapReduceUtil

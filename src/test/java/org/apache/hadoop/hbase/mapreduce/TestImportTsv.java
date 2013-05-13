@@ -19,43 +19,31 @@
  */
 package org.apache.hadoop.hbase.mapreduce;
 
-import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.OutputStream;
-import java.io.PrintStream;
-import java.io.UnsupportedEncodingException;
-import java.util.List;
-import java.util.ArrayList;
-
+import com.google.common.base.Joiner;
+import com.google.common.base.Splitter;
+import com.google.common.collect.Iterables;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.apache.hadoop.hbase.*;
-import org.apache.hadoop.mapreduce.Job;
-import org.apache.hadoop.fs.FSDataOutputStream;
-import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.util.GenericOptionsParser;
-
+import org.apache.hadoop.fs.FSDataOutputStream;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hbase.*;
+import org.apache.hadoop.hbase.client.*;
 import org.apache.hadoop.hbase.mapreduce.ImportTsv.TsvParser;
 import org.apache.hadoop.hbase.mapreduce.ImportTsv.TsvParser.BadTsvLineException;
 import org.apache.hadoop.hbase.mapreduce.ImportTsv.TsvParser.ParsedLine;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.LauncherSecurityManager;
-import org.apache.hadoop.hbase.client.HTable;
-import org.apache.hadoop.hbase.client.ResultScanner;
-import org.apache.hadoop.hbase.client.Scan;
-import org.apache.hadoop.hbase.client.HBaseAdmin;
-import org.apache.hadoop.hbase.client.Result;
-
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.util.GenericOptionsParser;
 import org.junit.Test;
-
-import com.google.common.base.Joiner;
-import com.google.common.base.Splitter;
-import com.google.common.collect.Iterables;
 import org.junit.experimental.categories.Category;
+
+import java.io.*;
+import java.util.ArrayList;
+import java.util.List;
 
 import static org.junit.Assert.*;
 
@@ -401,24 +389,25 @@ public class TestImportTsv {
     op.close();
 
     final byte[] FAM = Bytes.toBytes("family");
-    final byte[] TAB = Bytes.toBytes("Mytablename");
+    final byte[] TAB = Bytes.toBytes("myTableName");
     HTableDescriptor desc = new HTableDescriptor(TAB);
     desc.addFamily(new HColumnDescriptor(FAM));
     HBaseAdmin admin = new HBaseAdmin(conf);
     admin.createTable(desc);
     admin.close();
-
+    // save old configure file
     FileUtils.moveFile(new File("target" + File.separator + "test-classes" + File.separator
         + "hbase-site.xml"), new File("target" + File.separator + "test-classes" + File.separator
         + "hbase-site.xml.old"));
     File fconfig = new File("target" + File.separator + "test-classes" + File.separator
         + "hbase-site.xml");
+    // and write new configure file
     OutputStream out = new FileOutputStream(fconfig);
     conf.writeXml(out);
     out.close();
     // try to execute ImportTsv
     try {
-      String[] args = { "-Dimporttsv.columns=a,b,HBASE_ROW_KEY", "Mytablename", inputFile };
+      String[] args = { "-Dimporttsv.columns=a,b,HBASE_ROW_KEY", "myTableName", inputFile };
       ImportTsv.main(args);
       fail("should be exit!");
     } catch (SecurityException e) {
