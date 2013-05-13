@@ -136,7 +136,8 @@ public class TestWALPlayer {
     HLogKey key = mock(HLogKey.class);
     when(key.getTablename()).thenReturn(Bytes.toBytes("table"));
     @SuppressWarnings("unchecked")
-    Mapper<HLogKey, WALEdit, ImmutableBytesWritable, KeyValue>.Context context = mock(Context.class);
+    Mapper<HLogKey, WALEdit, ImmutableBytesWritable, KeyValue>.Context context =
+        mock(Context.class);
     when(context.getConfiguration()).thenReturn(configuration);
 
     WALEdit value = mock(WALEdit.class);
