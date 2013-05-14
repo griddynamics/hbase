@@ -12,17 +12,12 @@
 package org.apache.hadoop.hbase.rest.client;
 
 import java.io.IOException;
-import java.util.Arrays;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
+import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.MediumTests;
-import org.apache.hadoop.hbase.client.Delete;
-import org.apache.hadoop.hbase.client.Get;
-import org.apache.hadoop.hbase.client.Put;
-import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.util.Bytes;
-import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
@@ -33,15 +28,11 @@ import static org.mockito.Mockito.*;
 import static org.junit.Assert.*;
 
 @Category(MediumTests.class)
-public class TestRestErrors {
+public class TestAdminRestErrors {
 
   private static final HBaseTestingUtility TEST_UTIL = new HBaseTestingUtility();
-  private static RemoteHTable remoteTable;
+  private static  RemoteAdmin remoteAdmin;
   
-  private static final byte[] ROW_1 = Bytes.toBytes("testrow1");
-  private static final byte[] COLUMN_1 = Bytes.toBytes("a");
-  private static final byte[] QUALIFIER_1 = Bytes.toBytes("1");
-  private static final byte[] VALUE_1 = Bytes.toBytes("testvalue1");
 
 
   @BeforeClass
@@ -59,96 +50,89 @@ public class TestRestErrors {
     configuration.setInt("hbase.rest.client.sleep", 1100);
     
     
-    remoteTable = new RemoteHTable(fakeClient, TEST_UTIL.getConfiguration(), "MyTable");
+    remoteAdmin = new  RemoteAdmin(fakeClient, TEST_UTIL.getConfiguration(), "MyTable");
   }
 
-  @AfterClass
-  public static void tearDownAfterClass() throws Exception {
-    remoteTable.close();
-  }
   @Test
-  public void testTimeoutExceptionDelete() throws IOException{
-    Delete delete= new Delete(Bytes.toBytes("delete"));
+  public void testTimeoutExceptionRestVersion() throws IOException{
     long start= System.currentTimeMillis();
     try{
-      remoteTable.delete(delete);
+      remoteAdmin.getRestVersion();
       fail("should be timeout exception!");
     }catch(IOException e){
-      assertEquals("java.io.IOException: delete request timed out", e.toString());
-    }
-    assertTrue((System.currentTimeMillis()-start)>3000);
-  }
-  @Test
-  public void testTimeoutExceptionGet() throws IOException{
-    long start= System.currentTimeMillis();
-    try{
-      remoteTable.get(new Get(Bytes.toBytes("Get")));
-      fail("should be timeout exception!");
-    }catch(IOException e){
-      assertEquals("java.io.IOException: get request timed out", e.toString());
+      assertEquals("java.io.IOException: get request to /MyTable/version/rest timed out", e.toString());
     }
     assertTrue((System.currentTimeMillis()-start)>3000);
   }
 
   @Test
-  public void testTimeoutExceptionPut() throws IOException{
+  public void testTimeoutExceptiongetClusterStatus() throws IOException{
     long start= System.currentTimeMillis();
     try{
-      remoteTable.put(new Put(Bytes.toBytes("Row")));
+      remoteAdmin.getClusterStatus();
       fail("should be timeout exception!");
     }catch(IOException e){
-      assertEquals("java.io.IOException: put request timed out", e.toString());
+      assertEquals("java.io.IOException: get request to /MyTable/status/cluster timed out", e.toString());
     }
     assertTrue((System.currentTimeMillis()-start)>3000);
-    start= System.currentTimeMillis();
-    Put[] puts= {new Put(Bytes.toBytes("Row1")),new Put(Bytes.toBytes("Row2"))};
-    try{
-      remoteTable.put(Arrays.asList(puts));
-      fail("should be timeout exception!");
-    }catch(IOException e){
-      assertEquals("java.io.IOException: multiput request timed out", e.toString());
-    }
-    assertTrue((System.currentTimeMillis()-start)>3000);
-  }
-  @Test
-  public void testTimeoutExceptionScanner() throws IOException{
-    long start= System.currentTimeMillis();
-    try{
-      remoteTable.getScanner(new Scan());
-    }catch(IOException e){
-      assertEquals("java.io.IOException: scan request timed out", e.toString());
-    }
-    assertTrue((System.currentTimeMillis()-start)>3000);
-    start= System.currentTimeMillis();
   }
   
   @Test
-  public void testTimeoutExceptionCheckAndPut() throws IOException{
+  public void testTimeoutExceptiongetClusterVersion() throws IOException{
     long start= System.currentTimeMillis();
-    Put put = new Put(ROW_1);
-    put.add(COLUMN_1, QUALIFIER_1, VALUE_1);
-
     try{
-      remoteTable.checkAndPut(ROW_1, COLUMN_1, QUALIFIER_1, VALUE_1, put );
+      remoteAdmin.getClusterVersion();
       fail("should be timeout exception!");
     }catch(IOException e){
-      assertEquals("java.io.IOException: checkAndPut request timed out", e.toString());
+      assertEquals("java.io.IOException: get request to /MyTable/version/cluster request timed out", e.toString());
+    }
+    assertTrue((System.currentTimeMillis()-start)>3000);
+  }
+  
+  @Test
+  public void testTimeoutExceptiongetTableAvailable() throws IOException{
+    long start= System.currentTimeMillis();
+    try{
+      remoteAdmin.isTableAvailable(Bytes.toBytes("TestTable"));
+      fail("should be timeout exception!");
+    }catch(IOException e){
+      assertEquals("java.io.IOException: get request to /MyTable/TestTable/exists timed out", e.toString());
     }
     assertTrue((System.currentTimeMillis()-start)>3000);
   }
   @Test
-  public void testTimeoutExceptionCheckAndDelete() throws IOException{
+  public void testTimeoutExceptiongetCreateTable() throws IOException{
     long start= System.currentTimeMillis();
-    Put put = new Put(ROW_1);
-    put.add(COLUMN_1, QUALIFIER_1, VALUE_1);
-    Delete delete= new Delete(ROW_1);
-
     try{
-      remoteTable.checkAndDelete(ROW_1, COLUMN_1, QUALIFIER_1,  VALUE_1, delete );
+      remoteAdmin.createTable(new HTableDescriptor(Bytes.toBytes("TestTable")));
       fail("should be timeout exception!");
     }catch(IOException e){
-      assertEquals("java.io.IOException: checkAndDelete request timed out", e.toString());
+      assertEquals("java.io.IOException: create request to /MyTable/TestTable/schema timed out", e.toString());
     }
     assertTrue((System.currentTimeMillis()-start)>3000);
   }
+  
+  @Test
+  public void testTimeoutExceptiongetDeleteTable() throws IOException{
+    long start= System.currentTimeMillis();
+    try{
+      remoteAdmin.deleteTable("TestTable");
+      fail("should be timeout exception!");
+    }catch(IOException e){
+      assertEquals("java.io.IOException: delete request to /MyTable/TestTable/schema timed out", e.toString());
+    }
+    assertTrue((System.currentTimeMillis()-start)>3000);
+  }
+  @Test
+  public void testTimeoutExceptiongetTetTableList() throws IOException{
+    long start= System.currentTimeMillis();
+    try{
+      remoteAdmin.getTableList();
+      fail("should be timeout exception!");
+    }catch(IOException e){
+      assertEquals("java.io.IOException: get request to /MyTable/ request timed out", e.toString());
+    }
+    assertTrue((System.currentTimeMillis()-start)>3000);
+  }
+
 }
