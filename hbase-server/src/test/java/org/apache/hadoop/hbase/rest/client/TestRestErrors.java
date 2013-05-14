@@ -61,7 +61,7 @@ public class TestRestErrors {
     Configuration configuration = TEST_UTIL.getConfiguration();
 
     configuration.setInt("hbase.rest.client.max.retries", 3);
-    configuration.setInt("hbase.rest.client.sleep", 1000);
+    configuration.setInt("hbase.rest.client.sleep", 1100);
     
     
     remoteTable = new RemoteHTable(fakeClient, TEST_UTIL.getConfiguration(), "MyTable");
