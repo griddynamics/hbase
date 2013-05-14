@@ -32,6 +32,9 @@ import org.junit.experimental.categories.Category;
 import static org.mockito.Mockito.*;
 import static org.junit.Assert.*;
 
+/**
+ * Test a reaction of rest client on server error. client should try some times with timeout.
+ */
 @Category(MediumTests.class)
 public class TestRestErrors {
 
@@ -42,7 +45,7 @@ public class TestRestErrors {
   private static final byte[] COLUMN_1 = Bytes.toBytes("a");
   private static final byte[] QUALIFIER_1 = Bytes.toBytes("1");
   private static final byte[] VALUE_1 = Bytes.toBytes("testvalue1");
-
+  private long maxTime = 1500;
 
   @BeforeClass
   public static void setUpBeforeClass() throws Exception {
@@ -56,7 +59,7 @@ public class TestRestErrors {
     Configuration configuration = TEST_UTIL.getConfiguration();
 
     configuration.setInt("hbase.rest.client.max.retries", 3);
-    configuration.setInt("hbase.rest.client.sleep", 1100);
+    configuration.setInt("hbase.rest.client.sleep", 600);
     
     
     remoteTable = new RemoteHTable(fakeClient, TEST_UTIL.getConfiguration(), "MyTable");
@@ -66,6 +69,10 @@ public class TestRestErrors {
   public static void tearDownAfterClass() throws Exception {
     remoteTable.close();
   }
+  
+  /**
+   * test function delete
+   */
   @Test
   public void testTimeoutExceptionDelete() throws IOException{
     Delete delete= new Delete(Bytes.toBytes("delete"));
@@ -76,8 +83,12 @@ public class TestRestErrors {
     }catch(IOException e){
       assertEquals("java.io.IOException: delete request timed out", e.toString());
     }
-    assertTrue((System.currentTimeMillis()-start)>3000);
+    assertTrue((System.currentTimeMillis()-start)>maxTime);
   }
+  
+  /**
+   * test function get
+   */
   @Test
   public void testTimeoutExceptionGet() throws IOException{
     long start= System.currentTimeMillis();
@@ -87,9 +98,12 @@ public class TestRestErrors {
     }catch(IOException e){
       assertEquals("java.io.IOException: get request timed out", e.toString());
     }
-    assertTrue((System.currentTimeMillis()-start)>3000);
+    assertTrue((System.currentTimeMillis()-start)>maxTime);
   }
 
+  /**
+   * test function put
+   */
   @Test
   public void testTimeoutExceptionPut() throws IOException{
     long start= System.currentTimeMillis();
@@ -99,7 +113,7 @@ public class TestRestErrors {
     }catch(IOException e){
       assertEquals("java.io.IOException: put request timed out", e.toString());
     }
-    assertTrue((System.currentTimeMillis()-start)>3000);
+    assertTrue((System.currentTimeMillis()-start)>maxTime);
     start= System.currentTimeMillis();
     Put[] puts= {new Put(Bytes.toBytes("Row1")),new Put(Bytes.toBytes("Row2"))};
     try{
@@ -108,8 +122,12 @@ public class TestRestErrors {
     }catch(IOException e){
       assertEquals("java.io.IOException: multiput request timed out", e.toString());
     }
-    assertTrue((System.currentTimeMillis()-start)>3000);
+    assertTrue((System.currentTimeMillis()-start)>maxTime);
   }
+
+  /**
+   * test Scanner
+   */
   @Test
   public void testTimeoutExceptionScanner() throws IOException{
     long start= System.currentTimeMillis();
@@ -118,10 +136,13 @@ public class TestRestErrors {
     }catch(IOException e){
       assertEquals("java.io.IOException: scan request timed out", e.toString());
     }
-    assertTrue((System.currentTimeMillis()-start)>3000);
+    assertTrue((System.currentTimeMillis()-start)>maxTime);
     start= System.currentTimeMillis();
   }
   
+  /**
+   * test function checkAndPut
+   */
   @Test
   public void testTimeoutExceptionCheckAndPut() throws IOException{
     long start= System.currentTimeMillis();
@@ -134,8 +155,12 @@ public class TestRestErrors {
     }catch(IOException e){
       assertEquals("java.io.IOException: checkAndPut request timed out", e.toString());
     }
-    assertTrue((System.currentTimeMillis()-start)>3000);
+    assertTrue((System.currentTimeMillis()-start)>maxTime);
   }
+
+  /**
+   * test function checkAndDelete
+   */
   @Test
   public void testTimeoutExceptionCheckAndDelete() throws IOException{
     long start= System.currentTimeMillis();
@@ -149,6 +174,6 @@ public class TestRestErrors {
     }catch(IOException e){
       assertEquals("java.io.IOException: checkAndDelete request timed out", e.toString());
     }
-    assertTrue((System.currentTimeMillis()-start)>3000);
+    assertTrue((System.currentTimeMillis()-start)>maxTime);
   }
 }

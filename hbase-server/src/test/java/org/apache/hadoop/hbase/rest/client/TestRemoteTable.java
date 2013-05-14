@@ -95,6 +95,7 @@ public class TestRemoteTable {
       put.add(COLUMN_2, QUALIFIER_2, TS_2, VALUE_2);
       table.put(put);
       table.flushCommits();
+      table.close();
     }
     remoteTable = new RemoteHTable(
       new Client(new Cluster().add("localhost", 
@@ -257,7 +258,10 @@ public class TestRemoteTable {
     assertNotNull(results);
     assertEquals(0, results.length);
   }
-
+  
+  /**
+   * Test multi put
+   */
   @Test
   public void testPut() throws IOException {
     Put put = new Put(ROW_3);
@@ -302,6 +306,9 @@ public class TestRemoteTable {
     
     assertTrue(Bytes.equals(Bytes.toBytes("TestRemoteTable"), remoteTable.getTableName()));
   }
+  /**
+   * Test function delete
+   */
   @Test
   public void testDelete() throws IOException {
     Put put = new Put(ROW_3);
@@ -346,6 +353,9 @@ public class TestRemoteTable {
     assertNull(value1);
     assertNull(value2);
   }
+  /**
+   * Test a inner class Scanner 
+   */
   @Test
   public void testScanner() throws IOException {
     List<Put> puts = new ArrayList<Put>();
@@ -408,6 +418,9 @@ public class TestRemoteTable {
 
   }
   
+  /**
+   * Test  a method checkAndDelete 
+   */
   @Test
   public void testExist() throws IOException {
     Get get = new Get(ROW_1);
@@ -433,6 +446,9 @@ public class TestRemoteTable {
 
   }
   
+  /**
+   * Test a method next from class Scanner  
+   */
   @Test
   public void testIteratorScaner() throws IOException {
     List<Put> puts = new ArrayList<Put>();
@@ -459,9 +475,11 @@ public class TestRemoteTable {
       counter++;
     }
     assertEquals(4, counter);
-    System.out.println("counter:"+counter);
   }
   
+  /**
+   * Test a some methods of class Responce.
+   */
   @Test
   public void testResponse(){
     Response responce= new Response(200);
