@@ -57,7 +57,7 @@ public class TestAdminRestErrors {
    * test function RestVersion
    */
   @Test
-  public void testTimeoutExceptionRestVersion() throws IOException {
+  public void testTimeoutExceptionRestVersion()  {
     long start = System.currentTimeMillis();
     try {
       remoteAdmin.getRestVersion();
@@ -73,7 +73,7 @@ public class TestAdminRestErrors {
    * test function getClusterStatus
    */
   @Test
-  public void testTimeoutExceptiongetClusterStatus() throws IOException {
+  public void testTimeoutExceptiongetClusterStatus()  {
     long start = System.currentTimeMillis();
     try {
       remoteAdmin.getClusterStatus();
@@ -89,7 +89,7 @@ public class TestAdminRestErrors {
    * test function getClusterVersion
    */
   @Test
-  public void testTimeoutExceptiongetClusterVersion() throws IOException {
+  public void testTimeoutExceptiongetClusterVersion() {
     long start = System.currentTimeMillis();
     try {
       remoteAdmin.getClusterVersion();
@@ -106,7 +106,7 @@ public class TestAdminRestErrors {
    * test function isTableAvailable
    */
   @Test
-  public void testTimeoutExceptiongetTableAvailable() throws IOException {
+  public void testTimeoutExceptiongetTableAvailable() {
     long start = System.currentTimeMillis();
     try {
       remoteAdmin.isTableAvailable(Bytes.toBytes("TestTable"));
@@ -122,7 +122,7 @@ public class TestAdminRestErrors {
    * test function createTable
    */
   @Test
-  public void testTimeoutExceptiongetCreateTable() throws IOException {
+  public void testTimeoutExceptiongetCreateTable() {
     long start = System.currentTimeMillis();
     try {
       remoteAdmin.createTable(new HTableDescriptor(Bytes.toBytes("TestTable")));
@@ -138,7 +138,7 @@ public class TestAdminRestErrors {
    * test function deleteTable
    */
   @Test
-  public void testTimeoutExceptiongetDeleteTable() throws IOException {
+  public void testTimeoutExceptiongetDeleteTable() {
     long start = System.currentTimeMillis();
     try {
       remoteAdmin.deleteTable("TestTable");
@@ -154,7 +154,7 @@ public class TestAdminRestErrors {
    * test function getTableList
    */
   @Test
-  public void testTimeoutExceptiongetTetTableList() throws IOException {
+  public void testTimeoutExceptiongetTetTableList() {
     long start = System.currentTimeMillis();
     try {
       remoteAdmin.getTableList();

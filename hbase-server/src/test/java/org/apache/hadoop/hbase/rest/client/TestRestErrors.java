@@ -74,7 +74,7 @@ public class TestRestErrors {
    * test function delete
    */
   @Test
-  public void testTimeoutExceptionDelete() throws IOException{
+  public void testTimeoutExceptionDelete() {
     Delete delete= new Delete(Bytes.toBytes("delete"));
     long start= System.currentTimeMillis();
     try{
@@ -90,7 +90,7 @@ public class TestRestErrors {
    * test function get
    */
   @Test
-  public void testTimeoutExceptionGet() throws IOException{
+  public void testTimeoutExceptionGet() {
     long start= System.currentTimeMillis();
     try{
       remoteTable.get(new Get(Bytes.toBytes("Get")));
@@ -105,7 +105,7 @@ public class TestRestErrors {
    * test function put
    */
   @Test
-  public void testTimeoutExceptionPut() throws IOException{
+  public void testTimeoutExceptionPut() {
     long start= System.currentTimeMillis();
     try{
       remoteTable.put(new Put(Bytes.toBytes("Row")));
@@ -129,7 +129,7 @@ public class TestRestErrors {
    * test Scanner
    */
   @Test
-  public void testTimeoutExceptionScanner() throws IOException{
+  public void testTimeoutExceptionScanner() {
     long start= System.currentTimeMillis();
     try{
       remoteTable.getScanner(new Scan());
@@ -144,7 +144,7 @@ public class TestRestErrors {
    * test function checkAndPut
    */
   @Test
-  public void testTimeoutExceptionCheckAndPut() throws IOException{
+  public void testTimeoutExceptionCheckAndPut() {
     long start= System.currentTimeMillis();
     Put put = new Put(ROW_1);
     put.add(COLUMN_1, QUALIFIER_1, VALUE_1);
@@ -162,7 +162,7 @@ public class TestRestErrors {
    * test function checkAndDelete
    */
   @Test
-  public void testTimeoutExceptionCheckAndDelete() throws IOException{
+  public void testTimeoutExceptionCheckAndDelete() {
     long start= System.currentTimeMillis();
     Put put = new Put(ROW_1);
     put.add(COLUMN_1, QUALIFIER_1, VALUE_1);
