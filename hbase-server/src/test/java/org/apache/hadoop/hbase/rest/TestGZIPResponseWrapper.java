@@ -17,6 +17,7 @@ import javax.servlet.ServletOutputStream;
 import javax.servlet.http.HttpServletResponse;
 
 import org.apache.hadoop.hbase.MediumTests;
+import org.apache.hadoop.hbase.rest.filter.GZIPResponseStream;
 import org.apache.hadoop.hbase.rest.filter.GZIPResponseWrapper;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
@@ -29,9 +30,11 @@ public class TestGZIPResponseWrapper {
 
   /**
    * headers function should be called in response except header "content-length"
+   * 
+   * @throws IOException
    */
   @Test
-  public void testHeader() {
+  public void testHeader() throws IOException {
 
     HttpServletResponse response = mock(HttpServletResponse.class);
 
@@ -53,6 +56,9 @@ public class TestGZIPResponseWrapper {
     test.setHeader("content-length", "content length value");
     verify(response, never()).setHeader("content-length", "content length value");
 
+    test.sendRedirect("location");
+    verify(response).sendRedirect("location");
+
   }
 
   @Test
@@ -72,6 +78,7 @@ public class TestGZIPResponseWrapper {
     when(response.isCommitted()).thenReturn(true);
     servletOutput = test.getOutputStream();
     assertEquals(out.getClass(), servletOutput.getClass());
+    assertNotNull(test.getWriter());
 
   }
 
@@ -106,5 +113,19 @@ public class TestGZIPResponseWrapper {
     verify(response).sendError(404, "error message");
 
   }
-  
+
+  @Test
+  public void testGZIPResponseStream() throws IOException {
+    HttpServletResponse httpResponce = mock(HttpServletResponse.class);
+    ServletOutputStream out = mock(ServletOutputStream.class);
+
+    when(httpResponce.getOutputStream()).thenReturn(out);
+    GZIPResponseStream test = new GZIPResponseStream(httpResponce);
+    verify(httpResponce).addHeader("Content-Encoding", "gzip");
+
+    test.close();
+
+    test.resetBuffer();
+    verify(httpResponce).setHeader("Content-Encoding", null);
+  }
 }
