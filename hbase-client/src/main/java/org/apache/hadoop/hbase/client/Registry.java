@@ -1,5 +1,4 @@
 /**
- *
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -16,18 +15,42 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.hadoop.hbase.regionserver;
+package org.apache.hadoop.hbase.client;
 
-import org.apache.hadoop.classification.InterfaceAudience;
+import java.io.IOException;
+
+import org.apache.hadoop.hbase.HRegionLocation;
 
 /**
- * Last flushed sequence Ids for the regions on region server
+ * Cluster registry.
+ * Implemenations hold cluster information such as this cluster's id, location of .META., etc.
  */
-@InterfaceAudience.Private
-public interface LastSequenceId {
+interface Registry {
   /**
-   * @param regionName Encoded region name
-   * @return Last flushed sequence Id for regionName or -1 if it can't be determined
+   * @param connection
    */
-  public long getLastSequenceId(byte[] regionName);
+  void init(HConnection connection);
+
+  /**
+   * @return Meta region location
+   * @throws IOException
+   */
+  HRegionLocation getMetaRegionLocation() throws IOException;
+
+  /**
+   * @return Cluster id.
+   */
+  String getClusterId();
+
+  /**
+   * @param enabled Return true if table is enabled
+   * @throws IOException
+   */
+  boolean isTableOnlineState(byte [] tableName, boolean enabled) throws IOException;
+
+  /**
+   * @return Count of 'running' regionservers
+   * @throws IOException
+   */
+  int getCurrentNrHRS() throws IOException;
 }
