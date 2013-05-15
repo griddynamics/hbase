@@ -125,6 +125,7 @@ public class InputSampler<K,V> extends Configured implements Tool  {
      * From each split sampled, take the first numSamples / numSplits records.
      */
     @SuppressWarnings("unchecked") // ArrayList::toArray doesn't preserve type
+    @Override
     public K[] getSample(InputFormat<K,V> inf, Job job) 
         throws IOException, InterruptedException {
       List<InputSplit> splits = inf.getSplits(job);
@@ -218,6 +219,7 @@ public class InputSampler<K,V> extends Configured implements Tool  {
      * the quota of keys from that split is satisfied.
      */
     @SuppressWarnings("unchecked") // ArrayList::toArray doesn't preserve type
+    @Override
     public K[] getSample(InputFormat<K,V> inf, Job job) 
         throws IOException, InterruptedException {
       List<InputSplit> splits = inf.getSplits(job);
@@ -302,6 +304,7 @@ public class InputSampler<K,V> extends Configured implements Tool  {
      * frequency.
      */
     @SuppressWarnings("unchecked") // ArrayList::toArray doesn't preserve type
+    @Override
     public K[] getSample(InputFormat<K,V> inf, Job job) 
         throws IOException, InterruptedException {
       List<InputSplit> splits = inf.getSplits(job);
@@ -371,6 +374,7 @@ public class InputSampler<K,V> extends Configured implements Tool  {
    * Driver for InputSampler from the command line.
    * Configures a JobConf instance and calls {@link #writePartitionFile}.
    */
+  @Override
   public int run(String[] args) throws Exception {
     Job job = new Job(getConf());
     ArrayList<String> otherArgs = new ArrayList<String>();
@@ -426,8 +430,8 @@ public class InputSampler<K,V> extends Configured implements Tool  {
     }
 
     Path outf = new Path(otherArgs.remove(otherArgs.size() - 1));
-    TotalOrderPartitioner.setPartitionFile(getConf(), outf);
-    for (String s : otherArgs) {
+    TotalOrderPartitioner.setPartitionFile(job.getConfiguration(), outf);
+    for (String s: otherArgs) {
       FileInputFormat.addInputPath(job, new Path(s));
     }
     InputSampler.<K,V>writePartitionFile(job, sampler);
