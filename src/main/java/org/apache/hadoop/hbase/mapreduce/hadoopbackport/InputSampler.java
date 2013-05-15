@@ -79,7 +79,7 @@ public class InputSampler<K,V> extends Configured implements Tool  {
   }
 
   /**
-   * Interface to sample using an 
+   * Interface to sample using an
    * {@link org.apache.hadoop.mapreduce.InputFormat}.
    */
   public interface Sampler<K,V> {
@@ -87,7 +87,7 @@ public class InputSampler<K,V> extends Configured implements Tool  {
      * For a given job, collect and return a subset of the keys from the
      * input data.
      */
-    K[] getSample(InputFormat<K,V> inf, Job job) 
+    K[] getSample(InputFormat<K,V> inf, Job job)
     throws IOException, InterruptedException;
   }
 
@@ -126,7 +126,7 @@ public class InputSampler<K,V> extends Configured implements Tool  {
      */
     @SuppressWarnings("unchecked") // ArrayList::toArray doesn't preserve type
     @Override
-    public K[] getSample(InputFormat<K,V> inf, Job job) 
+    public K[] getSample(InputFormat<K,V> inf, Job job)
         throws IOException, InterruptedException {
       List<InputSplit> splits = inf.getSplits(job);
       ArrayList<K> samples = new ArrayList<K>(numSamples);
@@ -161,7 +161,7 @@ public class InputSampler<K,V> extends Configured implements Tool  {
    * here when we should be using native hadoop TotalOrderPartitioner).
    * @param job
    * @return Context
-   * @throws IOException 
+   * @throws IOException
    */
   public static TaskAttemptContext getTaskAttemptContext(final Job job)
   throws IOException {
@@ -220,7 +220,7 @@ public class InputSampler<K,V> extends Configured implements Tool  {
      */
     @SuppressWarnings("unchecked") // ArrayList::toArray doesn't preserve type
     @Override
-    public K[] getSample(InputFormat<K,V> inf, Job job) 
+    public K[] getSample(InputFormat<K,V> inf, Job job)
         throws IOException, InterruptedException {
       List<InputSplit> splits = inf.getSplits(job);
       ArrayList<K> samples = new ArrayList<K>(numSamples);
@@ -305,7 +305,7 @@ public class InputSampler<K,V> extends Configured implements Tool  {
      */
     @SuppressWarnings("unchecked") // ArrayList::toArray doesn't preserve type
     @Override
-    public K[] getSample(InputFormat<K,V> inf, Job job) 
+    public K[] getSample(InputFormat<K,V> inf, Job job)
         throws IOException, InterruptedException {
       List<InputSplit> splits = inf.getSplits(job);
       ArrayList<K> samples = new ArrayList<K>();
@@ -338,10 +338,10 @@ public class InputSampler<K,V> extends Configured implements Tool  {
    * returned from {@link TotalOrderPartitioner#getPartitionFile}.
    */
   @SuppressWarnings("unchecked") // getInputFormat, getOutputKeyComparator
-  public static <K,V> void writePartitionFile(Job job, Sampler<K,V> sampler) 
+  public static <K,V> void writePartitionFile(Job job, Sampler<K,V> sampler)
       throws IOException, ClassNotFoundException, InterruptedException {
     Configuration conf = job.getConfiguration();
-    final InputFormat inf = 
+    final InputFormat inf =
         ReflectionUtils.newInstance(job.getInputFormatClass(), conf);
     int numPartitions = job.getNumReduceTasks();
     K[] samples = sampler.getSample(inf, job);
@@ -354,7 +354,7 @@ public class InputSampler<K,V> extends Configured implements Tool  {
     if (fs.exists(dst)) {
       fs.delete(dst, false);
     }
-    SequenceFile.Writer writer = SequenceFile.createWriter(fs, 
+    SequenceFile.Writer writer = SequenceFile.createWriter(fs,
       conf, dst, job.getMapOutputKeyClass(), NullWritable.class);
     NullWritable nullValue = NullWritable.get();
     float stepSize = samples.length / (float) numPartitions;

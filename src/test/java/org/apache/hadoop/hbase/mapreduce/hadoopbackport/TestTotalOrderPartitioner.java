@@ -105,12 +105,12 @@ public class TestTotalOrderPartitioner extends TestCase {
   public void testTotalOrderMemCmp() throws Exception {
     TotalOrderPartitioner<Text,NullWritable> partitioner =
       new TotalOrderPartitioner<Text,NullWritable>();
-    
+
     // Need to use old JobConf-based variant here:
     JobConf conf = new JobConf();
     conf.setMapOutputKeyClass(Text.class);
     conf.setNumReduceTasks(splitStrings.length + 1);
-    
+
     Path p = TestTotalOrderPartitioner.<Text>writePartitionFile(
         "totalordermemcmp", conf, splitStrings);
     try {
@@ -164,18 +164,18 @@ public class TestTotalOrderPartitioner extends TestCase {
   public void testTotalOrderCustomComparator() throws Exception {
     TotalOrderPartitioner<Text,NullWritable> partitioner =
       new TotalOrderPartitioner<Text,NullWritable>();
-    
+
     final JobConf conf = new JobConf();
     conf.setMapOutputKeyClass(Text.class);
     conf.setNumReduceTasks(splitStrings.length + 1);
-    
+
     Text[] revSplitStrings = Arrays.copyOf(splitStrings, splitStrings.length);
     Arrays.sort(revSplitStrings, new ReverseStringComparator());
     Path p = TestTotalOrderPartitioner.<Text>writePartitionFile(
         "totalordercustomcomparator", conf, revSplitStrings);
     conf.setBoolean(TotalOrderPartitioner.NATURAL_ORDER, false);
     conf.setOutputKeyComparatorClass(ReverseStringComparator.class);
-    
+
     ArrayList<Check<Text>> revCheck = new ArrayList<Check<Text>>();
     revCheck.add(new Check<Text>(new Text("aaaaa"), 9));
     revCheck.add(new Check<Text>(new Text("aaabb"), 9));

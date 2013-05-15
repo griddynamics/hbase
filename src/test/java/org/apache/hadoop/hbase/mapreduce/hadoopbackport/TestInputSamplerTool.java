@@ -50,11 +50,11 @@ public class TestInputSamplerTool {
 
   private static final int NUM_REDUCES = 4;
 
-  private static final String input1Str = 
+  private static final String input1Str =
      "2\n"
     +"...5\n"
-    +"......8\n"; 
-  private static final String input2Str = 
+    +"......8\n";
+  private static final String input2Str =
      "2\n"
     +".3\n"
     +"..4\n"
@@ -62,38 +62,38 @@ public class TestInputSamplerTool {
     +"....6\n"
     +".....7\n"
     +"......8\n"
-    +".......9\n"; 
-  
+    +".......9\n";
+
   private static File tempDir;
   private static String input1, input2, output;
-  
+
   @BeforeClass
   public static void beforeClass() throws IOException {
     tempDir = FileUtil.createLocalTempFile(
-      new File(FileUtils.getTempDirectory(), TestInputSamplerTool.class.getName() + "-tmp-"), 
+      new File(FileUtils.getTempDirectory(), TestInputSamplerTool.class.getName() + "-tmp-"),
       "", false);
     tempDir.delete();
     tempDir.mkdirs();
     assertTrue(tempDir.exists());
     assertTrue(tempDir.isDirectory());
     // define files:
-    input1 = tempDir.getAbsolutePath() + "/input1"; 
-    input2 = tempDir.getAbsolutePath() + "/input2"; 
-    output = tempDir.getAbsolutePath() + "/output"; 
+    input1 = tempDir.getAbsolutePath() + "/input1";
+    input2 = tempDir.getAbsolutePath() + "/input2";
+    output = tempDir.getAbsolutePath() + "/output";
     // create 2 input files:
     IOUtils.copy(new StringReader(input1Str), new FileOutputStream(input1));
     IOUtils.copy(new StringReader(input2Str), new FileOutputStream(input2));
   }
-  
+
   @AfterClass
   public static void afterClass() throws IOException {
     FileUtil.fullyDelete(tempDir);
   }
-  
+
   @Test
   public void testIncorrectParameters() throws Exception {
     Tool tool = new InputSampler<Object,Object>(new Configuration());
-    
+
     int result = tool.run(new String[] { "-r" });
     assertTrue(result != 0);
 
@@ -103,56 +103,56 @@ public class TestInputSamplerTool {
     // more than one reducer is required:
     result = tool.run(new String[] { "-r", "1" });
     assertTrue(result != 0);
-    
+
     try {
       result = tool.run(new String[] { "-inFormat", "java.lang.Object" });
       fail("ClassCastException expected");
     } catch (ClassCastException cce) {
       // expected
     }
-    
+
     try {
       result = tool.run(new String[] { "-keyClass", "java.lang.Object" });
       fail("ClassCastException expected");
     } catch (ClassCastException cce) {
       // expected
     }
-    
+
     result = tool.run(new String[] { "-splitSample", "1", });
     assertTrue(result != 0);
-    
+
     result = tool.run(new String[] { "-splitRandom", "1.0", "2", "xxx" });
     assertTrue(result != 0);
-    
+
     result = tool.run(new String[] { "-splitInterval", "yyy", "5" });
     assertTrue(result != 0);
-    
-    // not enough subsequent arguments:  
+
+    // not enough subsequent arguments:
     result = tool.run(new String[] { "-r", "2", "-splitInterval", "11.0f", "0", "input" });
     assertTrue(result != 0);
   }
-  
+
   @Test
   public void testSplitSample() throws Exception {
     Tool tool = new InputSampler<Object,Object>(new Configuration());
-    int result = tool.run(new String[] { "-r", Integer.toString(NUM_REDUCES), 
-        "-splitSample", "10", "100", 
+    int result = tool.run(new String[] { "-r", Integer.toString(NUM_REDUCES),
+        "-splitSample", "10", "100",
         input1, input2, output });
     assertEquals(0, result);
-    
+
     Object[] partitions = readPartitions(output);
     assertArrayEquals(
-        new LongWritable[] { new LongWritable(2L), new LongWritable(7L), new LongWritable(20L),}, 
+        new LongWritable[] { new LongWritable(2L), new LongWritable(7L), new LongWritable(20L),},
         partitions);
   }
-  
+
   @Test
   @SuppressWarnings("unchecked")
   public void testSplitRamdom() throws Exception {
     Tool tool = new InputSampler<Object,Object>(new Configuration());
     int result = tool.run(new String[] { "-r", Integer.toString(NUM_REDUCES),
-        // Use 0.999 probability to reduce the flakiness of the test because 
-        // the test will fail if the number of samples is less than (number of reduces + 1).  
+        // Use 0.999 probability to reduce the flakiness of the test because
+        // the test will fail if the number of samples is less than (number of reduces + 1).
         "-splitRandom", "0.999f", "20", "100",
         input1, input2, output });
     assertEquals(0, result);
@@ -164,25 +164,27 @@ public class TestInputSamplerTool {
     Arrays.sort(sortedPartitions, new LongWritable.Comparator());
     assertArrayEquals(sortedPartitions, partitions);
   }
-  
+
   @Test
   public void testSplitInterval() throws Exception {
     Tool tool = new InputSampler<Object,Object>(new Configuration());
-    int result = tool.run(new String[] { "-r", Integer.toString(NUM_REDUCES), 
-        "-splitInterval", "0.5f", "0", 
+    int result = tool.run(new String[] { "-r", Integer.toString(NUM_REDUCES),
+        "-splitInterval", "0.5f", "0",
         input1, input2, output });
     assertEquals(0, result);
     Object[] partitions = readPartitions(output);
-    assertArrayEquals(new LongWritable[] { new LongWritable(7L), new LongWritable(9L), new LongWritable(35L),}, partitions);
+    assertArrayEquals(new LongWritable[] { new LongWritable(7L), new LongWritable(9L),
+      new LongWritable(35L),}, partitions);
   }
-  
+
   private Object[] readPartitions(String filePath) throws Exception {
     Configuration conf = new Configuration();
     TotalOrderPartitioner.setPartitionFile(conf, new Path(filePath));
-    Object[] partitions = readPartitions(FileSystem.getLocal(conf), new Path(filePath), LongWritable.class, conf);
+    Object[] partitions = readPartitions(FileSystem.getLocal(conf), new Path(filePath),
+      LongWritable.class, conf);
     return partitions;
   }
-  
+
   private Object[] readPartitions(FileSystem fs, Path p, Class<?> keyClass,
       Configuration conf) throws IOException {
     SequenceFile.Reader reader = new SequenceFile.Reader(fs, p, conf);
