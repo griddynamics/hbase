@@ -176,15 +176,14 @@ public class TestIOFencing {
     }
 
     @Override
-    protected void completeCompaction(Collection<StoreFile> compactedFiles,
-        Collection<StoreFile> result) throws IOException {
+    protected void completeCompaction(Collection<StoreFile> compactedFiles) throws IOException {
       try {
         r.compactionsWaiting.countDown();
         r.compactionsBlocked.await();
       } catch (InterruptedException ex) {
         throw new IOException(ex);
       }
-      super.completeCompaction(compactedFiles, result);
+      super.completeCompaction(compactedFiles);
     }
   }
 
@@ -218,6 +217,7 @@ public class TestIOFencing {
 
   public void doTest(Class<?> regionClass) throws Exception {
     Configuration c = TEST_UTIL.getConfiguration();
+    c.setBoolean(HConstants.DISTRIBUTED_LOG_REPLAY_KEY, false);
     // Insert our custom region
     c.setClass(HConstants.REGION_IMPL, regionClass, HRegion.class);
     c.setBoolean("dfs.support.append", true);
