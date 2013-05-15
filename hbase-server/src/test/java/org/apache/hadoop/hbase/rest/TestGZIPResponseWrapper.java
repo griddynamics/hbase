@@ -58,6 +58,9 @@ public class TestGZIPResponseWrapper {
 
     test.sendRedirect("location");
     verify(response).sendRedirect("location");
+    
+    test.flushBuffer();
+    verify(response).flushBuffer();
 
   }
 
