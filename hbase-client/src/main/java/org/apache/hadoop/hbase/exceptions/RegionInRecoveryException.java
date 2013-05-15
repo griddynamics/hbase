@@ -19,15 +19,27 @@
 package org.apache.hadoop.hbase.exceptions;
 
 import org.apache.hadoop.classification.InterfaceAudience;
+import org.apache.hadoop.classification.InterfaceStability;
 
 /**
- * Thrown by the region server when it is in shutting down state.
+ * Thrown when a read request issued against a region which is in recovering state.
  */
-@SuppressWarnings("serial")
-@InterfaceAudience.Private
-public class RegionServerStoppedException extends DoNotRetryIOException {
+@InterfaceAudience.Public
+@InterfaceStability.Evolving
+public class RegionInRecoveryException extends NotServingRegionException {
+  private static final long serialVersionUID = 327302071153799L;
 
-  public RegionServerStoppedException(String s) {
+  /** default constructor */
+  public RegionInRecoveryException() {
+    super();
+  }
+
+  /**
+   * Constructor
+   * @param s message
+   */
+  public RegionInRecoveryException(String s) {
     super(s);
   }
+
 }
