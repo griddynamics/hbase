@@ -22,8 +22,11 @@ package org.apache.hadoop.hbase.rest.client;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
 
+import org.apache.commons.httpclient.Header;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hbase.*;
@@ -68,8 +71,7 @@ public class TestRemoteTable {
   private static final long TS_1 = TS_2 - ONE_HOUR;
 
   private static final HBaseTestingUtility TEST_UTIL = new HBaseTestingUtility();
-  private static final HBaseRESTTestingUtility REST_TEST_UTIL = 
-    new HBaseRESTTestingUtility();
+  private static final HBaseRESTTestingUtility REST_TEST_UTIL = new HBaseRESTTestingUtility();
   private static RemoteHTable remoteTable;
 
   @BeforeClass
@@ -77,8 +79,8 @@ public class TestRemoteTable {
     TEST_UTIL.startMiniCluster();
     REST_TEST_UTIL.startServletContainer(TEST_UTIL.getConfiguration());
     HBaseAdmin admin = TEST_UTIL.getHBaseAdmin();
-    LOG.info("Admin Connection=" + admin.getConnection() + ", " + 
-      admin.getConnection().getZooKeeperWatcher());
+    LOG.info("Admin Connection=" + admin.getConnection() + ", "
+        + admin.getConnection().getZooKeeperWatcher());
     if (!admin.tableExists(TABLE)) {
       HTableDescriptor htd = new HTableDescriptor(TABLE);
       htd.addFamily(new HColumnDescriptor(COLUMN_1));
@@ -86,8 +88,8 @@ public class TestRemoteTable {
       htd.addFamily(new HColumnDescriptor(COLUMN_3));
       admin.createTable(htd);
       HTable table = new HTable(TEST_UTIL.getConfiguration(), TABLE);
-      LOG.info("Table connection=" + table.getConnection() + ", " +
-        admin.getConnection().getZooKeeperWatcher());
+      LOG.info("Table connection=" + table.getConnection() + ", "
+          + admin.getConnection().getZooKeeperWatcher());
       Put put = new Put(ROW_1);
       put.add(COLUMN_1, QUALIFIER_1, TS_2, VALUE_1);
       table.put(put);
@@ -97,11 +99,10 @@ public class TestRemoteTable {
       put.add(COLUMN_2, QUALIFIER_2, TS_2, VALUE_2);
       table.put(put);
       table.flushCommits();
+      table.close();
     }
-    remoteTable = new RemoteHTable(
-      new Client(new Cluster().add("localhost", 
-          REST_TEST_UTIL.getServletPort())),
-        TEST_UTIL.getConfiguration(), TABLE);
+    remoteTable = new RemoteHTable(new Client(new Cluster().add("localhost",
+        REST_TEST_UTIL.getServletPort())), TEST_UTIL.getConfiguration(), TABLE);
   }
 
   @AfterClass
@@ -113,8 +114,7 @@ public class TestRemoteTable {
 
   @Test
   public void testGetTableDescriptor() throws IOException {
-    HTableDescriptor local = new HTable(TEST_UTIL.getConfiguration(),
-      TABLE).getTableDescriptor();
+    HTableDescriptor local = new HTable(TEST_UTIL.getConfiguration(), TABLE).getTableDescriptor();
     assertEquals(remoteTable.getTableDescriptor(), local);
   }
 
@@ -147,7 +147,7 @@ public class TestRemoteTable {
     assertNull(value2);
 
     get = new Get(ROW_2);
-    result = remoteTable.get(get);    
+    result = remoteTable.get(get);
     value1 = result.getValue(COLUMN_1, QUALIFIER_1);
     value2 = result.getValue(COLUMN_2, QUALIFIER_2);
     assertNotNull(value1);
@@ -157,7 +157,7 @@ public class TestRemoteTable {
 
     get = new Get(ROW_2);
     get.addFamily(COLUMN_1);
-    result = remoteTable.get(get);    
+    result = remoteTable.get(get);
     value1 = result.getValue(COLUMN_1, QUALIFIER_1);
     value2 = result.getValue(COLUMN_2, QUALIFIER_2);
     assertNotNull(value1);
@@ -167,7 +167,7 @@ public class TestRemoteTable {
     get = new Get(ROW_2);
     get.addColumn(COLUMN_1, QUALIFIER_1);
     get.addColumn(COLUMN_2, QUALIFIER_2);
-    result = remoteTable.get(get);    
+    result = remoteTable.get(get);
     value1 = result.getValue(COLUMN_1, QUALIFIER_1);
     value2 = result.getValue(COLUMN_2, QUALIFIER_2);
     assertNotNull(value1);
@@ -181,7 +181,7 @@ public class TestRemoteTable {
     get.addFamily(COLUMN_1);
     get.addFamily(COLUMN_2);
     get.setTimeStamp(TS_1);
-    result = remoteTable.get(get);    
+    result = remoteTable.get(get);
     value1 = result.getValue(COLUMN_1, QUALIFIER_1);
     value2 = result.getValue(COLUMN_2, QUALIFIER_2);
     assertNotNull(value1);
@@ -194,7 +194,7 @@ public class TestRemoteTable {
     get.addFamily(COLUMN_1);
     get.addFamily(COLUMN_2);
     get.setTimeRange(0, TS_1 + 1);
-    result = remoteTable.get(get);    
+    result = remoteTable.get(get);
     value1 = result.getValue(COLUMN_1, QUALIFIER_1);
     value2 = result.getValue(COLUMN_2, QUALIFIER_2);
     assertNotNull(value1);
@@ -208,7 +208,7 @@ public class TestRemoteTable {
     get.setMaxVersions(2);
     result = remoteTable.get(get);
     int count = 0;
-    for (KeyValue kv: result.list()) {
+    for (KeyValue kv : result.list()) {
       if (Bytes.equals(COLUMN_1, kv.getFamily()) && TS_1 == kv.getTimestamp()) {
         assertTrue(Bytes.equals(VALUE_1, kv.getValue())); // @TS_1
         count++;
@@ -232,7 +232,7 @@ public class TestRemoteTable {
     assertEquals(1, results[0].size());
     assertEquals(2, results[1].size());
 
-    //Test Versions
+    // Test Versions
     gets = new ArrayList<Get>();
     Get g = new Get(ROW_1);
     g.setMaxVersions(3);
@@ -244,7 +244,7 @@ public class TestRemoteTable {
     assertEquals(1, results[0].size());
     assertEquals(3, results[1].size());
 
-    //404
+    // 404
     gets = new ArrayList<Get>();
     gets.add(new Get(Bytes.toBytes("RESALLYREALLYNOTTHERE")));
     results = remoteTable.get(gets);
@@ -260,6 +260,9 @@ public class TestRemoteTable {
     assertEquals(0, results.length);
   }
 
+  /**
+   * Test multi put
+   */
   @Test
   public void testPut() throws IOException {
     Put put = new Put(ROW_3);
@@ -301,8 +304,14 @@ public class TestRemoteTable {
     value = result.getValue(COLUMN_2, QUALIFIER_2);
     assertNotNull(value);
     assertTrue(Bytes.equals(VALUE_2, value));
+
+    assertTrue(Bytes.equals(Bytes.toBytes("TestRemoteTable"), remoteTable.getTableName()));
   }
 
+  /**
+   * Test function delete
+   */
+  @Test
   public void testDelete() throws IOException {
     Put put = new Put(ROW_3);
     put.add(COLUMN_1, QUALIFIER_1, VALUE_1);
@@ -323,7 +332,7 @@ public class TestRemoteTable {
     Delete delete = new Delete(ROW_3);
     delete.deleteColumn(COLUMN_2, QUALIFIER_2);
     remoteTable.delete(delete);
-    
+
     get = new Get(ROW_3);
     get.addFamily(COLUMN_1);
     get.addFamily(COLUMN_2);
@@ -347,6 +356,10 @@ public class TestRemoteTable {
     assertNull(value2);
   }
 
+  /**
+   * Test a inner class Scanner
+   */
+  @Test
   public void testScanner() throws IOException {
     List<Put> puts = new ArrayList<Put>();
     Put put = new Put(ROW_1);
@@ -370,21 +383,126 @@ public class TestRemoteTable {
     assertEquals(1, results.length);
     assertTrue(Bytes.equals(ROW_1, results[0].getRow()));
 
-    results = scanner.next(3);
+    Result result = scanner.next();
+    assertNotNull(result);
+    assertTrue(Bytes.equals(ROW_2, result.getRow()));
+
+    results = scanner.next(2);
     assertNotNull(results);
-    assertEquals(3, results.length);
-    assertTrue(Bytes.equals(ROW_2, results[0].getRow()));
-    assertTrue(Bytes.equals(ROW_3, results[1].getRow()));
-    assertTrue(Bytes.equals(ROW_4, results[2].getRow()));
+    assertEquals(2, results.length);
+    assertTrue(Bytes.equals(ROW_3, results[0].getRow()));
+    assertTrue(Bytes.equals(ROW_4, results[1].getRow()));
 
     results = scanner.next(1);
     assertNull(results);
+    scanner.close();
+
+    scanner = remoteTable.getScanner(COLUMN_1);
+    results = scanner.next(4);
+    assertNotNull(results);
+    assertEquals(4, results.length);
+    assertTrue(Bytes.equals(ROW_1, results[0].getRow()));
+    assertTrue(Bytes.equals(ROW_2, results[1].getRow()));
+    assertTrue(Bytes.equals(ROW_3, results[2].getRow()));
+    assertTrue(Bytes.equals(ROW_4, results[3].getRow()));
 
     scanner.close();
+
+    scanner = remoteTable.getScanner(COLUMN_1, QUALIFIER_1);
+    results = scanner.next(4);
+    assertNotNull(results);
+    assertEquals(4, results.length);
+    assertTrue(Bytes.equals(ROW_1, results[0].getRow()));
+    assertTrue(Bytes.equals(ROW_2, results[1].getRow()));
+    assertTrue(Bytes.equals(ROW_3, results[2].getRow()));
+    assertTrue(Bytes.equals(ROW_4, results[3].getRow()));
+    scanner.close();
+    assertTrue(remoteTable.isAutoFlush());
+  }
+
+  /**
+   * Test a method checkAndDelete
+   */
+  @Test
+  public void testExist() throws IOException {
+    Get get = new Get(ROW_1);
+    Result result = remoteTable.get(get);
+    byte[] value1 = result.getValue(COLUMN_1, QUALIFIER_1);
+    byte[] value2 = result.getValue(COLUMN_2, QUALIFIER_2);
+    assertNotNull(value1);
+    assertTrue(Bytes.equals(VALUE_1, value1));
+    assertNull(value2);
+    assertTrue(remoteTable.exists(get));
+    Delete delete = new Delete(ROW_1);
+
+    remoteTable.checkAndDelete(ROW_1, COLUMN_1, QUALIFIER_1, VALUE_1, delete);
+    assertFalse(remoteTable.exists(get));
+
+    Put put = new Put(ROW_1);
+    put.add(COLUMN_1, QUALIFIER_1, VALUE_1);
+    remoteTable.put(put);
+
+    assertTrue(remoteTable.checkAndPut(ROW_1, COLUMN_1, QUALIFIER_1, VALUE_1, put));
+    assertFalse(remoteTable.checkAndPut(ROW_1, COLUMN_1, QUALIFIER_1, VALUE_2, put));
+
+  }
+
+  /**
+   * Test a method next from class Scanner
+   */
+  @Test
+  public void testIteratorScaner() throws IOException {
+    List<Put> puts = new ArrayList<Put>();
+    Put put = new Put(ROW_1);
+    put.add(COLUMN_1, QUALIFIER_1, VALUE_1);
+    puts.add(put);
+    put = new Put(ROW_2);
+    put.add(COLUMN_1, QUALIFIER_1, VALUE_1);
+    puts.add(put);
+    put = new Put(ROW_3);
+    put.add(COLUMN_1, QUALIFIER_1, VALUE_1);
+    puts.add(put);
+    put = new Put(ROW_4);
+    put.add(COLUMN_1, QUALIFIER_1, VALUE_1);
+    puts.add(put);
+    remoteTable.put(puts);
+
+    ResultScanner scanner = remoteTable.getScanner(new Scan());
+    Iterator<Result> iterator = scanner.iterator();
+    assertTrue(iterator.hasNext());
+    int counter = 0;
+    while (iterator.hasNext()) {
+      iterator.next();
+      counter++;
+    }
+    assertEquals(4, counter);
+  }
+
+  /**
+   * Test a some methods of class Responce.
+   */
+  @Test
+  public void testResponse() {
+    Response responce = new Response(200);
+    assertEquals(200, responce.getCode());
+    Header[] headers = new Header[2];
+    headers[0] = new Header("header1", "value1");
+    headers[1] = new Header("header2", "value2");
+    responce = new Response(200, headers);
+    assertEquals("value1", responce.getHeader("header1"));
+    assertFalse(responce.hasBody());
+    responce.setCode(404);
+    assertEquals(404, responce.getCode());
+    headers = new Header[2];
+    headers[0] = new Header("header1", "value1.1");
+    headers[1] = new Header("header2", "value2");
+    responce.setHeaders(headers);
+    assertEquals("value1.1", responce.getHeader("header1"));
+    responce.setBody(Bytes.toBytes("body"));
+    assertTrue(responce.hasBody());
+
   }
 
   @org.junit.Rule
-  public org.apache.hadoop.hbase.ResourceCheckerJUnitRule cu =
-    new org.apache.hadoop.hbase.ResourceCheckerJUnitRule();
+  public org.apache.hadoop.hbase.ResourceCheckerJUnitRule cu = new org.apache.hadoop.hbase.ResourceCheckerJUnitRule();
 }
-
