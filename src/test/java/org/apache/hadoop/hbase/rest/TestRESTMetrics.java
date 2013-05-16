@@ -34,7 +34,6 @@ public class TestRESTMetrics {
   public void testRESTMetrics() throws InterruptedException {
     RESTMetrics test = new RESTMetrics();
     long start1 = System.currentTimeMillis();
-    Thread.sleep(1501);
 
     test.doUpdates(null);
     // started value
@@ -45,7 +44,6 @@ public class TestRESTMetrics {
     assertEquals(0, test.getFailedDeleteCount(), 0.01);
     assertEquals(0, test.getFailedGetCount(), 0.01);
     assertEquals(0, test.getFailedPutCount(), 0.01);
-    Thread.sleep(1501);
     long start2 = System.currentTimeMillis();
 
     // sleep 2 sec
@@ -60,10 +58,8 @@ public class TestRESTMetrics {
     test.incrementFailedPutRequests(10);
 
     long finish1 = System.currentTimeMillis();
-    Thread.sleep(501);
 
-    test.doUpdates(null);// ----------
-    Thread.sleep(2501);
+    test.doUpdates(null);
 
     long finish2 = System.currentTimeMillis();
 
