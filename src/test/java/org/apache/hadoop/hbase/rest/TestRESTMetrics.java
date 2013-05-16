@@ -57,7 +57,6 @@ public class TestRESTMetrics {
 
     // sleep 2 sec
     Thread.sleep(2000);
-    // couple belts
     test.incrementRequests(incrementRequest);
     test.incrementSucessfulGetRequests(incrementSucessfulGet);
     test.incrementSucessfulDeleteRequests(incrementSucessfulDelete);
@@ -72,7 +71,7 @@ public class TestRESTMetrics {
 
     long finish2 = System.currentTimeMillis();
 
-    long tmax = (finish2 - start1) / 1000;
+    double tmax = (finish2 - start1) / 1000;
     long tmin = (finish1 - start2) / 1000;
 
     testData(tmax, tmin, test.getRequests(), incrementRequest);
@@ -87,7 +86,7 @@ public class TestRESTMetrics {
   }
 
   // test minimum and maximum speed
-  private void testData(long tmax, long tmin, float value, double requests) {
+  private void testData(double tmax, long tmin, float value, double requests) {
     assertTrue((requests / tmax) <= value);
     assertTrue((requests / tmin) >= value);
 
