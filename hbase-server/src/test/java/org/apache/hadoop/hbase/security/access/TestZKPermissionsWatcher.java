@@ -23,6 +23,7 @@ import static org.junit.Assert.assertTrue;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.commons.logging.Log;
@@ -85,6 +86,8 @@ public class TestZKPermissionsWatcher {
 
   @Test
   public void testPermissionsWatcher() throws Exception {
+    //experement
+    TimeUnit.SECONDS.sleep(30);
     assertFalse(AUTH_A.authorizeUser("george", TEST_TABLE, null,
       TablePermission.Action.READ));
     assertFalse(AUTH_A.authorizeUser("george", TEST_TABLE, null,
