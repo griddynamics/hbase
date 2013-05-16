@@ -41,7 +41,7 @@ public class TestRESTMetrics {
     int incrementFailedGetRequests = 100;
     int incrementFailedDeleteRequests = 30;
     int incrementFailedPutRequests = 2;
-    
+
     long start1 = System.currentTimeMillis();
     test.doUpdates(null);
     long start2 = System.currentTimeMillis();
@@ -56,7 +56,7 @@ public class TestRESTMetrics {
     assertEquals(0, test.getFailedPutCount(), 0.01);
 
     // sleep 2 sec
-    Thread.sleep(2001);
+    Thread.sleep(2000);
     // couple belts
     test.incrementRequests(incrementRequest);
     test.incrementSucessfulGetRequests(incrementSucessfulGet);
@@ -67,25 +67,29 @@ public class TestRESTMetrics {
     test.incrementFailedPutRequests(incrementFailedPutRequests);
 
     long finish1 = System.currentTimeMillis();
+
     test.doUpdates(null);
+
     long finish2 = System.currentTimeMillis();
 
-    double average = (finish2 + finish1 - start1 - start2) / (2 * 1000);
-    double delta = (finish2 - start1 - finish1 + start2) / (2 * 1000);
-    // test metrics values
-    assertEquals(incrementRequest / average, test.getRequests(), incrementRequest / delta);
-    assertEquals(incrementSucessfulGet / average, test.getSucessfulGetCount(),
-        incrementSucessfulGet / delta);
-    assertEquals(incrementSucessfulDelete / average, test.getSucessfulDeleteCount(),
-        incrementSucessfulDelete / delta);
-    assertEquals(incrementSucessfulPut / average, test.getSucessfulPutCount(),
-        incrementSucessfulPut / delta);
-    assertEquals(incrementFailedGetRequests / average, test.getFailedGetCount(),
-        incrementFailedGetRequests / delta);
-    assertEquals(incrementFailedDeleteRequests / average, test.getFailedDeleteCount(),
-        incrementFailedDeleteRequests / delta);
-    assertEquals(incrementFailedPutRequests / average, test.getFailedPutCount(),
-        incrementFailedPutRequests / delta);
+    long tmax = (finish2 - start1) / 1000;
+    long tmin = (finish1 - start2) / 1000;
+
+    testData(tmax, tmin, test.getRequests(), incrementRequest);
+    testData(tmax, tmin, test.getSucessfulGetCount(), incrementSucessfulGet);
+    testData(tmax, tmin, test.getSucessfulDeleteCount(), incrementSucessfulDelete);
+    testData(tmax, tmin, test.getSucessfulPutCount(), incrementSucessfulPut);
+    testData(tmax, tmin, test.getFailedGetCount(), incrementFailedGetRequests);
+    testData(tmax, tmin, test.getFailedDeleteCount(), incrementFailedDeleteRequests);
+    testData(tmax, tmin, test.getFailedPutCount(), incrementFailedPutRequests);
+
     test.shutdown();
+  }
+
+  // test minimum and maximum speed
+  private void testData(long tmax, long tmin, float value, double requests) {
+    assertTrue((requests / tmax) <= value);
+    assertTrue((requests / tmin) >= value);
+
   }
 }
