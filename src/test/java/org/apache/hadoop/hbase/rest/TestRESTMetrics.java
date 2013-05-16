@@ -20,10 +20,8 @@ package org.apache.hadoop.hbase.rest;
 
 import org.apache.hadoop.hbase.SmallTests;
 import org.apache.hadoop.hbase.rest.metrics.RESTMetrics;
-import org.apache.hadoop.metrics.MetricsContext;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
-import static org.mockito.Mockito.*;
 import static org.junit.Assert.*;
 
 /**
@@ -34,7 +32,7 @@ import static org.junit.Assert.*;
 public class TestRESTMetrics {
 
   @Test
-  public void testRESTMetrics() {
+  public void testRESTMetrics() throws InterruptedException {
     RESTMetrics test = new RESTMetrics();
     test.doUpdates(null);
     assertEquals(0, test.getRequests(), 0.01);
@@ -45,15 +43,9 @@ public class TestRESTMetrics {
     assertEquals(0, test.getFailedGetCount(), 0.01);
     assertEquals(0, test.getFailedPutCount(), 0.01);
 
-    long start = System.currentTimeMillis();
     // sleep 2 sec
-    try {
-      Thread.sleep(2001);
-    } catch (InterruptedException e) {
-      fail("fail sleep");
-    }
+    Thread.sleep(2001);
     // couple belts
-    assertTrue((System.currentTimeMillis() - start) > 2000);
     test.incrementRequests(4);
     test.incrementSucessfulGetRequests(5);
     test.incrementSucessfulDeleteRequests(6);
