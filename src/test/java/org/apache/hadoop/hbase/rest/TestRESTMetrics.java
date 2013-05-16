@@ -34,6 +34,14 @@ public class TestRESTMetrics {
   public void testRESTMetrics() throws InterruptedException {
     RESTMetrics test = new RESTMetrics();
     long start1 = System.currentTimeMillis();
+    int incrementSucessfulGet = 20000;
+    int incrementSucessfulDelete = 3000000;
+    int incrementSucessfulPut = 3000000;
+    int incrementRequest = incrementSucessfulGet + incrementSucessfulDelete + incrementSucessfulPut;
+
+    int incrementFailedGetRequests = 100;
+    int incrementFailedDeleteRequests = 30;
+    int incrementFailedPutRequests = 2;
 
     test.doUpdates(null);
     // started value
@@ -49,13 +57,13 @@ public class TestRESTMetrics {
     // sleep 2 sec
     Thread.sleep(2001);
     // couple belts
-    test.incrementRequests(4);
-    test.incrementSucessfulGetRequests(5);
-    test.incrementSucessfulDeleteRequests(6);
-    test.incrementSucessfulPutRequests(7);
-    test.incrementFailedGetRequests(8);
-    test.incrementFailedDeleteRequests(9);
-    test.incrementFailedPutRequests(10);
+    test.incrementRequests(incrementRequest);
+    test.incrementSucessfulGetRequests(incrementSucessfulGet);
+    test.incrementSucessfulDeleteRequests(incrementSucessfulDelete);
+    test.incrementSucessfulPutRequests(incrementSucessfulPut);
+    test.incrementFailedGetRequests(incrementFailedGetRequests);
+    test.incrementFailedDeleteRequests(incrementFailedDeleteRequests);
+    test.incrementFailedPutRequests(incrementFailedPutRequests);
 
     long finish1 = System.currentTimeMillis();
 
@@ -66,13 +74,19 @@ public class TestRESTMetrics {
     double average = (finish2 + finish1 - start1 - start2) / (2 * 1000);
     double delta = (finish2 - start1 - finish1 + start2) / (2 * 1000);
     // test metrics values
-    assertEquals(4 / average, test.getRequests(), delta);
-    assertEquals(5 / average, test.getSucessfulGetCount(), delta);
-    assertEquals(6 / average, test.getSucessfulDeleteCount(), delta);
-    assertEquals(7 / average, test.getSucessfulPutCount(), delta);
-    assertEquals(8 / average, test.getFailedGetCount(), delta);
-    assertEquals(9 / average, test.getFailedDeleteCount(), delta);
-    assertEquals(10 / average, test.getFailedPutCount(), delta);
+    assertEquals(incrementRequest / average, test.getRequests(), incrementRequest / delta);
+    assertEquals(incrementSucessfulGet / average, test.getSucessfulGetCount(),
+        incrementSucessfulGet / delta);
+    assertEquals(incrementSucessfulDelete / average, test.getSucessfulDeleteCount(),
+        incrementSucessfulDelete / delta);
+    assertEquals(incrementSucessfulPut / average, test.getSucessfulPutCount(),
+        incrementSucessfulPut / delta);
+    assertEquals(incrementFailedGetRequests / average, test.getFailedGetCount(),
+        incrementFailedGetRequests / delta);
+    assertEquals(incrementFailedDeleteRequests / average, test.getFailedDeleteCount(),
+        incrementFailedDeleteRequests / delta);
+    assertEquals(incrementFailedPutRequests / average, test.getFailedPutCount(),
+        incrementFailedPutRequests / delta);
     test.shutdown();
   }
 }
