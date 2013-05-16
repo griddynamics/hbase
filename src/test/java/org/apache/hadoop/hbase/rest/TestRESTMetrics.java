@@ -7,9 +7,9 @@
  * licenses this file to you under the Apache License, Version 2.0 (the
  * "License"); you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *
+ * 
  * http://www.apache.org/licenses/LICENSE-2.0
- *
+ * 
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
  * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
@@ -26,32 +26,35 @@ import org.junit.experimental.categories.Category;
 import static org.mockito.Mockito.*;
 import static org.junit.Assert.*;
 
-
+/**
+ * Test RESTMetrics class
+ */
 @SuppressWarnings("deprecation")
 @Category(SmallTests.class)
 public class TestRESTMetrics {
 
   @Test
-  public void testRESTMetrics(){
+  public void testRESTMetrics() {
     RESTMetrics test = new RESTMetrics();
-    MetricsContext mc= mock(MetricsContext.class);
+    MetricsContext mc = mock(MetricsContext.class);
     test.doUpdates(mc);
-    assertEquals(0, test.getRequests(),0.01);
-    assertEquals(0, test.getSucessfulDeleteCount(),0.01);
-    assertEquals(0, test.getSucessfulPutCount(),0.01);
-    assertEquals(0, test.getSucessfulGetCount(),0.01);
-    assertEquals(0, test.getFailedDeleteCount(),0.01);
-    assertEquals(0, test.getFailedGetCount(),0.01);
-    assertEquals(0, test.getFailedPutCount(),0.01);
+    assertEquals(0, test.getRequests(), 0.01);
+    assertEquals(0, test.getSucessfulDeleteCount(), 0.01);
+    assertEquals(0, test.getSucessfulPutCount(), 0.01);
+    assertEquals(0, test.getSucessfulGetCount(), 0.01);
+    assertEquals(0, test.getFailedDeleteCount(), 0.01);
+    assertEquals(0, test.getFailedGetCount(), 0.01);
+    assertEquals(0, test.getFailedPutCount(), 0.01);
 
-    long start=System.currentTimeMillis();
+    long start = System.currentTimeMillis();
+    // sleep 2 sec
     try {
       Thread.sleep(2001);
     } catch (InterruptedException e) {
-     fail("fail sleep");
+      fail("fail sleep");
     }
     // couple belts
-    assertTrue((System.currentTimeMillis()-start)>2000);
+    assertTrue((System.currentTimeMillis() - start) > 2000);
     test.incrementRequests(4);
     test.incrementSucessfulGetRequests(5);
     test.incrementSucessfulDeleteRequests(6);
@@ -60,14 +63,14 @@ public class TestRESTMetrics {
     test.incrementFailedDeleteRequests(9);
     test.incrementFailedPutRequests(10);
     test.doUpdates(null);
-    // check metrics
-    assertEquals(2f, test.getRequests(),0.01);
-    assertEquals(2.5f, test.getSucessfulGetCount(),0.01);
-    assertEquals(3f, test.getSucessfulDeleteCount(),0.01);
-    assertEquals(3.5f, test.getSucessfulPutCount(),0.01);
-    assertEquals(4f, test.getFailedGetCount(),0.01);
-    assertEquals(4.5f, test.getFailedDeleteCount(),0.01);
-    assertEquals(5f, test.getFailedPutCount(),0.01);
+    // test metrics values
+    assertEquals(2f, test.getRequests(), 0.01);
+    assertEquals(2.5f, test.getSucessfulGetCount(), 0.01);
+    assertEquals(3f, test.getSucessfulDeleteCount(), 0.01);
+    assertEquals(3.5f, test.getSucessfulPutCount(), 0.01);
+    assertEquals(4f, test.getFailedGetCount(), 0.01);
+    assertEquals(4.5f, test.getFailedDeleteCount(), 0.01);
+    assertEquals(5f, test.getFailedPutCount(), 0.01);
     test.shutdown();
   }
 }
