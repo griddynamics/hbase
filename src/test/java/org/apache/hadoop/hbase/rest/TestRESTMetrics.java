@@ -36,8 +36,7 @@ public class TestRESTMetrics {
   @Test
   public void testRESTMetrics() {
     RESTMetrics test = new RESTMetrics();
-    MetricsContext mc = mock(MetricsContext.class);
-    test.doUpdates(mc);
+    test.doUpdates(null);
     assertEquals(0, test.getRequests(), 0.01);
     assertEquals(0, test.getSucessfulDeleteCount(), 0.01);
     assertEquals(0, test.getSucessfulPutCount(), 0.01);
