@@ -33,7 +33,11 @@ public class TestRESTMetrics {
   @Test
   public void testRESTMetrics() throws InterruptedException {
     RESTMetrics test = new RESTMetrics();
+    long start1 = System.currentTimeMillis();
+    Thread.sleep(1501);
+
     test.doUpdates(null);
+    // started value
     assertEquals(0, test.getRequests(), 0.01);
     assertEquals(0, test.getSucessfulDeleteCount(), 0.01);
     assertEquals(0, test.getSucessfulPutCount(), 0.01);
@@ -41,6 +45,8 @@ public class TestRESTMetrics {
     assertEquals(0, test.getFailedDeleteCount(), 0.01);
     assertEquals(0, test.getFailedGetCount(), 0.01);
     assertEquals(0, test.getFailedPutCount(), 0.01);
+    Thread.sleep(1501);
+    long start2 = System.currentTimeMillis();
 
     // sleep 2 sec
     Thread.sleep(2001);
@@ -52,15 +58,25 @@ public class TestRESTMetrics {
     test.incrementFailedGetRequests(8);
     test.incrementFailedDeleteRequests(9);
     test.incrementFailedPutRequests(10);
-    test.doUpdates(null);
+
+    long finish1 = System.currentTimeMillis();
+    Thread.sleep(501);
+
+    test.doUpdates(null);// ----------
+    Thread.sleep(2501);
+
+    long finish2 = System.currentTimeMillis();
+
+    double average = (finish2 + finish1 - start1 - start2) / (2 * 1000);
+    double delta = (finish2 - start1 - finish1 + start2) / (2 * 1000);
     // test metrics values
-    assertEquals(2f, test.getRequests(), 0.01);
-    assertEquals(2.5f, test.getSucessfulGetCount(), 0.01);
-    assertEquals(3f, test.getSucessfulDeleteCount(), 0.01);
-    assertEquals(3.5f, test.getSucessfulPutCount(), 0.01);
-    assertEquals(4f, test.getFailedGetCount(), 0.01);
-    assertEquals(4.5f, test.getFailedDeleteCount(), 0.01);
-    assertEquals(5f, test.getFailedPutCount(), 0.01);
+    assertEquals(4 / average, test.getRequests(), delta);
+    assertEquals(5 / average, test.getSucessfulGetCount(), delta);
+    assertEquals(6 / average, test.getSucessfulDeleteCount(), delta);
+    assertEquals(7 / average, test.getSucessfulPutCount(), delta);
+    assertEquals(8 / average, test.getFailedGetCount(), delta);
+    assertEquals(9 / average, test.getFailedDeleteCount(), delta);
+    assertEquals(10 / average, test.getFailedPutCount(), delta);
     test.shutdown();
   }
 }
