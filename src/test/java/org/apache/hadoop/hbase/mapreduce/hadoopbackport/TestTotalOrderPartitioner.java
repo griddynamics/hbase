@@ -38,6 +38,9 @@ import org.apache.hadoop.io.WritableUtils;
 import org.apache.hadoop.mapred.JobConf;
 import org.junit.experimental.categories.Category;
 
+/**
+ * The test is ported from Hadoop branch-0.23 with very small changes.
+ */
 @Category(SmallTests.class)
 public class TestTotalOrderPartitioner extends TestCase {
 

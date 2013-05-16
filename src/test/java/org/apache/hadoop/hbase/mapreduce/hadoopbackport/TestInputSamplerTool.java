@@ -45,6 +45,9 @@ import org.junit.experimental.categories.Category;
 
 import static org.junit.Assert.*;
 
+/**
+ * Tests {@link InputSampler} as a {@link Tool}.
+ */
 @Category(SmallTests.class)
 public class TestInputSamplerTool {
 
@@ -87,7 +90,10 @@ public class TestInputSamplerTool {
 
   @AfterClass
   public static void afterClass() throws IOException {
-    FileUtil.fullyDelete(tempDir);
+    final File td = tempDir;
+    if (td != null && td.exists()) {
+      FileUtil.fullyDelete(tempDir);
+    }
   }
 
   @Test
