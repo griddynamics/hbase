@@ -48,7 +48,7 @@ public class TestRESTMetrics {
     try {
       Thread.sleep(2001);
     } catch (InterruptedException e) {
-      e.printStackTrace();
+     fail("fail sleep");
     }
     // couple belts
     assertTrue((System.currentTimeMillis()-start)>2000);
@@ -68,6 +68,6 @@ public class TestRESTMetrics {
     assertEquals(4f, test.getFailedGetCount(),0.01);
     assertEquals(4.5f, test.getFailedDeleteCount(),0.01);
     assertEquals(5f, test.getFailedPutCount(),0.01);
-    
+    test.shutdown();
   }
 }
