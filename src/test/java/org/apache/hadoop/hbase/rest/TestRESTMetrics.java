@@ -33,7 +33,6 @@ public class TestRESTMetrics {
   @Test
   public void testRESTMetrics() throws InterruptedException {
     RESTMetrics test = new RESTMetrics();
-    long start1 = System.currentTimeMillis();
     int incrementSucessfulGet = 20000;
     int incrementSucessfulDelete = 3000000;
     int incrementSucessfulPut = 3000000;
@@ -42,8 +41,11 @@ public class TestRESTMetrics {
     int incrementFailedGetRequests = 100;
     int incrementFailedDeleteRequests = 30;
     int incrementFailedPutRequests = 2;
-
+    
+    long start1 = System.currentTimeMillis();
     test.doUpdates(null);
+    long start2 = System.currentTimeMillis();
+
     // started value
     assertEquals(0, test.getRequests(), 0.01);
     assertEquals(0, test.getSucessfulDeleteCount(), 0.01);
@@ -52,7 +54,6 @@ public class TestRESTMetrics {
     assertEquals(0, test.getFailedDeleteCount(), 0.01);
     assertEquals(0, test.getFailedGetCount(), 0.01);
     assertEquals(0, test.getFailedPutCount(), 0.01);
-    long start2 = System.currentTimeMillis();
 
     // sleep 2 sec
     Thread.sleep(2001);
@@ -66,9 +67,7 @@ public class TestRESTMetrics {
     test.incrementFailedPutRequests(incrementFailedPutRequests);
 
     long finish1 = System.currentTimeMillis();
-
     test.doUpdates(null);
-
     long finish2 = System.currentTimeMillis();
 
     double average = (finish2 + finish1 - start1 - start2) / (2 * 1000);
