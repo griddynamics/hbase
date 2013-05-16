@@ -27,11 +27,12 @@ import static org.mockito.Mockito.*;
 import static org.junit.Assert.*;
 
 
+@SuppressWarnings("deprecation")
 @Category(SmallTests.class)
 public class TestRESTMetrics {
 
   @Test
-  public void test1(){
+  public void testRESTMetrics(){
     RESTMetrics test = new RESTMetrics();
     MetricsContext mc= mock(MetricsContext.class);
     test.doUpdates(mc);
@@ -59,7 +60,7 @@ public class TestRESTMetrics {
     test.incrementFailedDeleteRequests(9);
     test.incrementFailedPutRequests(10);
     test.doUpdates(null);
-    
+    // check metrics
     assertEquals(2f, test.getRequests(),0.01);
     assertEquals(2.5f, test.getSucessfulGetCount(),0.01);
     assertEquals(3f, test.getSucessfulDeleteCount(),0.01);
