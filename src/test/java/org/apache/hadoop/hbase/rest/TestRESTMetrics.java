@@ -18,7 +18,7 @@
  */
 package org.apache.hadoop.hbase.rest;
 
-import org.apache.hadoop.hbase.MediumTests;
+import org.apache.hadoop.hbase.SmallTests;
 import org.apache.hadoop.hbase.rest.metrics.RESTMetrics;
 import org.apache.hadoop.metrics.MetricsContext;
 import org.junit.Test;
@@ -27,7 +27,7 @@ import static org.mockito.Mockito.*;
 import static org.junit.Assert.*;
 
 
-@Category(MediumTests.class)
+@Category(SmallTests.class)
 public class TestRESTMetrics {
 
   @Test
