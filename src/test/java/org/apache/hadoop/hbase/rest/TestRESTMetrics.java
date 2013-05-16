@@ -27,7 +27,6 @@ import static org.junit.Assert.*;
 /**
  * Test RESTMetrics class
  */
-@SuppressWarnings("deprecation")
 @Category(SmallTests.class)
 public class TestRESTMetrics {
 
