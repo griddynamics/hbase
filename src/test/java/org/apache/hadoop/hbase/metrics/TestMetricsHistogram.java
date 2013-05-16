@@ -23,11 +23,15 @@ import java.util.Random;
 
 import org.apache.hadoop.hbase.metrics.histogram.MetricsHistogram;
 import org.apache.hadoop.hbase.SmallTests;
+import org.apache.hadoop.metrics.MetricsRecord;
+
 import com.yammer.metrics.stats.Snapshot;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
+import static org.mockito.Mockito.*;
 
+@SuppressWarnings("deprecation")
 @Category(SmallTests.class)
 public class TestMetricsHistogram {
 
@@ -96,6 +100,18 @@ public class TestMetricsHistogram {
         + slop, data.length)];
     Assert.assertTrue(s.get95thPercentile() >= minAcceptableninetyFifth 
         && s.get95thPercentile() <= maxAcceptableninetyFifth);
+    
+    MetricsRecord mr = mock(MetricsRecord.class);
+    h.pushMetric(mr);
+    verify(mr).setMetric("testHistogram_num_ops", 1000L);
+    verify(mr).setMetric(eq("testHistogram_min"), anyLong());
+    verify(mr).setMetric(eq("testHistogram_max"), anyLong());
+    verify(mr).setMetric(eq("testHistogram_mean"), anyFloat());
+    verify(mr).setMetric(eq("testHistogram_std_dev"), anyFloat());
+    verify(mr).setMetric(eq("testHistogram_median"), anyFloat());
+    verify(mr).setMetric(eq("testHistogram_75th_percentile"), anyFloat());
+    verify(mr).setMetric(eq("testHistogram_95th_percentile"), anyFloat());
+    verify(mr).setMetric(eq("testHistogram_99th_percentile"), anyFloat());
 
   }
 }
