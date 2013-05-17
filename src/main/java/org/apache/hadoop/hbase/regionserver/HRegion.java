@@ -345,6 +345,7 @@ public class HRegion implements HeapSize { // , Writable{
   final RegionServerServices rsServices;
   private RegionServerAccounting rsAccounting;
   private List<Pair<Long, Long>> recentFlushes = new ArrayList<Pair<Long,Long>>();
+  private long flushCheckInterval;
   private long blockingMemStoreSize;
   final long threadWakeFrequency;
   // Used to guard closes
@@ -452,6 +453,8 @@ public class HRegion implements HeapSize { // , Writable{
     else {
       this.conf = new CompoundConfiguration().add(confParam);
     }
+    this.flushCheckInterval = conf.getInt(MEMSTORE_PERIODIC_FLUSH_INTERVAL,
+        DEFAULT_CACHE_FLUSH_INTERVAL);
     this.rowLockWaitDuration = conf.getInt("hbase.rowlock.wait.duration",
                     DEFAULT_ROWLOCK_WAIT_DURATION);
 
@@ -952,6 +955,12 @@ public class HRegion implements HeapSize { // , Writable{
   }
 
   private final Object closeLock = new Object();
+
+  /** Conf key for the periodic flush interval */
+  public static final String MEMSTORE_PERIODIC_FLUSH_INTERVAL = 
+      "hbase.regionserver.optionalcacheflushinterval";
+  /** Default interval for the memstore flush */
+  public static final int DEFAULT_CACHE_FLUSH_INTERVAL = 3600000;
 
   /**
    * Close down this HRegion.  Flush the cache unless abort parameter is true,
@@ -1475,6 +1484,29 @@ public class HRegion implements HeapSize { // , Writable{
   }
 
   /**
+   * Should the memstore be flushed now
+   */
+  boolean shouldFlush() {
+    if (flushCheckInterval <= 0) { //disabled
+      return false;
+    }
+    long now = EnvironmentEdgeManager.currentTimeMillis();
+    //if we flushed in the recent past, we don't need to do again now
+    if ((now - getLastFlushTime() < flushCheckInterval)) {
+      return false;
+    }
+    //since we didn't flush in the recent past, flush now if certain conditions
+    //are met. Return true on first such memstore hit.
+    for (Store s : this.getStores().values()) {
+      if (s.timeOfOldestEdit() < now - flushCheckInterval) {
+        // we have an old enough edit in the memstore, flush
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
    * Flush the memstore.
    *
    * Flushing the memstore is a little tricky. We have a lot of updates in the
@@ -1783,8 +1815,6 @@ public class HRegion implements HeapSize { // , Writable{
   protected RegionScanner getScanner(Scan scan,
       List<KeyValueScanner> additionalScanners) throws IOException {
     startRegionOperation();
-    this.readRequestsCount.increment();
-    this.opMetrics.setReadRequestCountMetrics(this.readRequestsCount.get());
     try {
       // Verify families are all valid
       prepareScanner(scan);
@@ -5421,7 +5451,7 @@ public class HRegion implements HeapSize { // , Writable{
       ClassSize.OBJECT +
       ClassSize.ARRAY +
       36 * ClassSize.REFERENCE + 2 * Bytes.SIZEOF_INT +
-      (7 * Bytes.SIZEOF_LONG) +
+      (8 * Bytes.SIZEOF_LONG) +
       Bytes.SIZEOF_BOOLEAN);
 
   public static final long DEEP_OVERHEAD = FIXED_OVERHEAD +
