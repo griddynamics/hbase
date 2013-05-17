@@ -32,6 +32,7 @@ public class TestRESTMetrics {
 
   @Test
   public void testRESTMetrics() throws InterruptedException {
+    long timeout = 2000;
     RESTMetrics test = new RESTMetrics();
     int incrementSucessfulGet = 20000;
     int incrementSucessfulDelete = 3000000;
@@ -44,7 +45,6 @@ public class TestRESTMetrics {
 
     long start1 = System.currentTimeMillis();
     test.doUpdates(null);
-    long start2 = System.currentTimeMillis();
 
     // started value
     assertEquals(0, test.getRequests(), 0.01);
@@ -55,8 +55,8 @@ public class TestRESTMetrics {
     assertEquals(0, test.getFailedGetCount(), 0.01);
     assertEquals(0, test.getFailedPutCount(), 0.01);
 
-    // sleep 2 sec
-    Thread.sleep(2000);
+    // sleep some seconds
+    Thread.sleep(timeout);
     test.incrementRequests(incrementRequest);
     test.incrementSucessfulGetRequests(incrementSucessfulGet);
     test.incrementSucessfulDeleteRequests(incrementSucessfulDelete);
@@ -65,30 +65,26 @@ public class TestRESTMetrics {
     test.incrementFailedDeleteRequests(incrementFailedDeleteRequests);
     test.incrementFailedPutRequests(incrementFailedPutRequests);
 
-    long finish1 = System.currentTimeMillis();
-
     test.doUpdates(null);
 
-    long finish2 = System.currentTimeMillis();
+    // The maximum time for stability test
+    long tmax = System.currentTimeMillis() - start1;
 
-    double tmax = (finish2 - start1) / 1000;
-    long tmin = (finish1 - start2) / 1000;
-
-    testData(tmax, tmin, test.getRequests(), incrementRequest);
-    testData(tmax, tmin, test.getSucessfulGetCount(), incrementSucessfulGet);
-    testData(tmax, tmin, test.getSucessfulDeleteCount(), incrementSucessfulDelete);
-    testData(tmax, tmin, test.getSucessfulPutCount(), incrementSucessfulPut);
-    testData(tmax, tmin, test.getFailedGetCount(), incrementFailedGetRequests);
-    testData(tmax, tmin, test.getFailedDeleteCount(), incrementFailedDeleteRequests);
-    testData(tmax, tmin, test.getFailedPutCount(), incrementFailedPutRequests);
+    testData(tmax, timeout, test.getRequests(), incrementRequest);
+    testData(tmax, timeout, test.getSucessfulGetCount(), incrementSucessfulGet);
+    testData(tmax, timeout, test.getSucessfulDeleteCount(), incrementSucessfulDelete);
+    testData(tmax, timeout, test.getSucessfulPutCount(), incrementSucessfulPut);
+    testData(tmax, timeout, test.getFailedGetCount(), incrementFailedGetRequests);
+    testData(tmax, timeout, test.getFailedDeleteCount(), incrementFailedDeleteRequests);
+    testData(tmax, timeout, test.getFailedPutCount(), incrementFailedPutRequests);
 
     test.shutdown();
   }
 
   // test minimum and maximum speed
   private void testData(double tmax, long tmin, float value, double requests) {
-    assertTrue((requests / tmax) <= value);
-    assertTrue((requests / tmin) >= value);
+    assertTrue((requests / tmax) * 1000 <= value);
+    assertTrue((requests / tmin) * 1000 >= value);
 
   }
 }
