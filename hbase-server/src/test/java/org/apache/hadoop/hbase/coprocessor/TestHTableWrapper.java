@@ -1,15 +1,29 @@
 package org.apache.hadoop.hbase.coprocessor;
 
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Arrays;
+
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.Coprocessor;
 import org.apache.hadoop.hbase.CoprocessorEnvironment;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
+import org.apache.hadoop.hbase.MediumTests;
 import org.apache.hadoop.hbase.client.Append;
+import org.apache.hadoop.hbase.client.Delete;
+import org.apache.hadoop.hbase.client.Durability;
 import org.apache.hadoop.hbase.client.Get;
 import org.apache.hadoop.hbase.client.HTable;
 import org.apache.hadoop.hbase.client.HTableInterface;
+import org.apache.hadoop.hbase.client.Increment;
 import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.client.Result;
+import org.apache.hadoop.hbase.client.ResultScanner;
+import org.apache.hadoop.hbase.client.Row;
+import org.apache.hadoop.hbase.client.RowMutations;
+import org.apache.hadoop.hbase.client.Scan;
+import org.apache.hadoop.hbase.client.coprocessor.Batch;
+import org.apache.hadoop.hbase.ipc.CoprocessorRpcChannel;
 import org.apache.hadoop.hbase.master.MasterCoprocessorHost;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.VersionInfo;
@@ -18,10 +32,11 @@ import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
-import clover.retrotranslator.edu.emory.mathcs.backport.java.util.Arrays;
 import static org.junit.Assert.*; 
 
+@Category(MediumTests.class)
 public class TestHTableWrapper {
 
   private static HBaseTestingUtility util = new HBaseTestingUtility();
@@ -32,8 +47,19 @@ public class TestHTableWrapper {
   private static final byte[] ROW_A = Bytes.toBytes("aaa");
   private static final byte[] ROW_B = Bytes.toBytes("bbb");
   private static final byte[] ROW_C = Bytes.toBytes("ccc");
+  private static final byte[] ROW_D = Bytes.toBytes("ddd");
+  private static final byte[] ROW_E = Bytes.toBytes("eee");
   
-  private final byte[] qualifierCol1 = Bytes.toBytes("col1");
+  private static final byte[] qualifierCol1 = Bytes.toBytes("col1");
+  
+  private static final byte[] bytes1 = Bytes.toBytes(1);
+  private static final byte[] bytes2 = Bytes.toBytes(2);
+  private static final byte[] bytes3 = Bytes.toBytes(3);
+  private static final byte[] bytes4 = Bytes.toBytes(4);
+  private static final byte[] bytes5 = Bytes.toBytes(5);
+  
+  private HTableInterface hTableInterface;
+  private HTable table;
 
   @BeforeClass
   public static void setupBeforeClass() throws Exception {
@@ -47,18 +73,18 @@ public class TestHTableWrapper {
   
   @Before
   public void before()  throws Exception {
-    HTable table = util.createTable(TEST_TABLE, TEST_FAMILY);
+    table = util.createTable(TEST_TABLE, TEST_FAMILY);
 
     Put puta = new Put( ROW_A );
-    puta.add(TEST_FAMILY, qualifierCol1, Bytes.toBytes(1));
+    puta.add(TEST_FAMILY, qualifierCol1, bytes1);
     table.put(puta);
 
     Put putb = new Put( ROW_B );
-    putb.add(TEST_FAMILY, qualifierCol1, Bytes.toBytes(1));
+    putb.add(TEST_FAMILY, qualifierCol1, bytes2);
     table.put(putb);
 
     Put putc = new Put( ROW_C );
-    putc.add(TEST_FAMILY, qualifierCol1, Bytes.toBytes(1));
+    putc.add(TEST_FAMILY, qualifierCol1, bytes3);
     table.put(putc);
   }
 
@@ -77,67 +103,244 @@ public class TestHTableWrapper {
     CoprocessorEnvironment env = cpHost.findCoprocessorEnvironment(implClazz.getName());
     assertEquals(Coprocessor.VERSION, env.getVersion());
     assertEquals(VersionInfo.getVersion(), env.getHBaseVersion());
-    final HTableInterface hTableInterface = env.getTable(TEST_TABLE);
-    checkHTableInterfaceMethods(hTableInterface);
+    hTableInterface = env.getTable(TEST_TABLE);
+    checkHTableInterfaceMethods();
     cpHost.shutdown(env);
   }
   
   @SuppressWarnings("deprecation")
-  private void checkHTableInterfaceMethods(final HTableInterface hTableInterface) throws Exception {
+  private void checkHTableInterfaceMethods() throws Exception {
     Configuration confExpected = util.getConfiguration();
     Configuration confActual = hTableInterface.getConfiguration();
     assertTrue(confExpected == confActual);
     
     assertArrayEquals(TEST_TABLE, hTableInterface.getTableName());
     
+    assertEquals(table.getTableDescriptor(), hTableInterface.getTableDescriptor());
+    
+    {
     boolean initialAutoFlush = hTableInterface.isAutoFlush();  
     hTableInterface.setAutoFlush(false);
     assertFalse(hTableInterface.isAutoFlush());
     hTableInterface.setAutoFlush(true, true);
     assertTrue(hTableInterface.isAutoFlush());
     hTableInterface.setAutoFlush(initialAutoFlush);
+    }
     
+    {
     long initialWriteBufferSize = hTableInterface.getWriteBufferSize();
     hTableInterface.setWriteBufferSize(12345L);
     assertEquals(12345L, hTableInterface.getWriteBufferSize());
     hTableInterface.setWriteBufferSize(initialWriteBufferSize);
+    }
     
+    {
     boolean ex = hTableInterface.exists(
         new Get(ROW_A).addColumn(TEST_FAMILY, qualifierCol1));
     assertTrue(ex);
+    }
     
     Result rowOrBeforeResult = hTableInterface.getRowOrBefore(ROW_A, TEST_FAMILY);
     assertArrayEquals(ROW_A, rowOrBeforeResult.getRow());
     
-    Boolean[] exArray = hTableInterface.exists(
+    {
+      Boolean[] exArray = hTableInterface.exists(
       Arrays.asList(new Get[] { 
         new Get(ROW_A).addColumn(TEST_FAMILY, qualifierCol1),
         new Get(ROW_B).addColumn(TEST_FAMILY, qualifierCol1),
         new Get(ROW_C).addColumn(TEST_FAMILY, qualifierCol1),
         new Get(Bytes.toBytes("does not exist")).addColumn(TEST_FAMILY, qualifierCol1),
         }));
-    assertArrayEquals(new Boolean[] { Boolean.TRUE, Boolean.TRUE, Boolean.TRUE, Boolean.FALSE }, exArray);
+      assertArrayEquals(new Boolean[] { Boolean.TRUE, Boolean.TRUE, Boolean.TRUE, Boolean.FALSE }, 
+        exArray);
+    }
     
-//    Put puta = new Put( ROW_A );
-//    puta.add(TEST_FAMILY, Bytes.toBytes("col1"), Bytes.toBytes(1));
-//    table.put(puta);
-    final byte[] appendValue = Bytes.toBytes("append");
+    {
+      final byte[] appendValue = Bytes.toBytes("append");
+      Append append = new Append(qualifierCol1).add(TEST_FAMILY, qualifierCol1, appendValue);
+      Result appendResult = hTableInterface.append(append);
+      byte[] appendedRow = appendResult.getRow();
+      checkRowValue(appendedRow, appendValue);
+    }
     
-    Append append = new Append(qualifierCol1);
-    append.add(TEST_FAMILY, qualifierCol1, appendValue);
-    Result appendResult = hTableInterface.append(append);
-    byte[] rowId = appendResult.getRow();
+    // put:
+    {
+      Put putD = new Put( ROW_D ).add(TEST_FAMILY, qualifierCol1, bytes2);
+      hTableInterface.put(putD);
+      checkRowValue(ROW_D, bytes2);
+    }
     
-    Get get = new Get(rowId);
-    get.addColumn(TEST_FAMILY, qualifierCol1);
-    Result result = hTableInterface.get(get);
-    System.out.println(result);
-    byte[] actualValue = result.getValue(TEST_FAMILY, qualifierCol1);
-    assertArrayEquals(appendValue, actualValue);
+    // delete:
+    {
+      Delete delete = new Delete(ROW_D);
+      hTableInterface.delete(delete);
+      checkRowValue(ROW_D, null);
+    }
     
-    // TODO: add more checks
+    // multiple puts:
+    {
+      Put[] puts = new Put[] { 
+        new Put( ROW_D ).add(TEST_FAMILY, qualifierCol1, bytes2), 
+        new Put( ROW_E ).add(TEST_FAMILY, qualifierCol1, bytes3) };
+      hTableInterface.put(Arrays.asList(puts));
+      checkRowsValues(new byte[][] { ROW_D, ROW_E}, new byte[][] { bytes2, bytes3 });
+    }
+    
+    // multiple deletes:
+    {
+      Delete[] deletes = new Delete[] { new Delete(ROW_D), new Delete(ROW_E) };
+      hTableInterface.delete(new ArrayList<Delete>(Arrays.asList(deletes)));
+      checkRowsValues(new byte[][] { ROW_D, ROW_E}, new byte[][] { null, null });
+    }
+    
+    // checkAndPut:
+    {
+      Put putD = new Put(ROW_C).add(TEST_FAMILY, qualifierCol1, bytes5);
+      assertFalse(hTableInterface.checkAndPut(ROW_C, TEST_FAMILY, qualifierCol1, /*expect*/bytes4, putD/*newValue*/));
+      assertTrue( hTableInterface.checkAndPut(ROW_C, TEST_FAMILY, qualifierCol1, /*expect*/bytes3, putD/*newValue*/));
+      checkRowValue(ROW_C, bytes5);
+    }
+    
+    // checkAndDelete:
+    {
+      Delete delete = new Delete(ROW_C);
+      assertFalse(hTableInterface.checkAndDelete(ROW_C, TEST_FAMILY, qualifierCol1, /*expect*/bytes4, delete));
+      assertTrue( hTableInterface.checkAndDelete(ROW_C, TEST_FAMILY, qualifierCol1, /*expect*/bytes5, delete));
+      checkRowValue(ROW_C, null);
+    }
+    
+    // incrementColumnValue: 
+    {
+      hTableInterface.put(new Put(ROW_A).add(TEST_FAMILY, qualifierCol1, Bytes.toBytes(1L)));
+      checkRowValue(ROW_A, Bytes.toBytes(1L));
+      
+      final long newVal = hTableInterface.incrementColumnValue(ROW_A, TEST_FAMILY, qualifierCol1, 10L);
+      assertEquals(11L, newVal);
+      checkRowValue(ROW_A, Bytes.toBytes(11L));
+      
+      final long newVal2 = hTableInterface.incrementColumnValue(ROW_A, TEST_FAMILY, qualifierCol1, -10L, Durability.SYNC_WAL);
+      assertEquals(1L, newVal2);
+      checkRowValue(ROW_A, Bytes.toBytes(1L));
+    }
+    
+    // increment:
+    {
+      hTableInterface.increment(new Increment(ROW_A).addColumn(TEST_FAMILY, qualifierCol1, -5L));
+      checkRowValue(ROW_A, Bytes.toBytes(-4L));
+    }
+    
+    // batch:
+    {
+      Object[] results1 = hTableInterface.batch(Arrays.asList(new Row[] { 
+        new Increment(ROW_A).addColumn(TEST_FAMILY, qualifierCol1, 2L),
+        new Increment(ROW_A).addColumn(TEST_FAMILY, qualifierCol1, 2L) 
+        }));
+      assertEquals(2, results1.length);
+      for (Object r2: results1) {
+        assertTrue(r2 instanceof Result);
+      }    
+      checkRowValue(ROW_A, Bytes.toBytes(0L));
+      Object[] results2 = new Result[2]; 
+          hTableInterface.batch(Arrays.asList(new Row[] { 
+          new Increment(ROW_A).addColumn(TEST_FAMILY, qualifierCol1, 2L),
+          new Increment(ROW_A).addColumn(TEST_FAMILY, qualifierCol1, 2L) 
+          }), results2);
+      for (Object r2: results2) {
+        assertTrue(r2 instanceof Result);
+      }    
+      checkRowValue(ROW_A, Bytes.toBytes(4L));
+      
+      // with callbacks:
+      final long[] updateCounter = new long[] { 0L }; 
+      Object[] results3 = hTableInterface.batchCallback(Arrays.asList(new Row[] { 
+      new Increment(ROW_A).addColumn(TEST_FAMILY, qualifierCol1, 2L),
+      new Increment(ROW_A).addColumn(TEST_FAMILY, qualifierCol1, 2L) 
+      }), new Batch.Callback<Result>() {
+        @Override
+        public void update(byte[] region, byte[] row, Result result) {
+          updateCounter[0]++;
+        }
+      });
+      assertEquals(2, updateCounter[0]);
+      assertEquals(2, results3.length);
+      for (Object r3: results3) {
+        assertTrue(r3 instanceof Result);
+      }    
+      checkRowValue(ROW_A, Bytes.toBytes(8L));
+    
+      Object[] results4 = new Result[2];
+      updateCounter[0] = 0L; 
+      hTableInterface.batchCallback(Arrays.asList(new Row[] { 
+      new Increment(ROW_A).addColumn(TEST_FAMILY, qualifierCol1, 2L),
+      new Increment(ROW_A).addColumn(TEST_FAMILY, qualifierCol1, 2L) 
+      }), results4, new Batch.Callback<Result>() {
+        @Override
+        public void update(byte[] region, byte[] row, Result result) {
+          updateCounter[0]++;
+        }
+      });
+      assertEquals(2, updateCounter[0]);
+      for (Object r2: results4) {
+        assertTrue(r2 instanceof Result);
+      }    
+      checkRowValue(ROW_A, Bytes.toBytes(12L));
+    }
+    
+    // coprocessorService
+    {
+      CoprocessorRpcChannel crc = hTableInterface.coprocessorService(ROW_A);
+      assertNotNull(crc);
+    }
+    
+    // mutateRow:
+    {
+      Put put = new Put(ROW_A).add(TEST_FAMILY, qualifierCol1, bytes1);
+      RowMutations rowMutations = new RowMutations(ROW_A);
+      rowMutations.add(put);
+      hTableInterface.mutateRow(rowMutations);
+      checkRowValue(ROW_A, bytes1);
+    }
+    
+    // getScanner:
+    {
+      ResultScanner resultScanner = hTableInterface.getScanner(TEST_FAMILY);
+      Result[] results = resultScanner.next(10);
+      assertEquals(3, results.length);
+      
+      resultScanner = hTableInterface.getScanner(TEST_FAMILY, qualifierCol1);
+      results = resultScanner.next(10);
+      assertEquals(3, results.length);
+      
+      resultScanner = hTableInterface.getScanner(new Scan(ROW_A, ROW_C));
+      results = resultScanner.next(10);
+      assertEquals(2, results.length);
+    }
+    
+    hTableInterface.flushCommits();
     
     hTableInterface.close();
+  }
+  
+  private void checkRowValue(byte[] row, byte[] expectedValue) throws IOException {
+    Get get = new Get(row).addColumn(TEST_FAMILY, qualifierCol1);
+    Result result = hTableInterface.get(get);
+    byte[] actualValue = result.getValue(TEST_FAMILY, qualifierCol1);
+    assertArrayEquals(expectedValue, actualValue);
+  }
+
+  private void checkRowsValues(byte[][] rows, byte[][] expectedValues) throws IOException {
+    if (rows.length != expectedValues.length) {
+      throw new IllegalArgumentException();
+    }
+    Get[] gets = new Get[rows.length];
+    for (int i=0; i<gets.length; i++) {
+      gets[i] = new Get(rows[i]).addColumn(TEST_FAMILY, qualifierCol1); 
+    }
+    Result[] results = hTableInterface.get(Arrays.asList(gets));
+    for (int i=0; i<expectedValues.length; i++) {
+      byte[] actualValue = results[i].getValue(TEST_FAMILY, qualifierCol1);
+      assertArrayEquals(expectedValues[i], actualValue);
+    }
   }
   
 }
