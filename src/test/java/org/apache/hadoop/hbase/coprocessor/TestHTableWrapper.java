@@ -57,7 +57,7 @@ public class TestHTableWrapper {
 
   static class DummyRegionObserver extends BaseRegionObserver {
   }
-  
+
   private HTableInterface hTableInterface;
   private HTable table;
 
