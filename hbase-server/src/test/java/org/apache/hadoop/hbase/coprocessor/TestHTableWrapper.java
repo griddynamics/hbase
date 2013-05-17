@@ -39,7 +39,7 @@ import static org.junit.Assert.*;
 @Category(MediumTests.class)
 public class TestHTableWrapper {
 
-  private static HBaseTestingUtility util = new HBaseTestingUtility();
+  private static final HBaseTestingUtility util = new HBaseTestingUtility();
 
   private static final byte[] TEST_TABLE = Bytes.toBytes("test");
   private static final byte[] TEST_FAMILY = Bytes.toBytes("f1");
