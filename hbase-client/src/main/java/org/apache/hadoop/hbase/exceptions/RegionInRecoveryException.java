@@ -16,33 +16,30 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.hadoop.hbase.zookeeper;
+package org.apache.hadoop.hbase.exceptions;
 
 import org.apache.hadoop.classification.InterfaceAudience;
-import org.apache.hadoop.hbase.Abortable;
-import org.apache.hadoop.hbase.HRegionInfo;
+import org.apache.hadoop.classification.InterfaceStability;
 
 /**
- * Tracks the unassigned zookeeper node used by the META table.
- * <p>
- * If META is already assigned when instantiating this class, you will not
- * receive any notification for that assignment.  You will receive a
- * notification after META has been successfully assigned to a new location.
+ * Thrown when a read request issued against a region which is in recovering state.
  */
-@InterfaceAudience.Private
-public class MetaNodeTracker extends ZooKeeperNodeTracker {
-  /**
-   * Creates a meta node tracker.
-   * @param watcher
-   * @param abortable
-   */
-  public MetaNodeTracker(final ZooKeeperWatcher watcher, final Abortable abortable) {
-    super(watcher, ZKUtil.joinZNode(watcher.assignmentZNode,
-        HRegionInfo.FIRST_META_REGIONINFO.getEncodedName()), abortable);
+@InterfaceAudience.Public
+@InterfaceStability.Evolving
+public class RegionInRecoveryException extends NotServingRegionException {
+  private static final long serialVersionUID = 327302071153799L;
+
+  /** default constructor */
+  public RegionInRecoveryException() {
+    super();
   }
 
-  @Override
-  public void nodeDeleted(String path) {
-    super.nodeDeleted(path);
+  /**
+   * Constructor
+   * @param s message
+   */
+  public RegionInRecoveryException(String s) {
+    super(s);
   }
+
 }

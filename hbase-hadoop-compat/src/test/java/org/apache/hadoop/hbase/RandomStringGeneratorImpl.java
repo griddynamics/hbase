@@ -15,21 +15,22 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.hadoop.hbase.ipc;
 
-import org.apache.hadoop.classification.InterfaceAudience;
+package org.apache.hadoop.hbase;
 
-/**
- * Status of a Hadoop IPC call.
- */
-@InterfaceAudience.Private
-enum Status {
-  SUCCESS (0),
-  ERROR (1),
-  FATAL (-1);
 
-  int state;
-  private Status(int state) {
-    this.state = state;
+import java.util.UUID;
+
+public class RandomStringGeneratorImpl implements RandomStringGenerator {
+
+  private final String s;
+
+  public RandomStringGeneratorImpl() {
+    s = UUID.randomUUID().toString();
+  }
+
+  @Override
+  public String getRandString() {
+    return s;
   }
 }

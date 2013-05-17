@@ -68,6 +68,8 @@ public class ZooKeeperWatcher implements Watcher, Abortable, Closeable {
 
   // abortable in case of zk failure
   protected Abortable abortable;
+  // Used if abortable is null
+  private boolean aborted = false;
 
   // listeners to be notified
   private final List<ZooKeeperListener> listeners =
@@ -105,6 +107,8 @@ public class ZooKeeperWatcher implements Watcher, Abortable, Closeable {
   public String balancerZNode;
   // znode containing the lock for the tables
   public String tableLockZNode;
+  // znode containing the state of recovering regions
+  public String recoveringRegionsZNode;
 
   // Certain ZooKeeper nodes need to be world-readable
   public static final ArrayList<ACL> CREATOR_ALL_AND_WORLD_READABLE =
@@ -128,10 +132,15 @@ public class ZooKeeperWatcher implements Watcher, Abortable, Closeable {
       Abortable abortable) throws ZooKeeperConnectionException, IOException {
     this(conf, identifier, abortable, false);
   }
+
   /**
    * Instantiate a ZooKeeper connection and watcher.
-   * @param identifier string that is passed to RecoverableZookeeper to be used as
-   * identifier for this instance. Use null for default.
+   * @param conf
+   * @param identifier string that is passed to RecoverableZookeeper to be used as identifier for
+   *          this instance. Use null for default.
+   * @param abortable Can be null if there is on error there is no host to abort: e.g. client
+   *          context.
+   * @param canCreateBaseZNode
    * @throws IOException
    * @throws ZooKeeperConnectionException
    */
@@ -169,6 +178,7 @@ public class ZooKeeperWatcher implements Watcher, Abortable, Closeable {
       ZKUtil.createAndFailSilent(this, splitLogZNode);
       ZKUtil.createAndFailSilent(this, backupMasterAddressesZNode);
       ZKUtil.createAndFailSilent(this, tableLockZNode);
+      ZKUtil.createAndFailSilent(this, recoveringRegionsZNode);
     } catch (KeeperException e) {
       throw new ZooKeeperConnectionException(
           prefix("Unexpected KeeperException creating base node"), e);
@@ -220,6 +230,8 @@ public class ZooKeeperWatcher implements Watcher, Abortable, Closeable {
         conf.get("zookeeper.znode.balancer", "balancer"));
     tableLockZNode = ZKUtil.joinZNode(baseZNode,
         conf.get("zookeeper.znode.tableLock", "table-lock"));
+    recoveringRegionsZNode = ZKUtil.joinZNode(baseZNode,
+      conf.get("zookeeper.znode.recovering.regions", "recovering-regions"));
   }
 
   /**
@@ -241,6 +253,20 @@ public class ZooKeeperWatcher implements Watcher, Abortable, Closeable {
 
   public void unregisterListener(ZooKeeperListener listener) {
     listeners.remove(listener);
+  }
+
+  /**
+   * Clean all existing listeners
+   */
+  public void unregisterAllListeners() {
+    listeners.clear();
+  }
+
+  /**
+   * @return The number of currently registered listeners
+   */
+  public int getNumberOfListeners() {
+    return listeners.size();
   }
 
   /**
@@ -361,8 +387,9 @@ public class ZooKeeperWatcher implements Watcher, Abortable, Closeable {
           "ZooKeeper, aborting");
         // TODO: One thought is to add call to ZooKeeperListener so say,
         // ZooKeeperNodeTracker can zero out its data values.
-        if (this.abortable != null) this.abortable.abort(msg,
-            new KeeperException.SessionExpiredException());
+        if (this.abortable != null) {
+          this.abortable.abort(msg, new KeeperException.SessionExpiredException());
+        }
         break;
 
       case ConnectedReadOnly:
@@ -444,12 +471,13 @@ public class ZooKeeperWatcher implements Watcher, Abortable, Closeable {
 
   @Override
   public void abort(String why, Throwable e) {
-    this.abortable.abort(why, e);
+    if (this.abortable != null) this.abortable.abort(why, e);
+    else this.aborted = true;
   }
 
   @Override
   public boolean isAborted() {
-    return this.abortable.isAborted();
+    return this.abortable == null? this.aborted: this.abortable.isAborted();
   }
 
   /**

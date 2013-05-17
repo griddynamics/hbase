@@ -27,6 +27,7 @@ import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -252,7 +253,7 @@ MasterServices, Server {
   // Manager and zk listener for master election
   private ActiveMasterManager activeMasterManager;
   // Region server tracker
-  private RegionServerTracker regionServerTracker;
+  RegionServerTracker regionServerTracker;
   // Draining region server tracker
   private DrainingServerTracker drainingServerTracker;
   // Tracker for load balancer state
@@ -275,7 +276,7 @@ MasterServices, Server {
   private MasterFileSystem fileSystemManager;
 
   // server manager to deal with region server info
-  private ServerManager serverManager;
+  ServerManager serverManager;
 
   // manager of assignment nodes in zookeeper
   AssignmentManager assignmentManager;
@@ -347,7 +348,15 @@ MasterServices, Server {
 
   /** The health check chore. */
   private HealthCheckChore healthCheckChore;
+  
+  /**
+   * is in distributedLogReplay mode. When true, SplitLogWorker directly replays WAL edits to newly
+   * assigned region servers instead of creating recovered.edits files.
+   */
+  private final boolean distributedLogReplay;
 
+  /** flag used in test cases in order to simulate RS failures during master initialization */
+  private volatile boolean initializationBeforeMetaAssignment = false;
 
   /**
    * Initializes the HMaster. The steps are as follows:
@@ -451,6 +460,9 @@ MasterServices, Server {
       clusterStatusPublisherChore = new ClusterStatusPublisher(this, conf, publisherClass);
       Threads.setDaemonThreadRunning(clusterStatusPublisherChore.getThread());
     }
+
+    distributedLogReplay = this.conf.getBoolean(HConstants.DISTRIBUTED_LOG_REPLAY_KEY, 
+      HConstants.DEFAULT_DISTRIBUTED_LOG_REPLAY_CONFIG);
   }
 
   /**
@@ -590,8 +602,7 @@ MasterServices, Server {
     // to check if the cluster should be shutdown.
     this.clusterStatusTracker = new ClusterStatusTracker(getZooKeeper(), this);
     this.clusterStatusTracker.start();
-    return this.activeMasterManager.blockUntilBecomingActiveMaster(startupStatus,
-        this.clusterStatusTracker);
+    return this.activeMasterManager.blockUntilBecomingActiveMaster(startupStatus);
   }
 
   /**
@@ -599,7 +610,7 @@ MasterServices, Server {
    * @throws IOException
    * @throws InterruptedException
    */
-  private void initializeZKBasedSystemTrackers() throws IOException,
+  void initializeZKBasedSystemTrackers() throws IOException,
       InterruptedException, KeeperException {
     this.catalogTracker = createCatalogTracker(this.zooKeeper, this.conf, this);
     this.catalogTracker.start();
@@ -757,11 +768,11 @@ MasterServices, Server {
     this.serverManager.waitForRegionServers(status);
     // Check zk for region servers that are up but didn't register
     for (ServerName sn: this.regionServerTracker.getOnlineServers()) {
-      if (!this.serverManager.isServerOnline(sn)) {
-        // Not registered; add it.
-        LOG.info("Registering server found up in zk but who has not yet " +
-          "reported in: " + sn);
-        this.serverManager.recordNewServer(sn, ServerLoad.EMPTY_SERVERLOAD);
+      if (!this.serverManager.isServerOnline(sn)
+          && serverManager.checkAlreadySameHostPortAndRecordNewServer(
+              sn, ServerLoad.EMPTY_SERVERLOAD)) {
+        LOG.info("Registered server found up in zk but who has not yet "
+          + "reported in: " + sn);
       }
     }
 
@@ -769,18 +780,50 @@ MasterServices, Server {
       this.assignmentManager.startTimeOutMonitor();
     }
 
-    // TODO: Should do this in background rather than block master startup
-    status.setStatus("Splitting logs after master startup");
-    splitLogAfterStartup(this.fileSystemManager);
+    // get a list for previously failed RS which need log splitting work
+    // we recover .META. region servers inside master initialization and
+    // handle other failed servers in SSH in order to start up master node ASAP
+    Set<ServerName> previouslyFailedServers = this.fileSystemManager
+        .getFailedServersFromLogFolders();
 
+    // remove stale recovering regions from previous run
+    this.fileSystemManager.removeStaleRecoveringRegionsFromZK(previouslyFailedServers);
+
+    // log splitting for .META. server
+    ServerName oldMetaServerLocation = this.catalogTracker.getMetaLocation();
+    if (oldMetaServerLocation != null && previouslyFailedServers.contains(oldMetaServerLocation)) {
+      splitMetaLogBeforeAssignment(oldMetaServerLocation);
+      // Note: we can't remove oldMetaServerLocation from previousFailedServers list because it
+      // may also host user regions
+    }
+
+    this.initializationBeforeMetaAssignment = true;
     // Make sure meta assigned before proceeding.
-    if (!assignMeta(status)) return;
+    status.setStatus("Assigning Meta Region");
+    assignMeta(status);
+    // check if master is shutting down because above assignMeta could return even META isn't 
+    // assigned when master is shutting down
+    if(this.stopped) return;
+
+    if (this.distributedLogReplay && oldMetaServerLocation != null
+        && previouslyFailedServers.contains(oldMetaServerLocation)) {
+      // replay WAL edits mode need new .META. RS is assigned firstly
+      status.setStatus("replaying log for Meta Region");
+      this.fileSystemManager.splitMetaLog(oldMetaServerLocation);
+    }
+
     enableServerShutdownHandler();
+
+    status.setStatus("Submitting log splitting work for previously failed region servers");
+    // Master has recovered META region server and we put
+    // other failed region servers in a queue to be handled later by SSH
+    for (ServerName tmpServer : previouslyFailedServers) {
+      this.serverManager.processDeadServer(tmpServer, true);
+    }
 
     // Update meta with new PB serialization if required. i.e migrate all HRI to PB serialization
     // in meta. This must happen before we assign all user regions or else the assignment will
     // fail.
-    // TODO: Remove this after 0.96, when we do 0.98.
     org.apache.hadoop.hbase.catalog.MetaMigrationConvertingToPB
       .updateMetaIfNecessary(this);
 
@@ -830,14 +873,6 @@ MasterServices, Server {
   }
 
   /**
-   * Override to change master's splitLogAfterStartup. Used testing
-   * @param mfs
-   */
-  protected void splitLogAfterStartup(final MasterFileSystem mfs) {
-    mfs.splitLogAfterStartup();
-  }
-
-  /**
    * Create a {@link ServerManager} instance.
    * @param master
    * @param services
@@ -865,52 +900,67 @@ MasterServices, Server {
   }
 
   /**
-   * Check <code>.META.</code> are assigned.  If not,
-   * assign them.
+   * Check <code>.META.</code> is assigned. If not, assign it.
+   * @param status MonitoredTask
    * @throws InterruptedException
    * @throws IOException
    * @throws KeeperException
-   * @return True if meta is healthy, assigned
    */
-  boolean assignMeta(MonitoredTask status)
-  throws InterruptedException, IOException, KeeperException {
+  void assignMeta(MonitoredTask status)
+      throws InterruptedException, IOException, KeeperException {
+    // Work on meta region
     int assigned = 0;
     long timeout = this.conf.getLong("hbase.catalog.verification.timeout", 1000);
+    boolean beingExpired = false;
 
-    // Work on .META. region.  Is it in zk in transition?
     status.setStatus("Assigning META region");
-    assignmentManager.getRegionStates().createRegionState(
-        HRegionInfo.FIRST_META_REGIONINFO);
-    boolean rit = this.assignmentManager.
-      processRegionInTransitionAndBlockUntilAssigned(HRegionInfo.FIRST_META_REGIONINFO);
-    ServerName currentMetaServer = null;
-    boolean metaRegionLocation = catalogTracker.verifyMetaRegionLocation(timeout);
+    
+    assignmentManager.getRegionStates().createRegionState(HRegionInfo.FIRST_META_REGIONINFO);
+    boolean rit = this.assignmentManager
+        .processRegionInTransitionAndBlockUntilAssigned(HRegionInfo.FIRST_META_REGIONINFO);
+    boolean metaRegionLocation = this.catalogTracker.verifyMetaRegionLocation(timeout);
     if (!rit && !metaRegionLocation) {
-      currentMetaServer = this.catalogTracker.getMetaLocation();
-      splitLogAndExpireIfOnline(currentMetaServer);
-      this.assignmentManager.assignMeta();
-      enableSSHandWaitForMeta();
+      ServerName currentMetaServer = this.catalogTracker.getMetaLocation();
+      if (currentMetaServer != null) {
+        beingExpired = expireIfOnline(currentMetaServer);
+      }
+      if (beingExpired) {
+        splitMetaLogBeforeAssignment(currentMetaServer);
+      }
+      assignmentManager.assignMeta();
       // Make sure a .META. location is set.
-      if (!isMetaLocation()) return false;
-      // This guarantees that the transition assigning .META. has completed
-      this.assignmentManager.waitForAssignment(HRegionInfo.FIRST_META_REGIONINFO);
+      enableSSHandWaitForMeta();
       assigned++;
+      if (beingExpired && this.distributedLogReplay) {
+        // In Replay WAL Mode, we need the new .META. server online
+        this.fileSystemManager.splitMetaLog(currentMetaServer);
+      }
     } else if (rit && !metaRegionLocation) {
       // Make sure a .META. location is set.
-      if (!isMetaLocation()) return false;
-      // This guarantees that the transition assigning .META. has completed
-      this.assignmentManager.waitForAssignment(HRegionInfo.FIRST_META_REGIONINFO);
+      enableSSHandWaitForMeta();
       assigned++;
-    } else if (metaRegionLocation) {
-      // Region already assigned.  We didn't assign it.  Add to in-memory state.
+    } else {
+      // Region already assigned. We didn't assign it. Add to in-memory state.
       this.assignmentManager.regionOnline(HRegionInfo.FIRST_META_REGIONINFO,
         this.catalogTracker.getMetaLocation());
     }
+
     enableCatalogTables(Bytes.toString(HConstants.META_TABLE_NAME));
-    LOG.info(".META. assigned=" + assigned + ", rit=" + rit +
-      ", location=" + catalogTracker.getMetaLocation());
+    LOG.info(".META. assigned=" + assigned + ", rit=" + rit + ", location="
+        + catalogTracker.getMetaLocation());
     status.setStatus("META assigned.");
-    return true;
+  }
+
+  private void splitMetaLogBeforeAssignment(ServerName currentMetaServer) throws IOException {
+    if (this.distributedLogReplay) {
+      // In log replay mode, we mark META region as recovering in ZK
+      Set<HRegionInfo> regions = new HashSet<HRegionInfo>();
+      regions.add(HRegionInfo.FIRST_META_REGIONINFO);
+      this.fileSystemManager.prepareMetaLogReplay(currentMetaServer, regions);
+    } else {
+      // In recovered.edits mode: create recovered edits file for .META. server
+      this.fileSystemManager.splitMetaLog(currentMetaServer);
+    }
   }
 
   private void enableSSHandWaitForMeta() throws IOException, InterruptedException {
@@ -921,24 +971,6 @@ MasterServices, Server {
     this.assignmentManager.waitForAssignment(HRegionInfo.FIRST_META_REGIONINFO);
   }
 
-  /**
-   * @return True if there a meta available
-   * @throws InterruptedException
-   */
-  private boolean isMetaLocation() throws InterruptedException {
-    // Cycle up here in master rather than down in catalogtracker so we can
-    // check the master stopped flag every so often.
-    while (!this.stopped) {
-      try {
-        if (this.catalogTracker.waitForMeta(100) != null) break;
-      } catch (NotAllMetaRegionsOnlineException e) {
-        // Ignore.  I know .META. is not online yet.
-      }
-    }
-    // We got here because we came of above loop.
-    return !this.stopped;
-  }
-
   private void enableCatalogTables(String catalogTableName) {
     if (!this.assignmentManager.getZKTable().isEnabledTable(catalogTableName)) {
       this.assignmentManager.setEnabledTable(catalogTableName);
@@ -946,20 +978,19 @@ MasterServices, Server {
   }
 
   /**
-   * Split a server's log and expire it if we find it is one of the online
-   * servers.
+   * Expire a server if we find it is one of the online servers.
    * @param sn ServerName to check.
+   * @return true when server <code>sn<code> is being expired by the function.
    * @throws IOException
    */
-  private void splitLogAndExpireIfOnline(final ServerName sn)
+  private boolean expireIfOnline(final ServerName sn)
       throws IOException {
     if (sn == null || !serverManager.isServerOnline(sn)) {
-      return;
+      return false;
     }
-    LOG.info("Forcing splitLog and expire of " + sn);
-    fileSystemManager.splitMetaLog(sn);
-    fileSystemManager.splitLog(sn);
+    LOG.info("Forcing expire of " + sn);
     serverManager.expireServer(sn);
+    return true;
   }
 
   @Override
@@ -1263,7 +1294,7 @@ MasterServices, Server {
     return balancerCutoffTime;
   }
 
-  public boolean balance() throws IOException {
+  public boolean balance() {
     // if master not initialized, don't run balancer.
     if (!this.initialized) {
       LOG.debug("Master has not been initialized, don't run balancer.");
@@ -1291,8 +1322,13 @@ MasterServices, Server {
       }
 
       if (this.cpHost != null) {
-        if (this.cpHost.preBalance()) {
-          LOG.debug("Coprocessor bypassing balancer request");
+        try {
+          if (this.cpHost.preBalance()) {
+            LOG.debug("Coprocessor bypassing balancer request");
+            return false;
+          }
+        } catch (IOException ioe) {
+          LOG.error("Error invoking master coprocessor preBalance()", ioe);
           return false;
         }
       }
@@ -1330,7 +1366,12 @@ MasterServices, Server {
         }
       }
       if (this.cpHost != null) {
-        this.cpHost.postBalance(rpCount < plans.size() ? plans.subList(0, rpCount) : plans);
+        try {
+          this.cpHost.postBalance(rpCount < plans.size() ? plans.subList(0, rpCount) : plans);
+        } catch (IOException ioe) {
+          // balancing already succeeded so don't change the result
+          LOG.error("Error invoking master coprocessor postBalance()", ioe);
+        }
       }
     }
     return balancerRan;
@@ -1338,11 +1379,7 @@ MasterServices, Server {
 
   @Override
   public BalanceResponse balance(RpcController c, BalanceRequest request) throws ServiceException {
-    try {
-      return BalanceResponse.newBuilder().setBalancerRan(balance()).build();
-    } catch (IOException e) {
-      throw new ServiceException(e);
-    }
+    return BalanceResponse.newBuilder().setBalancerRan(balance()).build();
   }
 
   enum BalanceSwitchMode {
@@ -2011,6 +2048,7 @@ MasterServices, Server {
   private boolean tryRecoveringExpiredZKSession() throws InterruptedException,
       IOException, KeeperException, ExecutionException {
 
+    this.zooKeeper.unregisterAllListeners();
     this.zooKeeper.reconnectAfterExpiration();
 
     Callable<Boolean> callable = new Callable<Boolean> () {
@@ -2025,7 +2063,7 @@ MasterServices, Server {
           serverShutdownHandlerEnabled = false;
           initialized = false;
           finishInitialization(status, true);
-          return Boolean.TRUE;
+          return !stopped;
         } finally {
           status.cleanup();
         }
@@ -2109,12 +2147,16 @@ MasterServices, Server {
     return rsFatals;
   }
 
-  public void shutdown() throws IOException {
+  public void shutdown() {
     if (spanReceiverHost != null) {
       spanReceiverHost.closeReceivers();
     }
     if (cpHost != null) {
-      cpHost.preShutdown();
+      try {
+        cpHost.preShutdown();
+      } catch (IOException ioe) {
+        LOG.error("Error call master coprocessor preShutdown()", ioe);
+      }
     }
     if (mxBean != null) {
       MBeanUtil.unregisterMBean(mxBean);
@@ -2134,17 +2176,17 @@ MasterServices, Server {
   @Override
   public ShutdownResponse shutdown(RpcController controller, ShutdownRequest request)
   throws ServiceException {
-    try {
-      shutdown();
-    } catch (IOException e) {
-      throw new ServiceException(e);
-    }
+    shutdown();
     return ShutdownResponse.newBuilder().build();
   }
 
-  public void stopMaster() throws IOException {
+  public void stopMaster() {
     if (cpHost != null) {
-      cpHost.preStopMaster();
+      try {
+        cpHost.preStopMaster();
+      } catch (IOException ioe) {
+        LOG.error("Error call master coprocessor preStopMaster()", ioe);
+      }
     }
     stop("Stopped by " + Thread.currentThread().getName());
   }
@@ -2152,11 +2194,7 @@ MasterServices, Server {
   @Override
   public StopMasterResponse stopMaster(RpcController controller, StopMasterRequest request)
   throws ServiceException {
-    try {
-      stopMaster();
-    } catch (IOException e) {
-      throw new ServiceException(e);
-    }
+    stopMaster();
     return StopMasterResponse.newBuilder().build();
   }
 
@@ -2226,6 +2264,14 @@ MasterServices, Server {
    */
   public boolean isServerShutdownHandlerEnabled() {
     return this.serverShutdownHandlerEnabled;
+  }
+
+  /**
+   * Report whether this master has started initialization and is about to do meta region assignment
+   * @return true if master is in initialization & about to assign META regions
+   */
+  public boolean isInitializationStartsMetaRegionAssignment() {
+    return this.initializationBeforeMetaAssignment;
   }
 
   @Override
@@ -2659,8 +2705,8 @@ MasterServices, Server {
     try {
       SnapshotDescription snapshot = request.getSnapshot();
       IsRestoreSnapshotDoneResponse.Builder builder = IsRestoreSnapshotDoneResponse.newBuilder();
-      boolean isRestoring = snapshotManager.isRestoringTable(snapshot);
-      builder.setDone(!isRestoring);
+      boolean done = snapshotManager.isRestoreDone(snapshot);
+      builder.setDone(done);
       return builder.build();
     } catch (IOException e) {
       throw new ServiceException(e);
@@ -2671,4 +2717,5 @@ MasterServices, Server {
     String healthScriptLocation = this.conf.get(HConstants.HEALTH_SCRIPT_LOC);
     return org.apache.commons.lang.StringUtils.isNotBlank(healthScriptLocation);
   }
+
 }

@@ -56,6 +56,7 @@ import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
 import org.apache.hadoop.hbase.util.ManualEnvironmentEdge;
 import org.apache.hadoop.hbase.util.JVMClusterUtil;
 import org.apache.hadoop.hbase.util.Threads;
+import org.apache.hadoop.hbase.zookeeper.ZooKeeperWatcher;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -75,6 +76,7 @@ public class TestHCM {
   private static final byte[] TABLE_NAME1 = Bytes.toBytes("test1");
   private static final byte[] TABLE_NAME2 = Bytes.toBytes("test2");
   private static final byte[] TABLE_NAME3 = Bytes.toBytes("test3");
+  private static final byte[] TABLE_NAME4 = Bytes.toBytes("test4");
   private static final byte[] FAM_NAM = Bytes.toBytes("f");
   private static final byte[] ROW = Bytes.toBytes("bbb");
   private static final byte[] ROW_X = Bytes.toBytes("xxx");
@@ -798,6 +800,85 @@ public class TestHCM {
   private static void assertEqualsWithJitter(long expected, long actual, long jitterBase) {
     assertTrue("Value not within jitter: " + expected + " vs " + actual,
         Math.abs(actual - expected) <= (0.01f * jitterBase));
+  }
+
+  /**
+   * Tests that a destroyed connection does not have a live zookeeper.
+   * Below is timing based.  We put up a connection to a table and then close the connection while
+   * having a background thread running that is forcing close of the connection to try and
+   * provoke a close catastrophe; we are hoping for a car crash so we can see if we are leaking
+   * zk connections.
+   * @throws Exception
+   */
+  @Test
+  public void testDeleteForZKConnLeak() throws Exception {
+    TEST_UTIL.createTable(TABLE_NAME4, FAM_NAM);
+    final Configuration config = HBaseConfiguration.create(TEST_UTIL.getConfiguration());
+    config.setInt("zookeeper.recovery.retry", 1);
+    config.setInt("zookeeper.recovery.retry.intervalmill", 1000);
+    config.setInt("hbase.rpc.timeout", 2000);
+    config.setInt(HConstants.HBASE_CLIENT_RETRIES_NUMBER, 2);
+
+    ThreadPoolExecutor pool = new ThreadPoolExecutor(1, 10,
+      5, TimeUnit.SECONDS,
+      new SynchronousQueue<Runnable>(),
+      Threads.newDaemonThreadFactory("test-hcm-delete"));
+
+    pool.submit(new Runnable() {
+      @Override
+      public void run() {
+        while (!Thread.interrupted()) {
+          try {
+            HConnection conn = HConnectionManager.getConnection(config);
+            LOG.info("Connection " + conn);
+            HConnectionManager.deleteStaleConnection(conn);
+            LOG.info("Connection closed " + conn);
+            // TODO: This sleep time should be less than the time that it takes to open and close
+            // a table.  Ideally we would do a few runs first to measure.  For now this is
+            // timing based; hopefully we hit the bad condition.
+            Threads.sleep(10);
+          } catch (Exception e) {
+          }
+        }
+      }
+    });
+
+    // Use connection multiple times.
+    for (int i = 0; i < 30; i++) {
+      HConnection c1 = null;
+      try {
+        c1 = HConnectionManager.getConnection(config);
+        LOG.info("HTable connection " + i + " " + c1);
+        HTable table = new HTable(TABLE_NAME4, c1, pool);
+        table.close();
+        LOG.info("HTable connection " + i + " closed " + c1);
+      } catch (Exception e) {
+        LOG.info("We actually want this to happen!!!!  So we can see if we are leaking zk", e);
+      } finally {
+        if (c1 != null) {
+          if (c1.isClosed()) {
+            // cannot use getZooKeeper as method instantiates watcher if null
+            Field zkwField = c1.getClass().getDeclaredField("keepAliveZookeeper");
+            zkwField.setAccessible(true);
+            Object watcher = zkwField.get(c1);
+
+            if (watcher != null) {
+              if (((ZooKeeperWatcher)watcher).getRecoverableZooKeeper().getState().isAlive()) {
+                // non-synchronized access to watcher; sleep and check again in case zk connection
+                // hasn't been cleaned up yet.
+                Thread.sleep(50);
+                if (((ZooKeeperWatcher) watcher).getRecoverableZooKeeper().getState().isAlive()) {
+                  pool.shutdownNow();
+                  fail("Live zookeeper in closed connection");
+                }
+              }
+            }
+          }
+          c1.close();
+        }
+      }
+    }
+    pool.shutdownNow();
   }
 }
 

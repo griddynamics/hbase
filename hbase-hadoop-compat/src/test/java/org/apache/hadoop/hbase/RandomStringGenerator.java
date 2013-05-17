@@ -15,36 +15,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.hadoop.hbase.ipc;
 
-import org.apache.hadoop.classification.InterfaceAudience;
+package org.apache.hadoop.hbase;
 
-/**
- * Utility for managing the flag byte passed in response to a
- * {@link RpcServer.Call}
- */
-@InterfaceAudience.Private
-class ResponseFlag {
-  private static final byte ERROR_BIT = 0x1;
-  private static final byte LENGTH_BIT = 0x2;
-
-  private ResponseFlag() {
-    // Make it so this class cannot be constructed.
-  }
-
-  static boolean isError(final byte flag) {
-    return (flag & ERROR_BIT) != 0;
-  }
-
-  static boolean isLength(final byte flag) {
-    return (flag & LENGTH_BIT) != 0;
-  }
-
-  static byte getLengthSetOnly() {
-    return LENGTH_BIT;
-  }
-
-  static byte getErrorAndLengthSet() {
-    return LENGTH_BIT | ERROR_BIT;
-  }
+public interface RandomStringGenerator {
+  String getRandString();
 }
