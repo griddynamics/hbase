@@ -15,7 +15,6 @@
 
 package org.apache.hadoop.hbase.mapreduce;
 
-import com.sun.jersey.core.impl.provider.entity.XMLRootElementProvider.Text;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
@@ -28,6 +27,7 @@ import org.apache.hadoop.hbase.mapreduce.SampleUploader.Uploader;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.LauncherSecurityManager;
 import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.Mapper;
 import org.apache.hadoop.mapreduce.Mapper.Context;
@@ -40,8 +40,7 @@ import org.mockito.stubbing.Answer;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
+import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
 
 @Category(LargeTests.class)
