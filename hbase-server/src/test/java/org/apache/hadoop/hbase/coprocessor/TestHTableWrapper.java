@@ -58,6 +58,9 @@ public class TestHTableWrapper {
   private static final byte[] bytes4 = Bytes.toBytes(4);
   private static final byte[] bytes5 = Bytes.toBytes(5);
 
+  static class DummyRegionObserver extends BaseRegionObserver {
+  }
+
   private HTableInterface hTableInterface;
   private HTable table;
 
@@ -97,9 +100,7 @@ public class TestHTableWrapper {
   public void testHTableInterfaceMethods() throws Exception {
     Configuration conf = util.getConfiguration();
     MasterCoprocessorHost cpHost = util.getMiniHBaseCluster().getMaster().getCoprocessorHost();
-    Class<?> implClazz =
-      org.apache.hadoop.hbase.coprocessor.TestRegionObserverScannerOpenHook
-        .EmptyRegionObsever.class;
+    Class<?> implClazz = DummyRegionObserver.class;
     cpHost.load(implClazz, Coprocessor.PRIORITY_HIGHEST, conf);
     CoprocessorEnvironment env = cpHost.findCoprocessorEnvironment(implClazz.getName());
     assertEquals(Coprocessor.VERSION, env.getVersion());
