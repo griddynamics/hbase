@@ -24,6 +24,7 @@ import static org.apache.hadoop.hbase.security.HBaseKerberosUtils.getSecuredConf
 import static org.apache.hadoop.hbase.security.HBaseKerberosUtils.isKerberosPropertySetted;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import static org.junit.Assume.assumeTrue;
@@ -108,7 +109,7 @@ public class TestDelayedRpc {
     UserGroupInformation ugi2 = UserGroupInformation.getCurrentUser();
 
     // check that the login user is okay:
-    assertTrue(ugi2 == ugi);
+    assertSame(ugi, ugi2);
     assertEquals(AuthenticationMethod.KERBEROS, ugi.getAuthenticationMethod());
     assertEquals(krbPrincipal, ugi.getUserName());
 
