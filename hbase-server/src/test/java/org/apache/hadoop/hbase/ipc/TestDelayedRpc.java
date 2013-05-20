@@ -72,18 +72,17 @@ import com.google.protobuf.ServiceException;
 @Category(MediumTests.class) // Fails sometimes with small tests
 public class TestDelayedRpc {
   private static final Log LOG = LogFactory.getLog(TestDelayedRpc.class);
-
   public static RpcServerInterface rpcServer;
-
   public static final int UNDELAYED = 0;
   public static final int DELAYED = 1;
+  private static final int RPC_CLIENT_TIMEOUT = 30000;
 
-  @Test
+  @Test (timeout=60000)
   public void testDelayedRpcImmediateReturnValue() throws Exception {
     testDelayedRpc(false);
   }
 
-  @Test
+  @Test (timeout=60000)
   public void testDelayedRpcDelayedReturnValue() throws Exception {
     testDelayedRpc(true);
   }
@@ -151,6 +150,7 @@ public class TestDelayedRpc {
   }
 
   private void testDelayedRpc(boolean delayReturnValue) throws Exception {
+    LOG.info("Running testDelayedRpc delayReturnValue=" + delayReturnValue);
     Configuration conf = HBaseConfiguration.create();
     InetSocketAddress isa = new InetSocketAddress("localhost", 0);
     TestDelayedImplementation instance = new TestDelayedImplementation(delayReturnValue);
@@ -165,11 +165,13 @@ public class TestDelayedRpc {
       BlockingRpcChannel channel = rpcClient.createBlockingRpcChannel(
           new ServerName(rpcServer.getListenerAddress().getHostName(),
               rpcServer.getListenerAddress().getPort(), System.currentTimeMillis()),
-          User.getCurrent(), 1000);
+          User.getCurrent(), RPC_CLIENT_TIMEOUT);
       TestDelayedRpcProtos.TestDelayedService.BlockingInterface stub =
         TestDelayedRpcProtos.TestDelayedService.newBlockingStub(channel);
       List<Integer> results = new ArrayList<Integer>();
+      // Setting true sets 'delayed' on the client.
       TestThread th1 = new TestThread(stub, true, results);
+      // Setting 'false' means we will return UNDELAYED as response immediately.
       TestThread th2 = new TestThread(stub, false, results);
       TestThread th3 = new TestThread(stub, false, results);
       th1.start();
@@ -182,6 +184,7 @@ public class TestDelayedRpc {
       th2.join();
       th3.join();
 
+      // We should get the two undelayed responses first.
       assertEquals(UNDELAYED, results.get(0).intValue());
       assertEquals(UNDELAYED, results.get(1).intValue());
       assertEquals(results.get(2).intValue(), delayReturnValue ? DELAYED :  0xDEADBEEF);
@@ -216,7 +219,7 @@ public class TestDelayedRpc {
    * Tests that we see a WARN message in the logs.
    * @throws Exception
    */
-  @Test
+  @Test (timeout=60000)
   public void testTooManyDelayedRpcs() throws Exception {
     Configuration conf = HBaseConfiguration.create();
     final int MAX_DELAYED_RPC = 10;
@@ -241,7 +244,7 @@ public class TestDelayedRpc {
       BlockingRpcChannel channel = rpcClient.createBlockingRpcChannel(
           new ServerName(rpcServer.getListenerAddress().getHostName(),
               rpcServer.getListenerAddress().getPort(), System.currentTimeMillis()),
-          User.getCurrent(), 1000);
+          User.getCurrent(), RPC_CLIENT_TIMEOUT);
       TestDelayedRpcProtos.TestDelayedService.BlockingInterface stub =
         TestDelayedRpcProtos.TestDelayedService.newBlockingStub(channel);
       Thread threads[] = new Thread[MAX_DELAYED_RPC + 1];
@@ -373,8 +376,8 @@ public class TestDelayedRpc {
     public void run() {
       Integer result;
       try {
-        result = new Integer(stub.test(null, TestArg.newBuilder().setDelay(delay).
-          build()).getResponse());
+        result = new Integer(stub.test(null, TestArg.newBuilder().setDelay(delay).build()).
+          getResponse());
       } catch (ServiceException e) {
         throw new RuntimeException(e);
       }
