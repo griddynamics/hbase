@@ -55,6 +55,10 @@ import org.junit.experimental.categories.Category;
 
 import static org.junit.Assert.*;
 
+/**
+ * Tests class {@link org.apache.hadoop.hbase.coprocessor.CoprocessorHost.Environment.HTableWrapper}
+ * by invoking its methods and briefly asserting the result is reasonable.
+ */
 @Category(MediumTests.class)
 public class TestHTableWrapper {
 
@@ -229,11 +233,11 @@ public class TestHTableWrapper {
   }
 
   private void checkCheckAndPut() throws IOException {
-    Put putD = new Put(ROW_C).add(TEST_FAMILY, qualifierCol1, bytes5);
-    assertFalse(hTableInterface.checkAndPut(ROW_C, TEST_FAMILY, qualifierCol1, /* expect */
-        bytes4, putD/* newValue */));
-    assertTrue(hTableInterface.checkAndPut(ROW_C, TEST_FAMILY, qualifierCol1, /* expect */
-        bytes3, putD/* newValue */));
+    Put putC = new Put(ROW_C).add(TEST_FAMILY, qualifierCol1, bytes5);
+    assertFalse(hTableInterface.checkAndPut(ROW_C, TEST_FAMILY, qualifierCol1, /* expect */bytes4,
+      putC/* newValue */));
+    assertTrue(hTableInterface.checkAndPut(ROW_C, TEST_FAMILY, qualifierCol1, /* expect */bytes3,
+      putC/* newValue */));
     checkRowValue(ROW_C, bytes5);
   }
 
