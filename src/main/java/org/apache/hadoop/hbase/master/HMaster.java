@@ -118,6 +118,7 @@ import org.apache.hadoop.hbase.zookeeper.ClusterStatusTracker;
 import org.apache.hadoop.hbase.zookeeper.DrainingServerTracker;
 import org.apache.hadoop.hbase.zookeeper.RegionServerTracker;
 import org.apache.hadoop.hbase.zookeeper.ZKUtil;
+import org.apache.hadoop.hbase.zookeeper.ZooKeeperListener;
 import org.apache.hadoop.hbase.zookeeper.ZooKeeperWatcher;
 import org.apache.hadoop.io.MapWritable;
 import org.apache.hadoop.io.Text;
@@ -260,6 +261,9 @@ Server {
   /** flag used in test cases in order to simulate RS failures during master initialization */
   private volatile boolean initializationBeforeMetaAssignment = false;
 
+  /** The following is used in master recovery scenario to re-register listeners */
+  private List<ZooKeeperListener> registeredZKListenersBeforeRecovery;
+
   /**
    * Initializes the HMaster. The steps are as follows:
    * <p>
@@ -391,6 +395,7 @@ Server {
     startupStatus.setDescription("Master startup");
     masterStartTime = System.currentTimeMillis();
     try {
+      this.registeredZKListenersBeforeRecovery = this.zooKeeper.getListeners();
       /*
        * Block on becoming the active master.
        *
@@ -606,7 +611,7 @@ Server {
 
     this.initializationBeforeMetaAssignment = true;
     // Make sure root assigned before proceeding.
-    assignRoot(status);
+    if (!assignRoot(status)) return;
 
     // SSH should enabled for ROOT before META region assignment
     // because META region assignment is depending on ROOT server online.
@@ -621,7 +626,7 @@ Server {
     }
 
     // Make sure meta assigned before proceeding.
-    assignMeta(status, ((masterRecovery) ? null : preMetaServer), preRootServer);
+    if (!assignMeta(status, ((masterRecovery) ? null : preMetaServer), preRootServer)) return;
 
     enableServerShutdownHandler();
 
@@ -708,7 +713,7 @@ Server {
    * @throws IOException
    * @throws KeeperException
    */
-  private void assignRoot(MonitoredTask status)
+  private boolean assignRoot(MonitoredTask status)
   throws InterruptedException, IOException, KeeperException {
     int assigned = 0;
     long timeout = this.conf.getLong("hbase.catalog.verification.timeout", 1000);
@@ -724,9 +729,15 @@ Server {
       splitLogAndExpireIfOnline(currentRootServer);
       this.assignmentManager.assignRoot();
       waitForRootAssignment();
+      if (!this.assignmentManager.isRegionAssigned(HRegionInfo.ROOT_REGIONINFO) || this.stopped) {
+        return false;
+      }
       assigned++;
     } else if (rit && !rootRegionLocation) {
       waitForRootAssignment();
+      if (!this.assignmentManager.isRegionAssigned(HRegionInfo.ROOT_REGIONINFO) || this.stopped) {
+        return false;
+      }
       assigned++;
     } else {
       // Region already assigned. We didn't assign it. Add to in-memory state.
@@ -740,6 +751,7 @@ Server {
       ", location=" + catalogTracker.getRootLocation());
 
     status.setStatus("ROOT assigned.");
+    return true;
   }
 
   /**
@@ -751,7 +763,7 @@ Server {
    * @throws IOException
    * @throws KeeperException
    */
-  private void assignMeta(MonitoredTask status, ServerName previousMetaServer,
+  private boolean assignMeta(MonitoredTask status, ServerName previousMetaServer,
       ServerName previousRootServer)
       throws InterruptedException,
       IOException, KeeperException {
@@ -775,9 +787,17 @@ Server {
       }
       assignmentManager.assignMeta();
       enableSSHandWaitForMeta();
+      if (!this.assignmentManager.isRegionAssigned(HRegionInfo.FIRST_META_REGIONINFO)
+          || this.stopped) {
+        return false;
+      }
       assigned++;
     } else if (rit && !metaRegionLocation) {
       enableSSHandWaitForMeta();
+      if (!this.assignmentManager.isRegionAssigned(HRegionInfo.FIRST_META_REGIONINFO)
+          || this.stopped) {
+        return false;
+      }
       assigned++;
     } else {
       // Region already assigned. We didnt' assign it. Add to in-memory state.
@@ -788,6 +808,7 @@ Server {
     LOG.info(".META. assigned=" + assigned + ", rit=" + rit + ", location="
         + catalogTracker.getMetaLocation());
     status.setStatus("META assigned.");
+    return true;
   }
 
   private void enableSSHandWaitForMeta() throws IOException,
@@ -1611,6 +1632,14 @@ Server {
       IOException, KeeperException, ExecutionException {
 
     this.zooKeeper.unregisterAllListeners();
+    // add back listeners which were registered before master initialization
+    // because they won't be added back in below Master re-initialization code
+    if (this.registeredZKListenersBeforeRecovery != null) {
+      for (ZooKeeperListener curListener : this.registeredZKListenersBeforeRecovery) {
+        this.zooKeeper.registerListener(curListener);
+      }
+    }
+
     this.zooKeeper.reconnectAfterExpiration();
 
     Callable<Boolean> callable = new Callable<Boolean> () {
@@ -1764,6 +1793,11 @@ Server {
       synchronized (this.activeMasterManager.clusterHasActiveMaster) {
         this.activeMasterManager.clusterHasActiveMaster.notifyAll();
       }
+    }
+    // If no region server is online then master may stuck waiting on -ROOT- and .META. to come on
+    // line. See HBASE-8422.
+    if (this.catalogTracker != null && this.serverManager.getOnlineServers().isEmpty()) {
+      this.catalogTracker.stop();
     }
   }
 
