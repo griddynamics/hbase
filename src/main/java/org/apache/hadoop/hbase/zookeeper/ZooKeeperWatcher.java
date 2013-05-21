@@ -243,6 +243,27 @@ public class ZooKeeperWatcher implements Watcher, Abortable {
   }
 
   /**
+   * Clean all existing listeners
+   */
+  public void unregisterAllListeners() {
+    listeners.clear();
+  }
+
+  /**
+   * Get a copy of current registered listeners
+   */
+  public List<ZooKeeperListener> getListeners() {
+    return new ArrayList<ZooKeeperListener>(listeners);
+  }
+
+  /**
+   * @return The number of currently registered listeners
+   */
+  public int getNumberOfListeners() {
+    return listeners.size();
+  }
+
+  /**
    * Get the connection to ZooKeeper.
    * @return connection reference to zookeeper
    */

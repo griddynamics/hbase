@@ -513,6 +513,13 @@ public class Store extends SchemaConfigured implements HeapSize {
   }
 
   /**
+   * When was the oldest edit done in the memstore
+   */
+  public long timeOfOldestEdit() {
+    return memstore.timeOfOldestEdit();
+  }
+
+  /**
    * Adds a value to the memstore
    *
    * @param kv
@@ -1855,6 +1862,10 @@ public class Store extends SchemaConfigured implements HeapSize {
     StoreFile.Reader r = f.getReader();
     if (r == null) {
       LOG.warn("StoreFile " + f + " has a null Reader");
+      return;
+    }
+    if (r.getEntries() == 0) {
+      LOG.warn("StoreFile " + f + " is a empty store file");
       return;
     }
     // TODO: Cache these keys rather than make each time?

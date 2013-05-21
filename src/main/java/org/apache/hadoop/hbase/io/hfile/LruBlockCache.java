@@ -21,6 +21,7 @@ package org.apache.hadoop.hbase.io.hfile;
 
 import java.io.IOException;
 import java.lang.ref.WeakReference;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumMap;
@@ -193,11 +194,11 @@ public class LruBlockCache implements BlockCache, HeapSize {
   public LruBlockCache(long maxSize, long blockSize, boolean evictionThread, Configuration conf) {
     this(maxSize, blockSize, evictionThread,
         (int)Math.ceil(1.2*maxSize/blockSize),
-        DEFAULT_LOAD_FACTOR, 
+        DEFAULT_LOAD_FACTOR,
         DEFAULT_CONCURRENCY_LEVEL,
-        conf.getFloat(LRU_MIN_FACTOR_CONFIG_NAME, DEFAULT_MIN_FACTOR), 
-        conf.getFloat(LRU_ACCEPTABLE_FACTOR_CONFIG_NAME, DEFAULT_ACCEPTABLE_FACTOR), 
-        DEFAULT_SINGLE_FACTOR, 
+        conf.getFloat(LRU_MIN_FACTOR_CONFIG_NAME, DEFAULT_MIN_FACTOR),
+        conf.getFloat(LRU_ACCEPTABLE_FACTOR_CONFIG_NAME, DEFAULT_ACCEPTABLE_FACTOR),
+        DEFAULT_SINGLE_FACTOR,
         DEFAULT_MULTI_FACTOR,
         DEFAULT_MEMORY_FACTOR);
   }
@@ -267,16 +268,25 @@ public class LruBlockCache implements BlockCache, HeapSize {
   /**
    * Cache the block with the specified name and buffer.
    * <p>
-   * It is assumed this will NEVER be called on an already cached block.  If
-   * that is done, an exception will be thrown.
+   * It is assumed this will NOT be called on an already cached block. In rare cases (HBASE-8547)
+   * this can happen, for which we compare the buffer contents.
    * @param cacheKey block's cache key
    * @param buf block buffer
    * @param inMemory if block is in-memory
    */
+  @Override
   public void cacheBlock(BlockCacheKey cacheKey, Cacheable buf, boolean inMemory) {
     CachedBlock cb = map.get(cacheKey);
     if(cb != null) {
-      throw new RuntimeException("Cached an already cached block");
+      // compare the contents, if they are not equal, we are in big trouble
+      if (compare(buf, cb.getBuffer()) != 0) {
+        throw new RuntimeException("Cached block contents differ, which should not have happened."
+          + "cacheKey:" + cacheKey);
+      }
+      String msg = "Cached an already cached block: " + cacheKey + " cb:" + cb.getCacheKey();
+      msg += ". This is harmless and can happen in rare cases (see HBASE-8547)";
+      LOG.warn(msg);
+      return;
     }
     cb = new CachedBlock(cacheKey, buf, count.incrementAndGet(), inMemory);
     long newSize = updateSizeMetrics(cb, false);
@@ -285,6 +295,15 @@ public class LruBlockCache implements BlockCache, HeapSize {
     if(newSize > acceptableSize() && !evictionInProgress) {
       runEviction();
     }
+  }
+
+  private int compare(Cacheable left, Cacheable right) {
+    ByteBuffer l = ByteBuffer.allocate(left.getSerializedLength());
+    left.serialize(l);
+    ByteBuffer r = ByteBuffer.allocate(right.getSerializedLength());
+    right.serialize(r);
+    return Bytes.compareTo(l.array(), l.arrayOffset(), l.limit(),
+      r.array(), r.arrayOffset(), r.limit());
   }
 
   /**

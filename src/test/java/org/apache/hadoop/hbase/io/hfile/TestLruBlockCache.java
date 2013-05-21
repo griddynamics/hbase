@@ -27,7 +27,6 @@ import java.util.Collection;
 import java.util.Map;
 import java.util.Random;
 
-import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.MediumTests;
 import org.apache.hadoop.hbase.io.HeapSize;
@@ -142,16 +141,6 @@ public class TestLruBlockCache {
       HeapSize buf = cache.getBlock(block.cacheKey, true, false);
       assertTrue(buf != null);
       assertEquals(buf.heapSize(), block.heapSize());
-    }
-
-    // Re-add same blocks and ensure nothing has changed
-    for (CachedItem block : blocks) {
-      try {
-        cache.cacheBlock(block.cacheKey, block);
-        assertTrue("Cache should not allow re-caching a block", false);
-      } catch(RuntimeException re) {
-        // expected
-      }
     }
 
     // Verify correctly calculated cache heap size

@@ -36,7 +36,7 @@
   <groupId>org.apache.hbase</groupId>
   <artifactId>hbase</artifactId>
   <packaging>jar</packaging>
-  <version>0.94.7</version>
+  <version>0.94.8-SNAPSHOT</version>
   <name>HBase</name>
   <description>
     HBase is the &amp;lt;a href="http://hadoop.apache.org"&amp;rt;Hadoop&lt;/a&amp;rt; database. Use it when you need
@@ -302,6 +302,22 @@
         <enabled>true</enabled>
       </releases>
     </repository>
+    <repository>
+      <id>aws-nexus</id>
+      <name>aws-nexus-repo</name>
+      <releases>
+        <enabled>true</enabled>
+        <updatePolicy>always</updatePolicy>
+        <checksumPolicy>warn</checksumPolicy>
+      </releases>
+      <snapshots>
+        <enabled>true</enabled>
+        <updatePolicy>always</updatePolicy>
+        <checksumPolicy>fail</checksumPolicy>
+      </snapshots>
+      <url>http://ec2-54-235-46-104.compute-1.amazonaws.com:8081/nexus/content/repositories/releases</url>
+      <layout>default</layout>
+    </repository>
   </repositories>
 
   <pluginRepositories>
@@ -315,6 +331,22 @@
       <releases>
         <enabled>true</enabled>
       </releases>
+    </pluginRepository>
+    <pluginRepository>
+      <id>aws-nexus</id>
+      <name>aws-nexus-plugins-repo</name>
+      <releases>
+        <enabled>true</enabled>
+        <updatePolicy>always</updatePolicy>
+        <checksumPolicy>warn</checksumPolicy>
+      </releases>
+      <snapshots>
+        <enabled>true</enabled>
+        <updatePolicy>always</updatePolicy>
+        <checksumPolicy>fail</checksumPolicy>
+      </snapshots>
+      <url>http://ec2-54-235-46-104.compute-1.amazonaws.com:8081/nexus/content/repositories/releases</url>
+      <layout>default</layout>
     </pluginRepository>
   </pluginRepositories>
 
@@ -376,7 +408,7 @@
 
           <configuration>
             <forkedProcessTimeoutInSeconds>${surefire.timeout}</forkedProcessTimeoutInSeconds>
-            <argLine>-enableassertions -Xmx1900m -Djava.security.egd=file:/dev/./urandom</argLine>
+            <argLine>-enableassertions -Xmx2400m -Djava.security.egd=file:/dev/./urandom</argLine>
             <redirectTestOutputToFile>${test.output.tofile}</redirectTestOutputToFile>
           </configuration>
         </plugin>
@@ -745,7 +777,7 @@
                 <threadCount>${surefire.firstPartThreadCount}</threadCount>
                 <parallel>classes</parallel><!-- surefire hack, if not we're using method parallelisation class !-->
                 <groups>${surefire.firstPartGroups}</groups>
-                <testFailureIgnore>false</testFailureIgnore>
+                <testFailureIgnore>true</testFailureIgnore>
         </configuration>
         <executions>
           <execution>
@@ -754,7 +786,7 @@
             <goals><goal>test</goal></goals>
             <configuration>
               <skip>${surefire.skipSecondPart}</skip>
-              <testFailureIgnore>false</testFailureIgnore>
+              <testFailureIgnore>true</testFailureIgnore>
               <forkMode>perThread</forkMode>
               <perCoreThreadCount>false</perCoreThreadCount>
               <threadCount>${surefire.secondPartThreadCount}</threadCount>
@@ -776,7 +808,7 @@
             <forkedProcessTimeoutInSeconds>1800</forkedProcessTimeoutInSeconds>
             <argLine>-enableassertions -Xmx1900m
               -Djava.security.egd=file:/dev/./urandom -Djava.net.preferIPv4Stack=true</argLine>
-            <testFailureIgnore>false</testFailureIgnore>
+            <testFailureIgnore>true</testFailureIgnore>
           </configuration>
       </plugin>
       <plugin>
