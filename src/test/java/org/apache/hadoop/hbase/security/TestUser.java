@@ -160,8 +160,6 @@ public class TestUser {
 
   @Test
   public void testSecurityForNonSecureHadoop() {
-    assertFalse("Security should be disable in non-secure Hadoop",
-        User.isSecurityEnabled());
 
     Configuration conf = HBaseConfiguration.create();
     conf.set(CommonConfigurationKeys.HADOOP_SECURITY_AUTHENTICATION, "kerberos");

@@ -23,8 +23,6 @@ import static org.apache.hadoop.hbase.security.HBaseKerberosUtils.getKeytabFileF
 import static org.apache.hadoop.hbase.security.HBaseKerberosUtils.getPrincipalForTesting;
 import static org.apache.hadoop.hbase.security.HBaseKerberosUtils.getSecuredConfiguration;
 import static org.apache.hadoop.hbase.security.HBaseKerberosUtils.isKerberosPropertySetted;
-import static org.apache.hadoop.hbase.security.HBaseKerberosUtils.setKeytabFileForTesting;
-import static org.apache.hadoop.hbase.security.HBaseKerberosUtils.setPrincipalForTesting;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
@@ -75,8 +73,10 @@ public class TestUsersOperationsWithSecureHadoop {
   @Test
   public void testLoginInSecureHadoop() throws IOException {
     UserGroupInformation defaultLogin = UserGroupInformation.getLoginUser();
+    /* just for debug
     setKeytabFileForTesting("/etc/krb5.keytab");
     setPrincipalForTesting("a/localhost@EXAMPLE.COM");
+    */
 
     Configuration conf = getConfigurationWoPrincipal();
     User.login(conf, HBaseKerberosUtils.KRB_KEYTAB_FILE,
