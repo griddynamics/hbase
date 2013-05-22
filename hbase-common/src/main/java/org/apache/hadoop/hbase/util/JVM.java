@@ -191,29 +191,74 @@ public class JVM
    * http://stackoverflow.com/questions/54686/how-to-get-a-list-of-current-open-windows-process-with-java
    */
   public int getNumberOfRunningProcess(){
-    if (!isUnix()){
-      return 0;
-    }
-
-    BufferedReader input = null;
-    try {
-      int count = 0;
-      Process p = Runtime.getRuntime().exec("ps -e");
-      input = new BufferedReader(new InputStreamReader(p.getInputStream()));
-      while (input.readLine() != null) {
-        count++;
-      }
-      return count - 1; //  -1 because there is a headline
-    } catch (IOException e) {
-      return -1;
-    }  finally {
-      if (input != null){
-        try {
-          input.close();
-        } catch (IOException ignored) {
-        }
-      }
-    }
+    // stubbed as a workaround against ResourceChecker hanging problem.
+    // See also http://stackoverflow.com/questions/11756267/executing-process-with-processbuilder-causes-hang-on-waitfor
+    // Currently no solution is known for the problem.
+    
+//    2013-05-22 20:06:21.227    java.lang.Thread.State: WAITING (on object monitor)
+//    2013-05-22 20:06:21.227   at java.lang.Object.wait(Native Method)
+//    2013-05-22 20:06:21.228   - waiting on <0x00000007de98fd40> (a java.lang.UNIXProcess$Gate)
+//    2013-05-22 20:06:21.228   at java.lang.Object.wait(Object.java:485)
+//    2013-05-22 20:06:21.228   at java.lang.UNIXProcess$Gate.waitForExit(UNIXProcess.java:64)
+//    2013-05-22 20:06:21.229   - locked <0x00000007de98fd40> (a java.lang.UNIXProcess$Gate)
+//    2013-05-22 20:06:21.229   at java.lang.UNIXProcess.<init>(UNIXProcess.java:145)
+//    2013-05-22 20:06:21.229   at java.lang.ProcessImpl.start(ProcessImpl.java:65)
+//    2013-05-22 20:06:21.230   at java.lang.ProcessBuilder.start(ProcessBuilder.java:452)
+//    2013-05-22 20:06:21.230   at java.lang.Runtime.exec(Runtime.java:593)
+//    2013-05-22 20:06:21.231   at java.lang.Runtime.exec(Runtime.java:431)
+//    2013-05-22 20:06:21.231   at java.lang.Runtime.exec(Runtime.java:328)
+//    2013-05-22 20:06:21.231   at org.apache.hadoop.hbase.util.JVM.getNumberOfRunningProcess(JVM.java:201)
+//    2013-05-22 20:06:21.232   at org.apache.hadoop.hbase.ResourceCheckerJUnitListener$ProcessCountResourceAnalyzer.getVal(ResourceCheckerJUnitListener.java:123)
+//    2013-05-22 20:06:21.232   at org.apache.hadoop.hbase.ResourceChecker.fill(ResourceChecker.java:114)
+//    2013-05-22 20:06:21.232   at org.apache.hadoop.hbase.ResourceChecker.fillInit(ResourceChecker.java:103)
+//    2013-05-22 20:06:21.233   at org.apache.hadoop.hbase.ResourceChecker.start(ResourceChecker.java:186)
+//    2013-05-22 20:06:21.233   at org.apache.hadoop.hbase.ResourceCheckerJUnitListener.start(ResourceCheckerJUnitListener.java:156)
+//    2013-05-22 20:06:21.233   at org.apache.hadoop.hbase.ResourceCheckerJUnitListener.testStarted(ResourceCheckerJUnitListener.java:179)
+//    2013-05-22 20:06:21.234   at org.junit.runner.notification.RunNotifier$3.notifyListener(RunNotifier.java:115)
+//    2013-05-22 20:06:21.234   at org.junit.runner.notification.RunNotifier$SafeNotifier.run(RunNotifier.java:61)
+//    2013-05-22 20:06:21.234   - locked <0x000000076a368140> (a java.util.Collections$SynchronizedRandomAccessList)
+//    2013-05-22 20:06:21.235   at org.junit.runner.notification.RunNotifier.fireTestStarted(RunNotifier.java:112)
+//    2013-05-22 20:06:21.235   at org.junit.internal.runners.JUnit38ClassRunner$OldTestClassAdaptingListener.startTest(JUnit38ClassRunner.java:35)
+//    2013-05-22 20:06:21.236   at junit.framework.TestResult.startTest(TestResult.java:168)
+//    2013-05-22 20:06:21.236   at junit.framework.TestResult.run(TestResult.java:119)
+//    2013-05-22 20:06:21.236   at junit.framework.TestCase.run(TestCase.java:129)
+//    2013-05-22 20:06:21.237   at junit.framework.TestSuite.runTest(TestSuite.java:255)
+//    2013-05-22 20:06:21.237   at junit.framework.TestSuite.run(TestSuite.java:250)
+//    2013-05-22 20:06:21.238   at org.junit.internal.runners.JUnit38ClassRunner.run(JUnit38ClassRunner.java:84)
+//    2013-05-22 20:06:21.238   at org.junit.runners.Suite.runChild(Suite.java:127)
+//    2013-05-22 20:06:21.238   at org.junit.runners.Suite.runChild(Suite.java:26)
+//    2013-05-22 20:06:21.239   at org.junit.runners.ParentRunner$3.run(ParentRunner.java:238)
+//    2013-05-22 20:06:21.239   at java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:439)
+//    2013-05-22 20:06:21.239   at java.util.concurrent.FutureTask$Sync.innerRun(FutureTask.java:303)
+//    2013-05-22 20:06:21.240   at java.util.concurrent.FutureTask.run(FutureTask.java:138)
+//    2013-05-22 20:06:21.240   at java.util.concurrent.ThreadPoolExecutor$Worker.runTask(ThreadPoolExecutor.java:895)
+//    2013-05-22 20:06:21.240   at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:918)
+//    2013-05-22 20:06:21.241   at java.lang.Thread.run(Thread.java:662)
+    
+    return 0;
+//    if (!isUnix()){
+//      return 0;
+//    }
+//
+//    BufferedReader input = null;
+//    try {
+//      int count = 0;
+//      Process p = Runtime.getRuntime().exec("ps -e");
+//      input = new BufferedReader(new InputStreamReader(p.getInputStream()));
+//      while (input.readLine() != null) {
+//        count++;
+//      }
+//      return count - 1; //  -1 because there is a headline
+//    } catch (IOException e) {
+//      return -1;
+//    }  finally {
+//      if (input != null){
+//        try {
+//          input.close();
+//        } catch (IOException ignored) {
+//        }
+//      }
+//    }
   }
 
   /**
