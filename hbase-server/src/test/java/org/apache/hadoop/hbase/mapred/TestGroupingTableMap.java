@@ -48,96 +48,120 @@ import com.google.common.collect.ImmutableList;
 public class TestGroupingTableMap {
 
   @Test
-  @SuppressWarnings({ "deprecation", "unchecked", "resource" })
+  @SuppressWarnings({ "deprecation", "unchecked" })
   public void shouldNotCallCollectonSinceFindUniqueKeyValueMoreThanOnes()
       throws Exception {
-    Result result = mock(Result.class);
-    Reporter reporter = mock(Reporter.class);
-    GroupingTableMap gTableMap = new GroupingTableMap();
-    Configuration cfg = new Configuration();
-    cfg.set(GroupingTableMap.GROUP_COLUMNS, "familyA:qualifierA familyB:qualifierB");
-    JobConf jobConf = new JobConf(cfg);
-    gTableMap.configure(jobConf);
-
-    byte[] row = {};
-    ImmutableList<KeyValue> keyValues = of(
-        new KeyValue(row, "familyA".getBytes(), "qualifierA".getBytes(), Bytes.toBytes("1111")),
-        new KeyValue(row, "familyA".getBytes(), "qualifierA".getBytes(), Bytes.toBytes("2222")),
-        new KeyValue(row, "familyB".getBytes(), "qualifierB".getBytes(), Bytes.toBytes("3333")));
-    when(result.list()).thenReturn(keyValues);
-    OutputCollector<ImmutableBytesWritable, Result> outputCollectorMock =
-        mock(OutputCollector.class);
-    gTableMap.map(null, result, outputCollectorMock, reporter);
-    verify(outputCollectorMock, never())
-      .collect(any(ImmutableBytesWritable.class), any(Result.class));
+    GroupingTableMap gTableMap = null;
+    try {
+      Result result = mock(Result.class);
+      Reporter reporter = mock(Reporter.class);
+      gTableMap = new GroupingTableMap();
+      Configuration cfg = new Configuration();
+      cfg.set(GroupingTableMap.GROUP_COLUMNS, "familyA:qualifierA familyB:qualifierB");
+      JobConf jobConf = new JobConf(cfg);
+      gTableMap.configure(jobConf);
+  
+      byte[] row = {};
+      ImmutableList<KeyValue> keyValues = of(
+          new KeyValue(row, "familyA".getBytes(), "qualifierA".getBytes(), Bytes.toBytes("1111")),
+          new KeyValue(row, "familyA".getBytes(), "qualifierA".getBytes(), Bytes.toBytes("2222")),
+          new KeyValue(row, "familyB".getBytes(), "qualifierB".getBytes(), Bytes.toBytes("3333")));
+      when(result.list()).thenReturn(keyValues);
+      OutputCollector<ImmutableBytesWritable, Result> outputCollectorMock =
+          mock(OutputCollector.class);
+      gTableMap.map(null, result, outputCollectorMock, reporter);
+      verify(outputCollectorMock, never())
+        .collect(any(ImmutableBytesWritable.class), any(Result.class));
+    } finally {
+      if (gTableMap != null)
+        gTableMap.close();    
+    }
   }
 
   @Test
-  @SuppressWarnings({ "deprecation", "unchecked", "resource" })
+  @SuppressWarnings({ "deprecation", "unchecked" })
   public void shouldCreateNewKeyAlthoughExtraKey() throws Exception {
-    Result result = mock(Result.class);
-    Reporter reporter = mock(Reporter.class);
-    GroupingTableMap gTableMap = new GroupingTableMap();
-    Configuration cfg = new Configuration();
-    cfg.set(GroupingTableMap.GROUP_COLUMNS, "familyA:qualifierA familyB:qualifierB");
-    JobConf jobConf = new JobConf(cfg);
-    gTableMap.configure(jobConf);
-
-    byte[] row = {};
-    ImmutableList<KeyValue> keyValues = of(
-        new KeyValue(row, "familyA".getBytes(), "qualifierA".getBytes(), Bytes.toBytes("1111")),
-        new KeyValue(row, "familyB".getBytes(), "qualifierB".getBytes(), Bytes.toBytes("2222")),
-        new KeyValue(row, "familyC".getBytes(), "qualifierC".getBytes(), Bytes.toBytes("3333")));
-    when(result.list()).thenReturn(keyValues);
-    OutputCollector<ImmutableBytesWritable, Result> outputCollectorMock =
-        mock(OutputCollector.class);
-    gTableMap.map(null, result, outputCollectorMock, reporter);
-    verify(outputCollectorMock, times(1))
-      .collect(any(ImmutableBytesWritable.class), any(Result.class));
-  }
-
-  @Test
-  @SuppressWarnings({ "deprecation", "resource" })
-  public void shouldCreateNewKey() throws Exception {
-    Result result = mock(Result.class);
-    Reporter reporter = mock(Reporter.class);
-    final byte[] bSeparator = Bytes.toBytes(" ");
-    GroupingTableMap gTableMap = new GroupingTableMap();
-    Configuration cfg = new Configuration();
-    cfg.set(GroupingTableMap.GROUP_COLUMNS, "familyA:qualifierA familyB:qualifierB");
-    JobConf jobConf = new JobConf(cfg);
-    gTableMap.configure(jobConf);
-
-    final byte[] firstPartKeyValue = Bytes.toBytes("34879512738945");
-    final byte[] secondPartKeyValue = Bytes.toBytes("35245142671437");
-    byte[] row = {};
-    ImmutableList<KeyValue> keyValues = of(
-        new KeyValue(row, "familyA".getBytes(), "qualifierA".getBytes(), firstPartKeyValue),
-        new KeyValue(row, "familyB".getBytes(), "qualifierB".getBytes(), secondPartKeyValue));
-    when(result.list()).thenReturn(keyValues);
-
-    OutputCollector<ImmutableBytesWritable, Result> outputCollector =
-        new OutputCollector<ImmutableBytesWritable, Result>() {
-      @Override
-      public void collect(ImmutableBytesWritable arg, Result result) throws IOException {
-        assertArrayEquals(com.google.common.primitives.Bytes.concat(firstPartKeyValue, bSeparator,
-            secondPartKeyValue), arg.copyBytes());
-      }
-    };
-
-    gTableMap.map(null, result, outputCollector, reporter);
-    final byte[] firstPartValue = Bytes.toBytes("238947928");
-    final byte[] secondPartValue = Bytes.toBytes("4678456942345");
-    byte[][] data = { firstPartValue, secondPartValue };
-    ImmutableBytesWritable byteWritable = gTableMap.createGroupKey(data);
-    assertArrayEquals(com.google.common.primitives.Bytes.concat(firstPartValue,
-        bSeparator, secondPartValue), byteWritable.get());
+    GroupingTableMap gTableMap = null;
+    try {
+      Result result = mock(Result.class);
+      Reporter reporter = mock(Reporter.class);
+      gTableMap = new GroupingTableMap();
+      Configuration cfg = new Configuration();
+      cfg.set(GroupingTableMap.GROUP_COLUMNS, "familyA:qualifierA familyB:qualifierB");
+      JobConf jobConf = new JobConf(cfg);
+      gTableMap.configure(jobConf);
+  
+      byte[] row = {};
+      ImmutableList<KeyValue> keyValues = of(
+          new KeyValue(row, "familyA".getBytes(), "qualifierA".getBytes(), Bytes.toBytes("1111")),
+          new KeyValue(row, "familyB".getBytes(), "qualifierB".getBytes(), Bytes.toBytes("2222")),
+          new KeyValue(row, "familyC".getBytes(), "qualifierC".getBytes(), Bytes.toBytes("3333")));
+      when(result.list()).thenReturn(keyValues);
+      OutputCollector<ImmutableBytesWritable, Result> outputCollectorMock =
+          mock(OutputCollector.class);
+      gTableMap.map(null, result, outputCollectorMock, reporter);
+      verify(outputCollectorMock, times(1))
+        .collect(any(ImmutableBytesWritable.class), any(Result.class));
+    } finally {
+      if (gTableMap != null)
+        gTableMap.close();
+    }
   }
 
   @Test
   @SuppressWarnings({ "deprecation" })
-  public void shouldReturnNullFromCreateGroupKey() {
-    GroupingTableMap gTableMap = new GroupingTableMap();
-    assertNull(gTableMap.createGroupKey(null));
+  public void shouldCreateNewKey() throws Exception {
+    GroupingTableMap gTableMap = null;  
+    try {
+      Result result = mock(Result.class);
+      Reporter reporter = mock(Reporter.class);
+      final byte[] bSeparator = Bytes.toBytes(" ");
+      gTableMap = new GroupingTableMap();
+      Configuration cfg = new Configuration();
+      cfg.set(GroupingTableMap.GROUP_COLUMNS, "familyA:qualifierA familyB:qualifierB");
+      JobConf jobConf = new JobConf(cfg);
+      gTableMap.configure(jobConf);
+  
+      final byte[] firstPartKeyValue = Bytes.toBytes("34879512738945");
+      final byte[] secondPartKeyValue = Bytes.toBytes("35245142671437");
+      byte[] row = {};
+      ImmutableList<KeyValue> keyValues = of(
+          new KeyValue(row, "familyA".getBytes(), "qualifierA".getBytes(), firstPartKeyValue),
+          new KeyValue(row, "familyB".getBytes(), "qualifierB".getBytes(), secondPartKeyValue));
+      when(result.list()).thenReturn(keyValues);
+  
+      OutputCollector<ImmutableBytesWritable, Result> outputCollector =
+          new OutputCollector<ImmutableBytesWritable, Result>() {
+        @Override
+        public void collect(ImmutableBytesWritable arg, Result result) throws IOException {
+          assertArrayEquals(com.google.common.primitives.Bytes.concat(firstPartKeyValue, bSeparator,
+              secondPartKeyValue), arg.copyBytes());
+        }
+      };
+  
+      gTableMap.map(null, result, outputCollector, reporter);
+      final byte[] firstPartValue = Bytes.toBytes("238947928");
+      final byte[] secondPartValue = Bytes.toBytes("4678456942345");
+      byte[][] data = { firstPartValue, secondPartValue };
+      ImmutableBytesWritable byteWritable = gTableMap.createGroupKey(data);
+      assertArrayEquals(com.google.common.primitives.Bytes.concat(firstPartValue,
+          bSeparator, secondPartValue), byteWritable.get());
+    } finally {
+      if (gTableMap != null)
+        gTableMap.close();
+    }
+  }
+
+  @Test
+  @SuppressWarnings({ "deprecation" })
+  public void shouldReturnNullFromCreateGroupKey() throws Exception {
+    GroupingTableMap gTableMap = null;
+    try {
+      gTableMap = new GroupingTableMap();
+      assertNull(gTableMap.createGroupKey(null));
+    } finally {
+      if(gTableMap != null)
+        gTableMap.close();
+    }
   }
 }

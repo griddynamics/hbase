@@ -37,21 +37,27 @@ import org.mockito.Mockito;
 public class TestIdentityTableMap {
 
   @Test
-  @SuppressWarnings({ "deprecation", "unchecked", "resource" })
+  @SuppressWarnings({ "deprecation", "unchecked" })
   public void shouldCollectPredefinedTimes() throws IOException {
     int recordNumber = 999;
     Result resultMock = mock(Result.class);
-    Reporter reporterMock = mock(Reporter.class);
-    IdentityTableMap identityTableMap = new IdentityTableMap();
-    ImmutableBytesWritable bytesWritableMock = mock(ImmutableBytesWritable.class);
-    OutputCollector<ImmutableBytesWritable, Result> outputCollectorMock =
-        mock(OutputCollector.class);
-
-    for (int i = 0; i < recordNumber; i++)
-      identityTableMap.map(bytesWritableMock, resultMock, outputCollectorMock,
-          reporterMock);
-
-    verify(outputCollectorMock, times(recordNumber)).collect(
-        Mockito.any(ImmutableBytesWritable.class), Mockito.any(Result.class));
+    IdentityTableMap identityTableMap = null;
+    try {
+      Reporter reporterMock = mock(Reporter.class);
+      identityTableMap = new IdentityTableMap();
+      ImmutableBytesWritable bytesWritableMock = mock(ImmutableBytesWritable.class);
+      OutputCollector<ImmutableBytesWritable, Result> outputCollectorMock =
+          mock(OutputCollector.class);
+  
+      for (int i = 0; i < recordNumber; i++)
+        identityTableMap.map(bytesWritableMock, resultMock, outputCollectorMock,
+            reporterMock);
+  
+      verify(outputCollectorMock, times(recordNumber)).collect(
+          Mockito.any(ImmutableBytesWritable.class), Mockito.any(Result.class));
+    } finally {
+      if (identityTableMap != null)
+        identityTableMap.close();
+    }
   }
 }

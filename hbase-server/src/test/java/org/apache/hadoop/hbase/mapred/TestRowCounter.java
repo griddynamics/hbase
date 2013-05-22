@@ -114,7 +114,7 @@ public class TestRowCounter {
     OUT, ERR
   }
 
-  private abstract class OutputReader {
+  private static abstract class OutputReader {
     private final PrintStream ps;
     private PrintStream oldPrintStream;
     private Outs outs;

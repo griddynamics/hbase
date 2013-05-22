@@ -36,28 +36,34 @@ public class TestDriver {
 
   private final String commonProgramDriverMessage = 
       "An example program must be given as the first argument";
-  private final Pattern specificPattern = 
-      Pattern.compile("rowcounter: Count rows in HBase table");
+  private final Pattern specificPattern = Pattern
+      .compile("rowcounter: Count rows in HBase table");
 
   @Test
   @SuppressWarnings("deprecation")
   public void testDriverMainMethod() throws Throwable {
     String result = "";
-    PrintStream currentPrintStream = System.out;
-    SecurityManager currentSecurityManager = System.getSecurityManager();
-    new LauncherSecurityManager();
-    ByteArrayOutputStream data = new ByteArrayOutputStream();
-    System.setOut(new PrintStream(data));
+    SecurityManager currentSecurityManager = null;
+    final PrintStream currentPrintStream = System.out;
     try {
-      Driver.main(new String[] {});
-      fail("SecurityException expected");
-    } catch (InvocationTargetException ex) {
-      assertTrue(ex.getCause() instanceof SecurityException);
-      result = data.toString();
-      assertTrue(result.contains(commonProgramDriverMessage));
-      assertTrue(specificPattern.matcher(result).find());
+      currentSecurityManager = System.getSecurityManager();
+      new LauncherSecurityManager();
+      try {
+        ByteArrayOutputStream data = new ByteArrayOutputStream();
+        System.setOut(new PrintStream(data));
+        try {
+          Driver.main(new String[] {});
+          fail("SecurityException expected");
+        } catch (InvocationTargetException ex) {
+          assertTrue(ex.getCause() instanceof SecurityException);
+          result = data.toString();
+          assertTrue(result.contains(commonProgramDriverMessage));
+          assertTrue(specificPattern.matcher(result).find());
+        }
+      } finally {
+        System.setOut(currentPrintStream);
+      }
     } finally {
-      System.setOut(currentPrintStream);
       System.setSecurityManager(currentSecurityManager);
     }
   }
