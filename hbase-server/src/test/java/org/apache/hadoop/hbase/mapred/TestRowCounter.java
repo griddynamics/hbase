@@ -28,8 +28,6 @@ import static org.mockito.Mockito.times;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.PipedInputStream;
-import java.io.PipedOutputStream;
 import java.io.PrintStream;
 
 import org.apache.hadoop.hbase.HBaseConfiguration;
@@ -45,7 +43,6 @@ import org.junit.experimental.categories.Category;
 import org.mockito.Mockito;
 
 import com.google.common.base.Joiner;
-import com.google.common.io.ByteStreams;
 
 @Category(SmallTests.class)
 public class TestRowCounter {
@@ -113,7 +110,6 @@ public class TestRowCounter {
     assertEquals(jobConfig.getMapOutputKeyClass(), ImmutableBytesWritable.class);
   }
 
-
   enum Outs {
     OUT, ERR
   }
@@ -127,42 +123,38 @@ public class TestRowCounter {
       this.ps = ps;
     }
 
-    @SuppressWarnings("resource")
     protected String read() throws Exception {
       ByteArrayOutputStream outBytes = new ByteArrayOutputStream();
-      PipedOutputStream pipeOut = new PipedOutputStream();
-      PipedInputStream pipeIn = new PipedInputStream(pipeOut, 1024 * 5);
-
       if (ps == System.out) {
         oldPrintStream = System.out;
-        System.setOut(new PrintStream(pipeOut));
         outs = Outs.OUT;
+        System.setOut(new PrintStream(outBytes));
       } else if (ps == System.err) {
         oldPrintStream = System.err;
-        System.setErr(new PrintStream(pipeOut));
         outs = Outs.ERR;
+        System.setErr(new PrintStream(outBytes));
       } else {
         throw new IllegalStateException("OutputReader: unsupported PrintStream");
       }
 
-      doRead();
-
-      pipeOut.close();
-      ByteStreams.copy(pipeIn, outBytes);
-      pipeIn.close();
-
-      switch (outs) {
-        case OUT: { 
-          System.setOut(oldPrintStream); break; 
-        } 
-        case ERR: { 
-          System.setErr(oldPrintStream); break; 
+      try {
+        doRead();
+        return new String(outBytes.toByteArray());
+      } finally {
+        switch (outs) {
+        case OUT: {
+          System.setOut(oldPrintStream);
+          break;
         }
-        default: 
-          throw new IllegalStateException("OutputReader: unsupported PrintStream");
+        case ERR: {
+          System.setErr(oldPrintStream);
+          break;
+        }
+        default:
+          throw new IllegalStateException(
+              "OutputReader: unsupported PrintStream");
+        }
       }
-
-      return new String(outBytes.toByteArray());
     }
 
     abstract void doRead() throws Exception;
