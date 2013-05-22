@@ -264,6 +264,10 @@ public final class HConstants {
   /** Parameter name for HBase client operation timeout, which overrides RPC timeout */
   public static final String HBASE_CLIENT_OPERATION_TIMEOUT = "hbase.client.operation.timeout";
 
+  /** Parameter name for HBase client operation timeout, which overrides RPC timeout */
+  public static final String HBASE_CLIENT_META_OPERATION_TIMEOUT =
+    "hbase.client.meta.operation.timeout";
+
   /** Default HBase client operation timeout, which is tantamount to a blocking call */
   public static final int DEFAULT_HBASE_CLIENT_OPERATION_TIMEOUT = Integer.MAX_VALUE;
 
@@ -719,7 +723,7 @@ public final class HConstants {
 
   /** Conf key that enables unflushed WAL edits directly being replayed to region servers */
   public static final String DISTRIBUTED_LOG_REPLAY_KEY = "hbase.master.distributed.log.replay";
-  public static final boolean DEFAULT_DISTRIBUTED_LOG_REPLAY_CONFIG = true;
+  public static final boolean DEFAULT_DISTRIBUTED_LOG_REPLAY_CONFIG = false;
 
   /** Conf key that specifies timeout value to wait for a region ready */
   public static final String LOG_REPLAY_WAIT_REGION_TIMEOUT = 

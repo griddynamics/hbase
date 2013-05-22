@@ -200,19 +200,19 @@ public abstract class ServerCallable<T> implements Callable<T> {
         // If the server is dead, we need to wait a little before retrying, to give
         //  a chance to the regions to be
         expectedSleep = ConnectionUtils.getPauseTime(pause, tries);
-        if (expectedSleep < MIN_WAIT_DEAD_SERVER &&
-            getConnection().isDeadServer(location.getServerName())){
+        if (expectedSleep < MIN_WAIT_DEAD_SERVER 
+            && (location == null || getConnection().isDeadServer(location.getServerName()))) {
           expectedSleep = ConnectionUtils.addJitter(MIN_WAIT_DEAD_SERVER, 0.10f);
         }
 
         // If, after the planned sleep, there won't be enough time left, we stop now.
-        if (((this.endTime - this.globalStartTime) + MIN_RPC_TIMEOUT + expectedSleep) >
-            this.callTimeout) {
+        long duration = singleCallDuration(expectedSleep);
+        if (duration > this.callTimeout) {
           throw (SocketTimeoutException) new SocketTimeoutException(
               "Call to access row '" + Bytes.toString(row) + "' on table '"
                   + Bytes.toString(tableName)
                   + "' failed on timeout. " + " callTimeout=" + this.callTimeout +
-                  ", time=" + (this.endTime - this.startTime)).initCause(t);
+                  ", callDuration=" + duration).initCause(t);
         }
       } finally {
         afterCall();
@@ -224,6 +224,14 @@ public abstract class ServerCallable<T> implements Callable<T> {
         throw new IOException("Interrupted after " + tries + " tries  on " + numRetries, e);
       }
     }
+  }
+
+  /**
+   * @param expectedSleep
+   * @return Calculate how long a single call took
+   */
+  private long singleCallDuration(final long expectedSleep) {
+    return (this.endTime - this.globalStartTime) + MIN_RPC_TIMEOUT + expectedSleep;
   }
 
   /**

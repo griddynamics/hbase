@@ -201,6 +201,7 @@ import org.apache.hadoop.hbase.zookeeper.LoadBalancerTracker;
 import org.apache.hadoop.hbase.zookeeper.RegionServerTracker;
 import org.apache.hadoop.hbase.zookeeper.ZKClusterId;
 import org.apache.hadoop.hbase.zookeeper.ZKUtil;
+import org.apache.hadoop.hbase.zookeeper.ZooKeeperListener;
 import org.apache.hadoop.hbase.zookeeper.ZooKeeperWatcher;
 import org.apache.hadoop.metrics.util.MBeanUtil;
 import org.apache.hadoop.net.DNS;
@@ -357,6 +358,9 @@ MasterServices, Server {
 
   /** flag used in test cases in order to simulate RS failures during master initialization */
   private volatile boolean initializationBeforeMetaAssignment = false;
+
+  /** The following is used in master recovery scenario to re-register listeners */
+  private List<ZooKeeperListener> registeredZKListenersBeforeRecovery;
 
   /**
    * Initializes the HMaster. The steps are as follows:
@@ -530,6 +534,7 @@ MasterServices, Server {
     startupStatus.setDescription("Master startup");
     masterStartTime = System.currentTimeMillis();
     try {
+      this.registeredZKListenersBeforeRecovery = this.zooKeeper.getListeners();
       /*
        * Block on becoming the active master.
        *
@@ -602,8 +607,7 @@ MasterServices, Server {
     // to check if the cluster should be shutdown.
     this.clusterStatusTracker = new ClusterStatusTracker(getZooKeeper(), this);
     this.clusterStatusTracker.start();
-    return this.activeMasterManager.blockUntilBecomingActiveMaster(startupStatus,
-        this.clusterStatusTracker);
+    return this.activeMasterManager.blockUntilBecomingActiveMaster(startupStatus);
   }
 
   /**
@@ -802,6 +806,9 @@ MasterServices, Server {
     // Make sure meta assigned before proceeding.
     status.setStatus("Assigning Meta Region");
     assignMeta(status);
+    // check if master is shutting down because above assignMeta could return even META isn't 
+    // assigned when master is shutting down
+    if(this.stopped) return;
 
     if (this.distributedLogReplay && oldMetaServerLocation != null
         && previouslyFailedServers.contains(oldMetaServerLocation)) {
@@ -942,6 +949,7 @@ MasterServices, Server {
       this.assignmentManager.regionOnline(HRegionInfo.FIRST_META_REGIONINFO,
         this.catalogTracker.getMetaLocation());
     }
+
     enableCatalogTables(Bytes.toString(HConstants.META_TABLE_NAME));
     LOG.info(".META. assigned=" + assigned + ", rit=" + rit + ", location="
         + catalogTracker.getMetaLocation());
@@ -2046,6 +2054,14 @@ MasterServices, Server {
       IOException, KeeperException, ExecutionException {
 
     this.zooKeeper.unregisterAllListeners();
+    // add back listeners which were registered before master initialization
+    // because they won't be added back in below Master re-initialization code
+    if (this.registeredZKListenersBeforeRecovery != null) {
+      for (ZooKeeperListener curListener : this.registeredZKListenersBeforeRecovery) {
+        this.zooKeeper.registerListener(curListener);
+      }
+    }
+
     this.zooKeeper.reconnectAfterExpiration();
 
     Callable<Boolean> callable = new Callable<Boolean> () {
@@ -2060,7 +2076,7 @@ MasterServices, Server {
           serverShutdownHandlerEnabled = false;
           initialized = false;
           finishInitialization(status, true);
-          return Boolean.TRUE;
+          return !stopped;
         } finally {
           status.cleanup();
         }
