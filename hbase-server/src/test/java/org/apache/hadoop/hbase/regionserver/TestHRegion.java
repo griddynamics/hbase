@@ -116,6 +116,9 @@ import com.google.common.collect.Lists;
 @Category(MediumTests.class)
 @SuppressWarnings("deprecation")
 public class TestHRegion extends HBaseTestCase {
+
+  private static final long TEST_TIMEOUT = 200000L;
+  
   // Do not spin up clusters in here.  If you need to spin up a cluster, do it
   // over in TestHRegionOnCluster.
   static final Log LOG = LogFactory.getLog(TestHRegion.class);
@@ -211,7 +214,7 @@ public class TestHRegion extends HBaseTestCase {
     assertEquals(0, results.size());
   }
 
-  @Test
+  @Test(timeout=TEST_TIMEOUT)
   public void testToShowNPEOnRegionScannerReseek() throws Exception{
     String method = "testToShowNPEOnRegionScannerReseek";
     byte[] tableName = Bytes.toBytes(method);
@@ -386,7 +389,7 @@ public class TestHRegion extends HBaseTestCase {
     }
   }
 
-  @Test
+  @Test(timeout=TEST_TIMEOUT)
   public void testRecoveredEditsReplayCompaction() throws Exception {
     String method = "testRecoveredEditsReplayCompaction";
     byte[] tableName = Bytes.toBytes(method);
@@ -3476,7 +3479,7 @@ public class TestHRegion extends HBaseTestCase {
     }
   }
 
-  @Test public void testgetHDFSBlocksDistribution() throws Exception {
+  @Test(timeout=TEST_TIMEOUT) public void testgetHDFSBlocksDistribution() throws Exception {
     HBaseTestingUtility htu = new HBaseTestingUtility();
     final int DEFAULT_BLOCK_SIZE = 1024;
     htu.getConfiguration().setLong("dfs.block.size", DEFAULT_BLOCK_SIZE);
@@ -3543,7 +3546,7 @@ public class TestHRegion extends HBaseTestCase {
    *
    * @throws Exception
    */
-  @Test
+  @Test(timeout=TEST_TIMEOUT)
   public void testStatusSettingToAbortIfAnyExceptionDuringRegionInitilization() throws Exception {
     HRegionInfo info = null;
     try {
@@ -3659,7 +3662,7 @@ public class TestHRegion extends HBaseTestCase {
    * Test case to check increment function with memstore flushing
    * @throws Exception
    */
-  @Test
+  @Test(timeout=TEST_TIMEOUT)
   public void testParallelIncrementWithMemStoreFlush() throws Exception {
     String method = "testParallelIncrementWithMemStoreFlush";
     byte[] tableName = Bytes.toBytes(method);
@@ -3750,7 +3753,7 @@ public class TestHRegion extends HBaseTestCase {
    * Test case to check append function with memstore flushing
    * @throws Exception
    */
-  @Test
+  @Test(timeout=TEST_TIMEOUT)
   public void testParallelAppendWithMemStoreFlush() throws Exception {
     String method = "testParallelAppendWithMemStoreFlush";
     byte[] tableName = Bytes.toBytes(method);

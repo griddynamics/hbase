@@ -549,10 +549,10 @@
             <argLine>-enableassertions -Xmx2400m
               -Djava.security.egd=file:/dev/./urandom -Djava.net.preferIPv4Stack=true</argLine>
             <redirectTestOutputToFile>${test.output.tofile}</redirectTestOutputToFile>
-            <excludes>
-               <!-- Exclide test hanging in trunk branch: -->
+            <!-- <excludes>
                <exclude>**/org/apache/hadoop/hbase/regionserver/TestHRegion.java</exclude>
-            </excludes>                                                       
+               <exclude>**/org/apache/hadoop/hbase/regionserver/wal/TestHLogSplit.java</exclude>
+            </excludes> -->
           </configuration>
           <executions>
             <execution>

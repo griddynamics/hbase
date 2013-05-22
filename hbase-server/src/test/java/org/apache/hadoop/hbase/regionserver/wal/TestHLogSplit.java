@@ -95,6 +95,9 @@ import com.google.common.collect.ImmutableList;
  */
 @Category(LargeTests.class)
 public class TestHLogSplit {
+
+  private static final long TEST_TIMEOUT = 200000L;
+  
   {
     ((Log4JLogger)DataNode.LOG).getLogger().setLevel(Level.ALL);
     ((Log4JLogger)LeaseManager.LOG).getLogger().setLevel(Level.ALL);
@@ -181,14 +184,14 @@ public class TestHLogSplit {
   @After
   public void tearDown() throws Exception {
   }
-
+  
   /**
    * Simulates splitting a WAL out from under a regionserver that is still trying to write it.  Ensures we do not
    * lose edits.
    * @throws IOException
    * @throws InterruptedException
    */
-  @Test
+  @Test(timeout=TEST_TIMEOUT)
   public void testLogCannotBeWrittenOnceParsed() throws IOException, InterruptedException {
     final AtomicLong counter = new AtomicLong(0);
     AtomicBoolean stop = new AtomicBoolean(false);
@@ -328,7 +331,7 @@ public class TestHLogSplit {
    * @throws IOException
    * @see https://issues.apache.org/jira/browse/HBASE-3020
    */
-  @Test
+  @Test(timeout=TEST_TIMEOUT)
   public void testRecoveredEditsPathForMeta() throws IOException {
     FileSystem fs = FileSystem.get(TEST_UTIL.getConfiguration());
     byte [] encoded = HRegionInfo.FIRST_META_REGIONINFO.getEncodedNameAsBytes();
@@ -350,7 +353,7 @@ public class TestHLogSplit {
    * Test old recovered edits file doesn't break HLogSplitter.
    * This is useful in upgrading old instances.
    */
-  @Test
+  @Test(timeout=TEST_TIMEOUT)
   public void testOldRecoveredEditsFileSidelined() throws IOException {
     FileSystem fs = FileSystem.get(TEST_UTIL.getConfiguration());
     byte [] encoded = HRegionInfo.FIRST_META_REGIONINFO.getEncodedNameAsBytes();
@@ -373,7 +376,7 @@ public class TestHLogSplit {
     HLogFactory.createWriter(fs, p, conf).close();
   }
 
-  @Test(expected = OrphanHLogAfterSplitException.class)
+  @Test(timeout=TEST_TIMEOUT, expected = OrphanHLogAfterSplitException.class)
   public void testSplitFailsIfNewHLogGetsCreatedAfterSplitStarted()
   throws IOException {
     AtomicBoolean stop = new AtomicBoolean(false);
@@ -394,7 +397,7 @@ public class TestHLogSplit {
     }
   }
 
-  @Test
+  @Test(timeout=TEST_TIMEOUT)
   public void testSplitPreservesEdits() throws IOException{
     final String REGION = "region__1";
     REGIONS.removeAll(REGIONS);
@@ -413,7 +416,7 @@ public class TestHLogSplit {
   }
 
 
-  @Test
+  @Test(timeout=TEST_TIMEOUT)
   public void testEmptyLogFiles() throws IOException {
 
     injectEmptyFile(".empty", true);
@@ -437,7 +440,7 @@ public class TestHLogSplit {
   }
 
 
-  @Test
+  @Test(timeout=TEST_TIMEOUT)
   public void testEmptyOpenLogFiles() throws IOException {
     injectEmptyFile(".empty", false);
     generateHLogs(Integer.MAX_VALUE);
@@ -457,7 +460,7 @@ public class TestHLogSplit {
     }
   }
 
-  @Test
+  @Test(timeout=TEST_TIMEOUT)
   public void testOpenZeroLengthReportedFileButWithDataGetsSplit() throws IOException {
     // generate logs but leave hlog.dat.5 open.
     generateHLogs(5);
@@ -477,7 +480,7 @@ public class TestHLogSplit {
   }
 
 
-  @Test
+  @Test(timeout=TEST_TIMEOUT)
   public void testTralingGarbageCorruptionFileSkipErrorsPasses() throws IOException {
     conf.setBoolean(HBASE_SKIP_ERRORS, true);
     generateHLogs(Integer.MAX_VALUE);
@@ -496,7 +499,7 @@ public class TestHLogSplit {
 
   }
 
-  @Test
+  @Test(timeout=TEST_TIMEOUT)
   public void testFirstLineCorruptionLogFileSkipErrorsPasses() throws IOException {
     conf.setBoolean(HBASE_SKIP_ERRORS, true);
     generateHLogs(Integer.MAX_VALUE);
@@ -516,7 +519,7 @@ public class TestHLogSplit {
   }
 
 
-  @Test
+  @Test(timeout=TEST_TIMEOUT)
   public void testMiddleGarbageCorruptionSkipErrorsReadsHalfOfFile() throws IOException {
     conf.setBoolean(HBASE_SKIP_ERRORS, true);
     generateHLogs(Integer.MAX_VALUE);
@@ -539,7 +542,7 @@ public class TestHLogSplit {
     }
   }
 
-  @Test
+  @Test(timeout=TEST_TIMEOUT)
   public void testCorruptedFileGetsArchivedIfSkipErrors() throws IOException {
     conf.setBoolean(HBASE_SKIP_ERRORS, true);
     Class<?> backupClass = conf.getClass("hbase.regionserver.hlog.reader.impl",
@@ -571,7 +574,7 @@ public class TestHLogSplit {
     }
   }
 
-  @Test(expected = IOException.class)
+  @Test(timeout=TEST_TIMEOUT, expected = IOException.class)
   public void testTrailingGarbageCorruptionLogFileSkipErrorsFalseThrows()
       throws IOException {
     conf.setBoolean(HBASE_SKIP_ERRORS, false);
@@ -597,7 +600,7 @@ public class TestHLogSplit {
 
   }
 
-  @Test
+  @Test(timeout=TEST_TIMEOUT)
   public void testCorruptedLogFilesSkipErrorsFalseDoesNotTouchLogs()
       throws IOException {
     conf.setBoolean(HBASE_SKIP_ERRORS, false);
@@ -629,7 +632,7 @@ public class TestHLogSplit {
 
   }
 
-  @Test
+  @Test(timeout=TEST_TIMEOUT)
   public void testEOFisIgnored() throws IOException {
     conf.setBoolean(HBASE_SKIP_ERRORS, false);
 
@@ -661,7 +664,7 @@ public class TestHLogSplit {
     assertEquals(archivedLogs.length, 0);
   }
 
-  @Test
+  @Test(timeout=TEST_TIMEOUT)
   public void testLogsGetArchivedAfterSplit() throws IOException {
     conf.setBoolean(HBASE_SKIP_ERRORS, false);
 
@@ -677,7 +680,7 @@ public class TestHLogSplit {
     assertEquals("wrong number of files in the archive log", NUM_WRITERS, archivedLogs.length);
   }
 
-  @Test
+  @Test(timeout=TEST_TIMEOUT)
   public void testSplit() throws IOException {
     generateHLogs(-1);
     fs.initialize(fs.getUri(), conf);
@@ -692,7 +695,7 @@ public class TestHLogSplit {
     }
   }
 
-  @Test
+  @Test(timeout=TEST_TIMEOUT)
   public void testLogDirectoryShouldBeDeletedAfterSuccessfulSplit()
   throws IOException {
     generateHLogs(-1);
@@ -713,7 +716,7 @@ public class TestHLogSplit {
   }
 
 
-  @Test
+  @Test(timeout=TEST_TIMEOUT)
   public void testSplitWillNotTouchLogsIfNewHLogGetsCreatedAfterSplitStarted()
   throws IOException {
     AtomicBoolean stop = new AtomicBoolean(false);
@@ -747,7 +750,7 @@ public class TestHLogSplit {
 
 
 
-  @Test(expected = IOException.class)
+  @Test(timeout=TEST_TIMEOUT, expected = IOException.class)
   public void testSplitWillFailIfWritingToRegionFails() throws Exception {
     //leave 5th log open so we could append the "trap"
     HLog.Writer [] writer = generateHLogs(4);
@@ -778,7 +781,7 @@ public class TestHLogSplit {
   }
 
 
-  // @Test TODO this test has been disabled since it was created!
+  // @Test(timeout=TEST_TIMEOUT) TODO this test has been disabled since it was created!
   // It currently fails because the second split doesn't output anything
   // -- because there are no region dirs after we move aside the first
   // split result
@@ -810,7 +813,7 @@ public class TestHLogSplit {
     assertEquals(0, compareHLogSplitDirs(firstSplitPath, splitPath));
   }
 
-  @Test
+  @Test(timeout=TEST_TIMEOUT)
   public void testSplitDeletedRegion() throws IOException {
     REGIONS.removeAll(REGIONS);
     String region = "region_that_splits";
@@ -830,7 +833,7 @@ public class TestHLogSplit {
     assertFalse(fs.exists(regiondir));
   }
 
-  @Test
+  @Test(timeout=TEST_TIMEOUT)
   public void testIOEOnOutputThread() throws Exception {
     conf.setBoolean(HBASE_SKIP_ERRORS, false);
 
@@ -856,7 +859,7 @@ public class TestHLogSplit {
   }
 
   // Test for HBASE-3412
-  @Test
+  @Test(timeout=TEST_TIMEOUT)
   public void testMovedHLogDuringRecovery() throws Exception {
     generateHLogs(-1);
 
@@ -882,7 +885,7 @@ public class TestHLogSplit {
     }
   }
 
-  @Test
+  @Test(timeout=TEST_TIMEOUT)
   public void testRetryOpenDuringRecovery() throws Exception {
     generateHLogs(-1);
 
@@ -924,7 +927,7 @@ public class TestHLogSplit {
     }
   }
 
-  @Test
+  @Test(timeout=TEST_TIMEOUT)
   public void testTerminationAskedByReporter() throws IOException, CorruptedLogFileException {
     generateHLogs(1, 10, -1);
     FileStatus logfile = fs.listStatus(HLOGDIR)[0];
@@ -967,7 +970,7 @@ public class TestHLogSplit {
    * Test log split process with fake data and lots of edits to trigger threading
    * issues.
    */
-  @Test
+  @Test(timeout=TEST_TIMEOUT)
   public void testThreading() throws Exception {
     doTestThreading(20000, 128*1024*1024, 0);
   }
@@ -976,7 +979,7 @@ public class TestHLogSplit {
    * Test blocking behavior of the log split process if writers are writing slower
    * than the reader is reading.
    */
-  @Test
+  @Test(timeout=TEST_TIMEOUT)
   public void testThreadingSlowWriterSmallBuffer() throws Exception {
     doTestThreading(200, 1024, 50);
   }
@@ -1087,7 +1090,7 @@ public class TestHLogSplit {
   // HBASE-2312: tests the case where a RegionServer enters a GC pause,
   // comes back online after the master declared it dead and started to split.
   // Want log rolling after a master split to fail
-  @Test
+  @Test(timeout=TEST_TIMEOUT)
   @Ignore("Need HADOOP-6886, HADOOP-6840, & HDFS-617 for this. HDFS 0.20.205.1+ should have this")
   public void testLogRollAfterSplitStart() throws IOException {
     // set flush interval to a large number so it doesn't interrupt us
@@ -1210,7 +1213,7 @@ public class TestHLogSplit {
     }
   };
 
-  @Test
+  @Test(timeout=TEST_TIMEOUT)
   public void testSplitLogFileWithOneRegion() throws IOException {
     LOG.info("testSplitLogFileWithOneRegion");
     final String REGION = "region__1";
@@ -1233,7 +1236,7 @@ public class TestHLogSplit {
     assertEquals(true, logsAreEqual(originalLog, splitLog));
   }
 
-  @Test
+  @Test(timeout=TEST_TIMEOUT)
   public void testSplitLogFileDeletedRegionDir()
   throws IOException {
 	LOG.info("testSplitLogFileDeletedRegionDir");
@@ -1260,7 +1263,7 @@ public class TestHLogSplit {
 
 
 
-  @Test
+  @Test(timeout=TEST_TIMEOUT)
   public void testSplitLogFileEmpty() throws IOException {
     LOG.info("testSplitLogFileEmpty");
     injectEmptyFile(".empty", true);
@@ -1277,7 +1280,7 @@ public class TestHLogSplit {
     assertEquals(0, countHLog(fs.listStatus(OLDLOGDIR)[0].getPath(), fs, conf));
   }
 
-  @Test
+  @Test(timeout=TEST_TIMEOUT)
   public void testSplitLogFileMultipleRegions() throws IOException {
     LOG.info("testSplitLogFileMultipleRegions");
     generateHLogs(1, 10, -1);
@@ -1293,7 +1296,7 @@ public class TestHLogSplit {
     }
   }
 
-  @Test
+  @Test(timeout=TEST_TIMEOUT)
   public void testSplitLogFileFirstLineCorruptionLog()
   throws IOException {
     conf.setBoolean(HBASE_SKIP_ERRORS, true);
@@ -1317,7 +1320,7 @@ public class TestHLogSplit {
    * @throws IOException
    * @see https://issues.apache.org/jira/browse/HBASE-4862
    */
-  @Test
+  @Test(timeout=TEST_TIMEOUT)
   public void testConcurrentSplitLogAndReplayRecoverEdit() throws IOException {
     LOG.info("testConcurrentSplitLogAndReplayRecoverEdit");
     // Generate hlogs for our destination region
