@@ -18,6 +18,9 @@
  */
 package org.apache.hadoop.hbase.mapred;
 
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
+
 import java.io.File;
 import java.io.IOException;
 import java.util.Iterator;
@@ -27,7 +30,9 @@ import java.util.NavigableMap;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.fs.FileUtil;
-import org.apache.hadoop.hbase.*;
+import org.apache.hadoop.hbase.HBaseTestingUtility;
+import org.apache.hadoop.hbase.KeyValue;
+import org.apache.hadoop.hbase.LargeTests;
 import org.apache.hadoop.hbase.client.HTable;
 import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.client.Result;
@@ -46,9 +51,6 @@ import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
-
-import static org.junit.Assert.fail;
-import static org.junit.Assert.assertTrue;
 
 /**
  * Test Map/Reduce job over HBase tables. The map/reduce process we're testing
@@ -73,7 +75,8 @@ public class TestTableMapReduce {
   @BeforeClass
   public static void beforeClass() throws Exception {
     UTIL.startMiniCluster();
-    HTable table = UTIL.createTable(MULTI_REGION_TABLE_NAME, new byte[][] {INPUT_FAMILY, OUTPUT_FAMILY});
+    HTable table = UTIL.createTable(MULTI_REGION_TABLE_NAME, new byte[][] {INPUT_FAMILY, 
+        OUTPUT_FAMILY});
     UTIL.createMultiRegions(table, INPUT_FAMILY);
     UTIL.loadTable(table, INPUT_FAMILY);
     UTIL.startMiniMapReduceCluster();
@@ -88,6 +91,7 @@ public class TestTableMapReduce {
   /**
    * Pass the given key and processed record reduce
    */
+  @SuppressWarnings("deprecation")
   public static class ProcessContentsMapper
   extends MapReduceBase
   implements TableMap<ImmutableBytesWritable, Put> {
@@ -99,6 +103,7 @@ public class TestTableMapReduce {
      * @param reporter
      * @throws IOException
      */
+    @Override
     public void map(ImmutableBytesWritable key, Result value,
       OutputCollector<ImmutableBytesWritable, Put> output,
       Reporter reporter)
@@ -136,6 +141,7 @@ public class TestTableMapReduce {
     runTestOnTable(new HTable(UTIL.getConfiguration(), MULTI_REGION_TABLE_NAME));
   }
 
+  @SuppressWarnings("deprecation")
   private void runTestOnTable(HTable table) throws IOException {
     JobConf jobConf = null;
     try {

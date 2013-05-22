@@ -19,14 +19,12 @@
 package org.apache.hadoop.hbase.mapred;
 
 import java.io.IOException;
-import java.util.Map;
 
 import org.apache.hadoop.conf.Configured;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.HBaseConfiguration;
-import org.apache.hadoop.hbase.KeyValue;
-import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
 import org.apache.hadoop.hbase.client.Result;
+import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
 import org.apache.hadoop.mapred.FileOutputFormat;
 import org.apache.hadoop.mapred.JobClient;
 import org.apache.hadoop.mapred.JobConf;
@@ -53,6 +51,7 @@ public class RowCounter extends Configured implements Tool {
   implements TableMap<ImmutableBytesWritable, Result> {
     private static enum Counters {ROWS}
 
+    @Override
     public void map(ImmutableBytesWritable row, Result values,
         OutputCollector<ImmutableBytesWritable, Result> output,
         Reporter reporter)
@@ -61,10 +60,12 @@ public class RowCounter extends Configured implements Tool {
         reporter.incrCounter(Counters.ROWS, 1);
     }
 
+    @Override
     public void configure(JobConf jc) {
       // Nothing to do.
     }
 
+    @Override
     public void close() throws IOException {
       // Nothing to do.
     }
@@ -102,6 +103,7 @@ public class RowCounter extends Configured implements Tool {
     return -1;
   }
 
+  @Override
   public int run(final String[] args) throws Exception {
     // Make sure there are at least 3 parameters
     if (args.length < 3) {
