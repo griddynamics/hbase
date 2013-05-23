@@ -551,7 +551,8 @@
             <redirectTestOutputToFile>${test.output.tofile}</redirectTestOutputToFile>
             <excludes>
                <!-- The following tests are excluded as frequently hanging and causing OOME: -->
-               <exclude>**/org/apache/hadoop/hbase/regionserver/TestHRegion*.java</exclude>
+               <exclude>**/org/apache/hadoop/hbase/regionserver/TestHRegion.java</exclude>
+               <exclude>**/org/apache/hadoop/hbase/regionserver/TestHRegionBusyWait.java</exclude>
                <exclude>**/org/apache/hadoop/hbase/regionserver/wal/TestHLogSplit*.java</exclude>
             </excludes>
           </configuration>
