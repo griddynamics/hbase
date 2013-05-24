@@ -113,7 +113,13 @@ public class TestHTableWrapper {
 
   @After
   public void after() throws Exception {
-    util.deleteTable(TEST_TABLE);
+    try {
+      if (table != null) {
+        table.close();
+      }
+    } finally {
+      util.deleteTable(TEST_TABLE);
+    }
   }
 
   @Test
