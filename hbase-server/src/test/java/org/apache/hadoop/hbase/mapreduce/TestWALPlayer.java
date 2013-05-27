@@ -166,34 +166,34 @@ public class TestWALPlayer {
   }
 
   /**
-   * Test main method 
+   * Test main method
    */
-  @Test 
-  public void testMainMethod() throws Exception{
-      
-      PrintStream oldPrintStream = System.err;
-      SecurityManager SECURITY_MANAGER = System.getSecurityManager();
-      new LauncherSecurityManager();
-      ByteArrayOutputStream data = new ByteArrayOutputStream();
-      String[] args = {};
+  @Test
+  public void testMainMethod() throws Exception {
+
+    PrintStream oldPrintStream = System.err;
+    SecurityManager SECURITY_MANAGER = System.getSecurityManager();
+    new LauncherSecurityManager();
+    ByteArrayOutputStream data = new ByteArrayOutputStream();
+    String[] args = {};
+    System.setErr(new PrintStream(data));
+    try {
       System.setErr(new PrintStream(data));
       try {
-          System.setErr(new PrintStream(data));
-          try {
-              WALPlayer.main(args);
-              fail("should be SecurityException");
-          } catch (SecurityException e) {
-              assertTrue(data.toString().contains("ERROR: Wrong number of arguments:"));
-              assertTrue(data.toString().contains("Usage: WALPlayer [options] <wal inputdir>" +
-              		" <tables> [<tableMappings>]"));
-              assertTrue(data.toString().contains("-Dhlog.bulk.output=/path/for/output"));
-          }
+        WALPlayer.main(args);
+        fail("should be SecurityException");
+      } catch (SecurityException e) {
+        assertTrue(data.toString().contains("ERROR: Wrong number of arguments:"));
+        assertTrue(data.toString().contains("Usage: WALPlayer [options] <wal inputdir>" +
+            " <tables> [<tableMappings>]"));
+        assertTrue(data.toString().contains("-Dhlog.bulk.output=/path/for/output"));
+      }
 
-      } finally {
-          System.setErr(oldPrintStream);
-          System.setSecurityManager(SECURITY_MANAGER);
-      }      
-      
+    } finally {
+      System.setErr(oldPrintStream);
+      System.setSecurityManager(SECURITY_MANAGER);
+    }
+
   }
-  
+
 }

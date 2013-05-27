@@ -86,7 +86,7 @@ public class TestTableMapReduceUtil {
         "org.apache.hadoop.io.serializer.WritableSerialization," +
             "org.apache.hadoop.hbase.mapreduce.MutationSerialization," +
             "org.apache.hadoop.hbase.mapreduce.ResultSerialization," +
-            "rg.apache.hadoop.hbase.mapreduce.KeyValueSerialization",
+            "org.apache.hadoop.hbase.mapreduce.KeyValueSerialization",
         job.getConfiguration().get("io.serializations"));
 
     configuration = new Configuration();
