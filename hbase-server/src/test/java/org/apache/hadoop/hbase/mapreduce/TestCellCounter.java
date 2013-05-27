@@ -103,7 +103,8 @@ public class TestCellCounter {
     assertTrue(data.contains("Total ROWS" + "\t" + "1"));
     assertTrue(data.contains("b;q" + "\t" + "1"));
     assertTrue(data.contains("a;q" + "\t" + "1"));
-    assertTrue(data.contains("row1;a;q_Versions" + "\t" + "2"));
+    assertTrue(data.contains("row1;a;q_Versions" + "\t" + "1"));
+    assertTrue(data.contains("row1;b;q_Versions" + "\t" + "1"));
 
   }
 
