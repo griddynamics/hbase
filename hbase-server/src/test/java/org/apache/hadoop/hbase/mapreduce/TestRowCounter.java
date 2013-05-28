@@ -176,7 +176,7 @@ public class TestRowCounter {
   }
 
   /**
-   * test maim method. Import should print help and call System.exit
+   * test main method. Import should print help and call System.exit
    */
   @Test
   public void testImportMain() throws Exception {

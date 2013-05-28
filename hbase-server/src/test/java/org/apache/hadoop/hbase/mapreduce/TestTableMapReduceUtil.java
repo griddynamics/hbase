@@ -27,19 +27,20 @@ import org.junit.experimental.categories.Category;
 import static org.junit.Assert.*;
 
 /**
- * Test TableMapReduceUtil
+ * Test class TableMapReduceUtil
  */
 
 @Category(SmallTests.class)
 public class TestTableMapReduceUtil {
 
   /**
-   * Test initTableMapperJob method
+   * Test different variants ofinitTableMapperJob method
    */
   @Test
   public void testInitTableMapperJob() throws Exception {
     Configuration configuration = new Configuration();
     Job job = new Job(configuration, "tableName");
+    // test 
     TableMapReduceUtil.initTableMapperJob("Table", new Scan(), Import.Importer.class, Text.class,
         Text.class, job, false, HLogInputFormat.class);
     assertEquals(HLogInputFormat.class, job.getInputFormatClass());

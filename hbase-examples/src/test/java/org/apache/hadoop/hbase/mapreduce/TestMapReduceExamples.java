@@ -44,7 +44,7 @@ import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
 
 @Category(LargeTests.class)
-public class TestExamples {
+public class TestMapReduceExamples {
   private static HBaseTestingUtility util = new HBaseTestingUtility();
 
   /**

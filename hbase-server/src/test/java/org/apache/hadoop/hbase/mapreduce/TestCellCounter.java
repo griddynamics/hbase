@@ -78,9 +78,9 @@ public class TestCellCounter {
   @Test
   public void testCellCounter() throws Exception {
     String sourceTable = "sourceTable";
-
     byte[][] families = { FAMILY_A, FAMILY_B };
     HTable t = UTIL.createTable(Bytes.toBytes(sourceTable), families);
+    try{
     Put p = new Put(ROW1);
     p.add(FAMILY_A, QUALIFIER, now, Bytes.toBytes("Data11"));
     p.add(FAMILY_B, QUALIFIER, now + 1, Bytes.toBytes("Data12"));
@@ -91,7 +91,6 @@ public class TestCellCounter {
     p.add(FAMILY_A, QUALIFIER, now + 1, Bytes.toBytes("Data22"));
     p.add(FAMILY_B, QUALIFIER, now + 2, Bytes.toBytes("Data23"));
     t.put(p);
-    System.out.println("file out:" + FQ_OUTPUT_DIR.toString());
     String[] args = { sourceTable, FQ_OUTPUT_DIR.toString(), ";", "^row1" };
     runCount(args);
     FileInputStream inputStream = new FileInputStream(OUTPUT_DIR + File.separator + 
@@ -105,6 +104,9 @@ public class TestCellCounter {
     assertTrue(data.contains("a;q" + "\t" + "1"));
     assertTrue(data.contains("row1;a;q_Versions" + "\t" + "1"));
     assertTrue(data.contains("row1;b;q_Versions" + "\t" + "1"));
+    }finally{
+      t.close();
+    }
 
   }
 
@@ -141,12 +143,8 @@ public class TestCellCounter {
         fail("should be SecurityException");
       } catch (SecurityException e) {
         assertTrue(data.toString().contains("ERROR: Wrong number of parameters:"));
-        assertTrue(data
-            .toString()
-            .contains(
-                "Usage: CellCounter <tablename> <outputDir> <reportSeparator> [^[regex pattern]" +
-                " or [Prefix] for row filter]]"));
-        assertTrue(data.toString().contains("-D hbase.mapreduce.scan.column.family=<familyName>"));
+        // should be information about usage
+        assertTrue(data.toString().contains("Usage:"));
       }
 
     } finally {
