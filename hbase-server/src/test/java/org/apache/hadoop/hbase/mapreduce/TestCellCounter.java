@@ -127,7 +127,7 @@ public class TestCellCounter {
    * Test main method of CellCounter
    */
   @Test
-  public void testMain() throws Exception {
+  public void testCellCounterMain() throws Exception {
 
     PrintStream oldPrintStream = System.err;
     SecurityManager SECURITY_MANAGER = System.getSecurityManager();
