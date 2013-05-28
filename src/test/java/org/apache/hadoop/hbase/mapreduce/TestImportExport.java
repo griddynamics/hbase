@@ -409,7 +409,7 @@ public class TestImportExport {
   }
 
   /**
-   * test maim method. Import should print help and call System.exit
+   * test main method. Import should print help and call System.exit
    */
   @Test
   public void testImportMain() throws Exception {
@@ -436,7 +436,7 @@ public class TestImportExport {
   }
 
   /**
-   * test maim method. Export should print help and call System.exit
+   * test main method. Export should print help and call System.exit
    */
   @Test
   public void testExportMain() throws Exception {

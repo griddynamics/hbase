@@ -167,7 +167,7 @@ public class TestRowCounter {
   }
 
   /**
-   * test maim method. Import should print help and call System.exit
+   * test main method. Import should print help and call System.exit
    */
   @Test
   public void testImportMain() throws Exception {
@@ -185,13 +185,7 @@ public class TestRowCounter {
         fail("should be SecurityException");
       } catch (SecurityException e) {
         assertTrue(data.toString().contains("Wrong number of parameters:"));
-        assertTrue(data
-            .toString()
-            .contains(
-                "Usage: RowCounter [options] <tablename> [--range=[startKey],[endKey]]" +
-                        " [<column1> <column2>...]"));
-        assertTrue(data.toString().contains("-Dhbase.client.scanner.caching=100"));
-        assertTrue(data.toString().contains("-Dmapred.map.tasks.speculative.execution=false"));
+        assertTrue(data.toString().contains("Usage:"));
       }
       data.reset();
       try {

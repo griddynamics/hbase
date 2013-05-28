@@ -1,19 +1,18 @@
 /**
- * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file
- * distributed with this work for additional information
- * regarding copyright ownership.  The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
- * with the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements. See the NOTICE file distributed with this
+ * work for additional information regarding copyright ownership. The ASF
+ * licenses this file to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ * 
+ * http://www.apache.org/licenses/LICENSE-2.0
+ * 
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+ * License for the specific language governing permissions and limitations under
+ * the License.
  */
 
 package org.apache.hadoop.hbase.mapreduce;
@@ -81,29 +80,32 @@ public class TestCellCounter {
 
     byte[][] families = { FAMILY_A, FAMILY_B };
     HTable t = UTIL.createTable(Bytes.toBytes(sourceTable), families);
-    Put p = new Put(ROW1);
-    p.add(FAMILY_A, QUALIFIER, now, Bytes.toBytes("Data11"));
-    p.add(FAMILY_B, QUALIFIER, now + 1, Bytes.toBytes("Data12"));
-    p.add(FAMILY_A, QUALIFIER, now + 2, Bytes.toBytes("Data13"));
-    t.put(p);
-    p = new Put(ROW2);
-    p.add(FAMILY_B, QUALIFIER, now, Bytes.toBytes("Dat21"));
-    p.add(FAMILY_A, QUALIFIER, now + 1, Bytes.toBytes("Data22"));
-    p.add(FAMILY_B, QUALIFIER, now + 2, Bytes.toBytes("Data23"));
-    t.put(p);
-    System.out.println("file out:" + FQ_OUTPUT_DIR.toString());
-    String[] args = { sourceTable, FQ_OUTPUT_DIR.toString(), ";", "^row1" };
-    runCount(args);
-    FileInputStream inputStream = new FileInputStream(OUTPUT_DIR + File.separator + "part-r-00000");
-    String data = IOUtils.toString(inputStream);
-    inputStream.close();
-    assertTrue(data.contains("Total Families Across all Rows" + "\t" + "2"));
-    assertTrue(data.contains("Total Qualifiers across all Rows" + "\t" + "2"));
-    assertTrue(data.contains("Total ROWS" + "\t" + "1"));
-    assertTrue(data.contains("b;q" + "\t" + "1"));
-    assertTrue(data.contains("a;q" + "\t" + "1"));
-    assertTrue(data.contains("row1;a;q_Versions" + "\t" + "2"));
-
+    try {
+      Put p = new Put(ROW1);
+      p.add(FAMILY_A, QUALIFIER, now, Bytes.toBytes("Data11"));
+      p.add(FAMILY_B, QUALIFIER, now + 1, Bytes.toBytes("Data12"));
+      p.add(FAMILY_A, QUALIFIER, now + 2, Bytes.toBytes("Data13"));
+      t.put(p);
+      p = new Put(ROW2);
+      p.add(FAMILY_B, QUALIFIER, now, Bytes.toBytes("Dat21"));
+      p.add(FAMILY_A, QUALIFIER, now + 1, Bytes.toBytes("Data22"));
+      p.add(FAMILY_B, QUALIFIER, now + 2, Bytes.toBytes("Data23"));
+      t.put(p);
+      String[] args = { sourceTable, FQ_OUTPUT_DIR.toString(), ";", "^row1" };
+      runCount(args);
+      FileInputStream inputStream = new FileInputStream(OUTPUT_DIR + File.separator
+          + "part-r-00000");
+      String data = IOUtils.toString(inputStream);
+      inputStream.close();
+      assertTrue(data.contains("Total Families Across all Rows" + "\t" + "2"));
+      assertTrue(data.contains("Total Qualifiers across all Rows" + "\t" + "2"));
+      assertTrue(data.contains("Total ROWS" + "\t" + "1"));
+      assertTrue(data.contains("b;q" + "\t" + "1"));
+      assertTrue(data.contains("a;q" + "\t" + "1"));
+      assertTrue(data.contains("row1;a;q_Versions" + "\t" + "2"));
+    } finally {
+      t.close();
+    }
   }
 
   private boolean runCount(String[] args) throws IOException, InterruptedException,
@@ -123,7 +125,7 @@ public class TestCellCounter {
    * Test main method of CellCounter
    */
   @Test
-  public void testMain() throws Exception {
+  public void testCellCounterMain() throws Exception {
 
     PrintStream oldPrintStream = System.err;
     SecurityManager SECURITY_MANAGER = System.getSecurityManager();
@@ -139,12 +141,8 @@ public class TestCellCounter {
         fail("should be SecurityException");
       } catch (SecurityException e) {
         assertTrue(data.toString().contains("ERROR: Wrong number of parameters:"));
-        assertTrue(data
-            .toString()
-            .contains(
-                "Usage: CellCounter <tablename> <outputDir> <reportSeparator> [^[regex pattern]" +
-                        " or [Prefix] for row filter]]"));
-        assertTrue(data.toString().contains("-D hbase.mapreduce.scan.column.family=<familyName>"));
+        // should be print usage help
+        assertTrue(data.toString().contains( "Usage:"));
       }
 
     } finally {

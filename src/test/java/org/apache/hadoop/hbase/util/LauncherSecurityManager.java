@@ -21,6 +21,19 @@ package org.apache.hadoop.hbase.util;
 
 import java.security.Permission;
 
+/**
+  * class for masquerading System.exit(int).
+  * Use for test main method with System.exit(int )
+  * usage:
+  * new LauncherSecurityManager();
+  *    try {
+  *      CellCounter.main(args);
+  *      fail("should be exception");
+  *    } catch (SecurityException e) {
+  *      assert(.,e.getExitCode());
+  *    }
+ */
+
 public class LauncherSecurityManager extends SecurityManager {
 
   private static boolean exitInvoked;
