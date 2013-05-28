@@ -38,6 +38,8 @@ public class TestMasterStatistics {
 
   @Test
   public void testMasterStatistics() throws Exception {
+    // No timer updates started here since NullContext is
+    // instantiated by default for HBase:
     MasterMetrics masterMetrics = new MasterMetrics("foo");
     try {
       final MBeanServer server = ManagementFactory.getPlatformMBeanServer();
@@ -49,7 +51,7 @@ public class TestMasterStatistics {
       masterMetrics.resetAllMinMax();
 
       masterMetrics.incrementRequests(10);
-      Thread.sleep(1000);
+      Thread.sleep(1001);
 
       masterMetrics.addSnapshot(1L);
       masterMetrics.addSnapshotClone(2L);
@@ -62,11 +64,15 @@ public class TestMasterStatistics {
 
       masterMetrics.doUpdates(null);
 
-      float f = masterMetrics.getRequests();
-      assertTrue(0.0f < f && f <= 10.0f);
+      final float f = masterMetrics.getRequests();
+      // f = 10/T, where T >= 1 sec. So, we assert that 0 < f <= 10:
+      if (f <= 0.0f || f > 10.0f) {
+        fail("Unexpected rate value: " + f);
+      }
       Object attribute = server.getAttribute(objectName, "cluster_requests");
-      float rq = ((Float) attribute).floatValue();
-      assertTrue(0.0f < rq && rq <= 10.0f);
+      float f2 = ((Float) attribute).floatValue();
+      assertEquals("The value obtained through bean server should be equal to the one " +
+          "obtained directly.", f, f2, 1e-4);
 
       // NB: these 3 metrics are not pushed upon masterMetrics.doUpdates(),
       // so they always return null:
