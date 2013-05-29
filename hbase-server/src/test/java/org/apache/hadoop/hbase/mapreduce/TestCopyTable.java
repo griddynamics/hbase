@@ -160,7 +160,7 @@ public class TestCopyTable {
    * Test copy of table from sourceTable to targetTable all rows from family a
    */
   @Test
-  public void testCopyTable1() throws Exception {
+  public void testRenameFamily() throws Exception {
     String sourceTable = "sourceTable";
     String targetTable = "targetTable";
 
