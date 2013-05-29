@@ -1,24 +1,22 @@
 /**
- * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file
- * distributed with this work for additional information
- * regarding copyright ownership.  The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
- * with the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
+ * Licensed to the Apache Software Foundation (ASF) under one or more contributor license
+ * agreements. See the NOTICE file distributed with this work for additional information regarding
+ * copyright ownership. The ASF licenses this file to you under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with the License. You may
+ * obtain a copy of the License at
+ * 
+ * http://www.apache.org/licenses/LICENSE-2.0
+ * 
+ * Unless required by applicable law or agreed to in writing, software distributed under the
+ * License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+ * either express or implied. See the License for the specific language governing permissions and
  * limitations under the License.
  */
 package org.apache.hadoop.hbase.mapreduce;
 
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.LargeTests;
+import org.apache.hadoop.hbase.MiniHBaseCluster;
 import org.apache.hadoop.hbase.client.Get;
 import org.apache.hadoop.hbase.client.HTable;
 import org.apache.hadoop.hbase.client.Put;
@@ -37,12 +35,14 @@ import java.io.IOException;
 import java.io.PrintStream;
 
 import static org.junit.Assert.*;
+
 /**
  * Basic test for the CopyTable M/R tool
  */
 @Category(LargeTests.class)
 public class TestCopyTable {
   private static final HBaseTestingUtility TEST_UTIL = new HBaseTestingUtility();
+  private static MiniHBaseCluster cluster;
   private static final byte[] ROW1 = Bytes.toBytes("row1");
   private static final byte[] ROW2 = Bytes.toBytes("row2");
   private static final String FAMILY_A_STRING = "a";
@@ -51,11 +51,10 @@ public class TestCopyTable {
   private static final byte[] FAMILY_B = Bytes.toBytes(FAMILY_B_STRING);
   private static final byte[] QUALIFIER = Bytes.toBytes("q");
 
-  private static long now = System.currentTimeMillis();
 
   @BeforeClass
   public static void beforeClass() throws Exception {
-    TEST_UTIL.startMiniCluster(3);
+    cluster = TEST_UTIL.startMiniCluster(3);
     TEST_UTIL.startMiniMapReduceCluster();
   }
 
@@ -64,6 +63,7 @@ public class TestCopyTable {
     TEST_UTIL.shutdownMiniMapReduceCluster();
     TEST_UTIL.shutdownMiniCluster();
   }
+
   /**
    * Simple end-to-end test
    * @throws Exception
@@ -156,6 +156,7 @@ public class TestCopyTable {
     TEST_UTIL.deleteTable(TABLENAME1);
     TEST_UTIL.deleteTable(TABLENAME2);
   }
+
   /**
    * Test copy of table from sourceTable to targetTable all rows from family a
    */
@@ -169,14 +170,14 @@ public class TestCopyTable {
     HTable t = TEST_UTIL.createTable(Bytes.toBytes(sourceTable), families);
     HTable t2 = TEST_UTIL.createTable(Bytes.toBytes(targetTable), families);
     Put p = new Put(ROW1);
-    p.add(FAMILY_A, QUALIFIER, now, Bytes.toBytes("Data11"));
-    p.add(FAMILY_B, QUALIFIER, now + 1, Bytes.toBytes("Data12"));
-    p.add(FAMILY_A, QUALIFIER, now + 2, Bytes.toBytes("Data13"));
+    p.add(FAMILY_A, QUALIFIER,  Bytes.toBytes("Data11"));
+    p.add(FAMILY_B, QUALIFIER,  Bytes.toBytes("Data12"));
+    p.add(FAMILY_A, QUALIFIER,  Bytes.toBytes("Data13"));
     t.put(p);
     p = new Put(ROW2);
-    p.add(FAMILY_B, QUALIFIER, now, Bytes.toBytes("Dat21"));
-    p.add(FAMILY_A, QUALIFIER, now + 1, Bytes.toBytes("Data22"));
-    p.add(FAMILY_B, QUALIFIER, now + 2, Bytes.toBytes("Data23"));
+    p.add(FAMILY_B, QUALIFIER, Bytes.toBytes("Dat21"));
+    p.add(FAMILY_A, QUALIFIER, Bytes.toBytes("Data22"));
+    p.add(FAMILY_B, QUALIFIER, Bytes.toBytes("Data23"));
     t.put(p);
 
     long currentTime = System.currentTimeMillis();
@@ -184,6 +185,8 @@ public class TestCopyTable {
         "--starttime=" + (currentTime - 100000), "--endtime=" + (currentTime + 100000),
         "--versions=1", sourceTable };
     assertNull(t2.get(new Get(ROW1)).getRow());
+    clean();
+
     assertTrue(runCopy(args));
 
     assertNotNull(t2.get(new Get(ROW1)).getRow());
@@ -210,11 +213,11 @@ public class TestCopyTable {
     System.setErr(writer);
     SecurityManager securityManager = System.getSecurityManager();
 
-    new LauncherSecurityManager(); 
+    new LauncherSecurityManager();
     try {
       CopyTable.main(emptyArgs);
       fail("should be exit");
-    }catch(SecurityException e){
+    } catch (SecurityException e) {
       assertEquals(1, LauncherSecurityManager.getExitCode());
     } finally {
       System.setErr(oldWriter);
@@ -231,8 +234,24 @@ public class TestCopyTable {
         new Configuration(TEST_UTIL.getConfiguration()), args);
     Configuration configuration = opts.getConfiguration();
     args = opts.getRemainingArgs();
+    clean();
     Job job = CopyTable.createSubmittableJob(configuration, args);
     job.waitForCompletion(false);
     return job.isSuccessful();
+  }
+
+
+  private void clean() {
+
+      CopyTable.startTime = 0;
+      CopyTable.endTime = 0;
+      CopyTable.versions = -1;
+      CopyTable.tableName = null;
+      CopyTable.startRow = null;
+      CopyTable.stopRow = null;
+      CopyTable.newTableName = null;
+      CopyTable.peerAddress = null;
+      CopyTable.families = null;
+      CopyTable.allCells = false;
   }
 }
