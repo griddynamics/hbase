@@ -25,6 +25,8 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
 
+import javax.swing.plaf.basic.BasicInternalFrameTitlePane.SystemMenuBar;
+
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.LargeTests;
@@ -34,12 +36,14 @@ import org.apache.hadoop.hbase.client.HTable;
 import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.hbase.util.LauncherSecurityManager;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.util.GenericOptionsParser;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
+import org.omg.CORBA.SystemException;
 
 /**
  * Basic test for the CopyTable M/R tool
@@ -204,11 +208,16 @@ public class TestCopyTable {
     ByteArrayOutputStream data = new ByteArrayOutputStream();
     PrintStream writer = new PrintStream(data);
     System.setErr(writer);
+    SecurityManager securityManager=System.getSecurityManager();
+    new LauncherSecurityManager();
     try {
       clean();
       CopyTable.main(emptyArgs);
+    }catch(SecurityException e){
+      assertEquals(1, LauncherSecurityManager.getExitCode());
     } finally {
       System.setErr(oldWriter);
+      System.setSecurityManager(securityManager);
     }
     assertTrue(data.toString().contains("rs.class"));
     assertTrue(data.toString().contains("Usage:"));
