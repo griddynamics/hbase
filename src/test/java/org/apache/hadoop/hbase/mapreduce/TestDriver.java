@@ -25,12 +25,12 @@ import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.lang.reflect.InvocationTargetException;
 
-import org.apache.hadoop.hbase.SmallTests;
+import org.apache.hadoop.hbase.LargeTests;
 import org.apache.hadoop.hbase.util.LauncherSecurityManager;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
-@Category(SmallTests.class)
+@Category(LargeTests.class)
 public class TestDriver {
   /**
    * Test main method of Driver class

@@ -20,7 +20,7 @@ package org.apache.hadoop.hbase.mapreduce;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.KeyValue;
-import org.apache.hadoop.hbase.SmallTests;
+import org.apache.hadoop.hbase.LargeTests;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
 import org.apache.hadoop.hbase.util.Bytes;
@@ -33,7 +33,7 @@ import java.util.List;
 
 import static org.mockito.Mockito.*;
 
-@Category(SmallTests.class)
+@Category(LargeTests.class)
 public class TestGroupingTableMapper {
 
   /**

@@ -19,7 +19,7 @@
 package org.apache.hadoop.hbase.mapreduce;
 
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hbase.SmallTests;
+import org.apache.hadoop.hbase.LargeTests;
 import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.io.LongWritable;
@@ -34,7 +34,7 @@ import static org.junit.Assert.*;
  * Test TableMapReduceUtil
  */
 
-@Category(SmallTests.class)
+@Category(LargeTests.class)
 public class TestTableMapReduceUtil {
 
   /**
