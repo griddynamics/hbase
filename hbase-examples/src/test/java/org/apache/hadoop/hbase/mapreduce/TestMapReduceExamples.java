@@ -119,7 +119,6 @@ public class TestMapReduceExamples {
     String[] args = { "tableName", "columnFamily", "column1", "column2" };
     IndexBuilder.configureJob(configuration, args);
     assertEquals("tableName", configuration.get("index.tablename"));
-    assertEquals("attributes", configuration.get("index.familyname"));
     assertEquals("tableName", configuration.get(TableInputFormat.INPUT_TABLE));
     assertEquals("column1,column2", configuration.get("index.fields"));
 
