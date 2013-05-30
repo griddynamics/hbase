@@ -29,6 +29,7 @@ import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.filter.FirstKeyOnlyFilter;
 import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
 import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.hbase.util.ExitUtil;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.lib.output.NullOutputFormat;
 import org.apache.hadoop.util.GenericOptionsParser;
@@ -164,12 +165,12 @@ public class RowCounter {
     String[] otherArgs = new GenericOptionsParser(conf, args).getRemainingArgs();
     if (otherArgs.length < 1) {
       printUsage("Wrong number of parameters: " + args.length);
-      System.exit(-1);
+      ExitUtil.exit(-1);
     }
     Job job = createSubmittableJob(conf, otherArgs);
     if (job == null) {
-      System.exit(-1);
+      ExitUtil.exit(-1);
     }
-    System.exit(job.waitForCompletion(true) ? 0 : 1);
+    ExitUtil.exit(job.waitForCompletion(true) ? 0 : 1);
   }
 }

@@ -35,7 +35,8 @@ import org.apache.hadoop.hbase.client.HTable;
 import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.util.Bytes;
-import org.apache.hadoop.hbase.util.LauncherSecurityManager;
+import org.apache.hadoop.hbase.util.ExitException;
+import org.apache.hadoop.hbase.util.ExitUtil;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.util.GenericOptionsParser;
 import org.junit.AfterClass;
@@ -206,16 +207,14 @@ public class TestCopyTable {
     ByteArrayOutputStream data = new ByteArrayOutputStream();
     PrintStream writer = new PrintStream(data);
     System.setErr(writer);
-    SecurityManager securityManager=System.getSecurityManager();
-    new LauncherSecurityManager();
     try {
       clean();
+      ExitUtil.activeTest();
       CopyTable.main(emptyArgs);
-    }catch(SecurityException e){
-      assertEquals(1, LauncherSecurityManager.getExitCode());
+    }catch(ExitException e){
+      assertEquals(1,e.getExitCode());
     } finally {
       System.setErr(oldWriter);
-      System.setSecurityManager(securityManager);
     }
     assertTrue(data.toString().contains("rs.class"));
     assertTrue(data.toString().contains("Usage:"));

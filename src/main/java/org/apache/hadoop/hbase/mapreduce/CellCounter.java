@@ -32,13 +32,12 @@ import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.filter.*;
 import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
 import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.hbase.util.ExitUtil;
 import org.apache.hadoop.mapreduce.Job;
-import org.apache.hadoop.mapreduce.lib.output.NullOutputFormat;
 import org.apache.hadoop.util.GenericOptionsParser;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import org.apache.hadoop.mapreduce.lib.output.TextOutputFormat;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.mapreduce.lib.reduce.IntSumReducer;
 import org.apache.hadoop.io.IntWritable;
 import org.apache.hadoop.mapreduce.Reducer;
 import org.apache.hadoop.io.Text;
@@ -250,9 +249,9 @@ public class CellCounter {
           "string : used to separate the rowId/column family name and qualifier name.");
       System.err.println(" [^[regex pattern] or [Prefix] parameter can be used to limit the cell counter count " +
           "operation to a limited subset of rows from the table based on regex or prefix pattern.");
-      System.exit(-1);
+      ExitUtil.exit(-1);
     }
     Job job = createSubmittableJob(conf, otherArgs);
-    System.exit(job.waitForCompletion(true) ? 0 : 1);
+    ExitUtil.exit(job.waitForCompletion(true) ? 0 : 1);
   }
 }

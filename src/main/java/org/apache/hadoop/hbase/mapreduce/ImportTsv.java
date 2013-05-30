@@ -20,6 +20,7 @@
 package org.apache.hadoop.hbase.mapreduce;
 
 import org.apache.hadoop.hbase.util.Base64;
+import org.apache.hadoop.hbase.util.ExitUtil;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -372,7 +373,7 @@ public class ImportTsv {
     String[] otherArgs = new GenericOptionsParser(conf, args).getRemainingArgs();
     if (otherArgs.length < 2) {
       usage("Wrong number of arguments: " + otherArgs.length);
-      System.exit(-1);
+      ExitUtil.exit(-1);
     }
 
     // Make sure columns are specified
@@ -380,7 +381,7 @@ public class ImportTsv {
     if (columns == null) {
       usage("No columns specified. Please specify with -D" +
             COLUMNS_CONF_KEY+"=...");
-      System.exit(-1);
+      ExitUtil.exit(-1);
     }
 
     // Make sure they specify exactly one column as the row key
@@ -390,7 +391,7 @@ public class ImportTsv {
     }
     if (rowkeysFound != 1) {
       usage("Must specify exactly one column as " + TsvParser.ROWKEY_COLUMN_SPEC);
-      System.exit(-1);
+      ExitUtil.exit(-1);
     }
 
     // Make sure we have at most one column as the timestamp key
@@ -402,14 +403,14 @@ public class ImportTsv {
     if (tskeysFound > 1) {
       usage("Must specify at most one column as "
           + TsvParser.TIMESTAMPKEY_COLUMN_SPEC);
-      System.exit(-1);
+      ExitUtil.exit(-1);
     }
     
     // Make sure one or more columns are specified excluding rowkey and
     // timestamp key
     if (columns.length - (rowkeysFound + tskeysFound) < 1) {
       usage("One or more columns in addition to the row key and timestamp(optional) are required");
-      System.exit(-1);
+      ExitUtil.exit(-1);
     }
 
     // If timestamp option is not specified, use current system time.
@@ -422,7 +423,7 @@ public class ImportTsv {
     
     hbaseAdmin = new HBaseAdmin(conf);
     Job job = createSubmittableJob(conf, otherArgs);
-    System.exit(job.waitForCompletion(true) ? 0 : 1);
+    ExitUtil.exit(job.waitForCompletion(true) ? 0 : 1);
   }
 
 }

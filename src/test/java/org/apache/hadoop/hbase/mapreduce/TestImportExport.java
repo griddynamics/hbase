@@ -51,7 +51,8 @@ import org.apache.hadoop.hbase.filter.PrefixFilter;
 import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
 import org.apache.hadoop.hbase.mapreduce.Import.KeyValueImporter;
 import org.apache.hadoop.hbase.util.Bytes;
-import org.apache.hadoop.hbase.util.LauncherSecurityManager;
+import org.apache.hadoop.hbase.util.ExitException;
+import org.apache.hadoop.hbase.util.ExitUtil;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.Mapper.Context;
 import org.apache.hadoop.util.GenericOptionsParser;
@@ -415,15 +416,16 @@ public class TestImportExport {
   public void testImportMain() throws Exception {
     PrintStream oldPrintStream = System.err;
     SecurityManager SECURITY_MANAGER = System.getSecurityManager();
-    new LauncherSecurityManager();
     ByteArrayOutputStream data = new ByteArrayOutputStream();
     String[] args = {};
     System.setErr(new PrintStream(data));
     try {
       System.setErr(new PrintStream(data));
+      ExitUtil.activeTest();
       Import.main(args);
-      fail("should be SecurityException");
-    } catch (SecurityException e) {
+      fail("should be ExitException");
+    } catch (ExitException e) {
+      assertEquals(-1, e.getExitCode());
       assertTrue(data.toString().contains("Wrong number of arguments:"));
       assertTrue(data.toString().contains("-Dimport.bulk.output=/path/for/output"));
       assertTrue(data.toString().contains("-Dimport.filter.class=<name of filter class>"));
@@ -441,16 +443,16 @@ public class TestImportExport {
   @Test
   public void testExportMain() throws Exception {
     PrintStream oldPrintStream = System.err;
-    SecurityManager SECURITY_MANAGER = System.getSecurityManager();
-    new LauncherSecurityManager();
     ByteArrayOutputStream data = new ByteArrayOutputStream();
     String[] args = {};
     System.setErr(new PrintStream(data));
     try {
       System.setErr(new PrintStream(data));
+      ExitUtil.activeTest();
       Export.main(args);
-      fail("should be SecurityException");
-    } catch (SecurityException e) {
+      fail("should be ExitException");
+    } catch (ExitException e) {
+      assertEquals(-1, e.getExitCode());
       assertTrue(data.toString().contains("Wrong number of arguments:"));
       assertTrue(data
           .toString()
@@ -464,7 +466,6 @@ public class TestImportExport {
       assertTrue(data.toString().contains("-Dmapred.reduce.tasks.speculative.execution=false"));
     } finally {
       System.setErr(oldPrintStream);
-      System.setSecurityManager(SECURITY_MANAGER);
     }
   }
 
