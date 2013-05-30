@@ -18,7 +18,7 @@
 package org.apache.hadoop.hbase.mapreduce;
 
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hbase.LargeTests;
+import org.apache.hadoop.hbase.SmallTests;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
@@ -32,7 +32,7 @@ import org.junit.experimental.categories.Category;
 import static org.mockito.Mockito.*;
 import static junit.framework.Assert.*;
 
-@Category(LargeTests.class)
+@Category(SmallTests.class)
 public class TestMapReduceClasses {
 
   @SuppressWarnings({ "rawtypes", "unchecked" })
