@@ -25,7 +25,6 @@ import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.HBaseConfiguration;
 import org.apache.hadoop.hbase.client.Result;
@@ -174,9 +173,9 @@ public class Export {
     String[] otherArgs = new GenericOptionsParser(conf, args).getRemainingArgs();
     if (otherArgs.length < 2) {
       usage("Wrong number of arguments: " + otherArgs.length);
-      System.exit(-1);
+      ExitUtil.exit(-1);
     }
     Job job = createSubmittableJob(conf, otherArgs);
-    System.exit(job.waitForCompletion(true)? 0 : 1);
+    ExitUtil.exit(job.waitForCompletion(true)? 0 : 1);
   }
 }

@@ -44,7 +44,7 @@ import org.apache.hadoop.hbase.regionserver.wal.HLog;
 import org.apache.hadoop.hbase.regionserver.wal.HLogKey;
 import org.apache.hadoop.hbase.regionserver.wal.WALEdit;
 import org.apache.hadoop.hbase.util.Bytes;
-import org.apache.hadoop.hbase.util.LauncherSecurityManager;
+import org.apache.hadoop.hbase.util.ExitException;
 import org.apache.hadoop.mapreduce.Mapper;
 import org.apache.hadoop.mapreduce.Mapper.Context;
 import org.junit.AfterClass;
@@ -172,17 +172,17 @@ public class TestWALPlayer {
   public void testMainMethod() throws Exception {
 
     PrintStream oldPrintStream = System.err;
-    SecurityManager SECURITY_MANAGER = System.getSecurityManager();
-    new LauncherSecurityManager();
     ByteArrayOutputStream data = new ByteArrayOutputStream();
     String[] args = {};
     System.setErr(new PrintStream(data));
     try {
       System.setErr(new PrintStream(data));
       try {
+        ExitUtil.activeTest();
         WALPlayer.main(args);
         fail("should be SecurityException");
-      } catch (SecurityException e) {
+      } catch (ExitException e) {
+        assertEquals(-1, e.getExitCode());
         assertTrue(data.toString().contains("ERROR: Wrong number of arguments:"));
         assertTrue(data.toString().contains("Usage: WALPlayer [options] <wal inputdir>" +
             " <tables> [<tableMappings>]"));
@@ -191,7 +191,6 @@ public class TestWALPlayer {
 
     } finally {
       System.setErr(oldPrintStream);
-      System.setSecurityManager(SECURITY_MANAGER);
     }
 
   }

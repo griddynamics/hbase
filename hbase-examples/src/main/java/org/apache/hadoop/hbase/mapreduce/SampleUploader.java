@@ -139,9 +139,9 @@ public class SampleUploader {
     if(otherArgs.length != 2) {
       System.err.println("Wrong number of arguments: " + otherArgs.length);
       System.err.println("Usage: " + NAME + " <input> <tablename>");
-      System.exit(-1);
+      ExitUtil.exit(-1);
     }
     Job job = configureJob(conf, otherArgs);
-    System.exit(job.waitForCompletion(true) ? 0 : 1);
+    ExitUtil.exit(job.waitForCompletion(true) ? 0 : 1);
   }
 }

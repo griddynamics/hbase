@@ -292,7 +292,7 @@ public class WALPlayer extends Configured implements Tool {
    */
   public static void main(String[] args) throws Exception {
     int ret = ToolRunner.run(new WALPlayer(HBaseConfiguration.create()), args);
-    System.exit(ret);
+    ExitUtil.exit(ret);
   }
 
   @Override
@@ -300,7 +300,7 @@ public class WALPlayer extends Configured implements Tool {
     String[] otherArgs = new GenericOptionsParser(getConf(), args).getRemainingArgs();
     if (otherArgs.length < 2) {
       usage("Wrong number of arguments: " + otherArgs.length);
-      System.exit(-1);
+      ExitUtil.exit(-1);
     }
     Job job = createSubmittableJob(otherArgs);
     return job.waitForCompletion(true) ? 0 : 1;

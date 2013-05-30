@@ -264,7 +264,7 @@ public class CopyTable extends Configured implements Tool {
    */
   public static void main(String[] args) throws Exception {
     int ret = ToolRunner.run(new CopyTable(HBaseConfiguration.create()), args);
-    System.exit(ret);
+    ExitUtil.exit(ret);
   }
 
   @Override
