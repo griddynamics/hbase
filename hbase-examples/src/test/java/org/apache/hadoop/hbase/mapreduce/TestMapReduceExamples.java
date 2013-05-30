@@ -26,6 +26,7 @@ import org.apache.hadoop.hbase.mapreduce.IndexBuilder.Map;
 import org.apache.hadoop.hbase.mapreduce.SampleUploader.Uploader;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.ExitException;
+import org.apache.hadoop.hbase.util.ExitUtil;
 import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapreduce.Job;
