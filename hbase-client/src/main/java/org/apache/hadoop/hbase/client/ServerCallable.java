@@ -94,6 +94,10 @@ public abstract class ServerCallable<T> implements Callable<T> {
    */
   public void prepare(final boolean reload) throws IOException {
     this.location = connection.getRegionLocation(tableName, row, reload);
+    if (this.location == null) {
+      throw new IOException("Failed to find location, tableName=" + tableName + ", row=" +
+        Bytes.toString(row) + ", reload=" + reload);
+    }
     this.stub = connection.getClient(location.getServerName());
   }
 
@@ -169,7 +173,7 @@ public abstract class ServerCallable<T> implements Callable<T> {
         prepare(tries != 0); // if called with false, check table status on ZK
         return call();
       } catch (Throwable t) {
-        LOG.warn("Call exception, tries=" + tries + ", numRetries=" + numRetries + ": " + t);
+        LOG.warn("Call exception, tries=" + tries + ", numRetries=" + numRetries, t);
 
         t = translateException(t);
         // translateException throws an exception when we should not retry, i.e. when it's the
@@ -199,7 +203,8 @@ public abstract class ServerCallable<T> implements Callable<T> {
 
         // If the server is dead, we need to wait a little before retrying, to give
         //  a chance to the regions to be
-        expectedSleep = ConnectionUtils.getPauseTime(pause, tries);
+        // tries hasn't been bumped up yet so we use "tries + 1" to get right pause time
+        expectedSleep = ConnectionUtils.getPauseTime(pause, tries + 1);
         if (expectedSleep < MIN_WAIT_DEAD_SERVER 
             && (location == null || getConnection().isDeadServer(location.getServerName()))) {
           expectedSleep = ConnectionUtils.addJitter(MIN_WAIT_DEAD_SERVER, 0.10f);
