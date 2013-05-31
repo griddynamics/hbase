@@ -37,7 +37,6 @@ import org.apache.hadoop.hbase.regionserver.wal.HLog;
 import org.apache.hadoop.hbase.regionserver.wal.HLogKey;
 import org.apache.hadoop.hbase.regionserver.wal.WALEdit;
 import org.apache.hadoop.hbase.util.Bytes;
-import org.apache.hadoop.hbase.util.ExitUtil;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.Mapper;
 import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
@@ -290,7 +289,7 @@ public class WALPlayer extends Configured implements Tool {
    */
   public static void main(String[] args) throws Exception {
     int ret = ToolRunner.run(new WALPlayer(HBaseConfiguration.create()), args);
-    ExitUtil.exit(ret);
+    System.exit(ret);
   }
 
   @Override
@@ -298,7 +297,7 @@ public class WALPlayer extends Configured implements Tool {
     String[] otherArgs = new GenericOptionsParser(getConf(), args).getRemainingArgs();
     if (otherArgs.length < 2) {
       usage("Wrong number of arguments: " + otherArgs.length);
-      ExitUtil.exit(-1);
+      System.exit(-1);
     }
     Job job = createSubmittableJob(otherArgs);
     return job.waitForCompletion(true) ? 0 : 1;

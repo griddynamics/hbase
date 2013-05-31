@@ -35,8 +35,7 @@ import org.apache.hadoop.hbase.mapreduce.ImportTsv.TsvParser;
 import org.apache.hadoop.hbase.mapreduce.ImportTsv.TsvParser.BadTsvLineException;
 import org.apache.hadoop.hbase.mapreduce.ImportTsv.TsvParser.ParsedLine;
 import org.apache.hadoop.hbase.util.Bytes;
-import org.apache.hadoop.hbase.util.ExitException;
-import org.apache.hadoop.hbase.util.ExitUtil;
+import org.apache.hadoop.hbase.util.LauncherSecurityManager;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.util.GenericOptionsParser;
 import org.junit.Test;
@@ -360,18 +359,18 @@ public class TestImportTsv {
     PrintStream oldErrorStream = System.err;
     ByteArrayOutputStream data = new ByteArrayOutputStream();
     System.setErr(new PrintStream(data));
+    SecurityManager oldSecurityManager = System.getSecurityManager();
+    new LauncherSecurityManager();
     // test print help test
     try {
       String args[] = {};
-      ExitUtil.activeTest();
       ImportTsv.main(args);
 
-    } catch (ExitException e) {
-      assertEquals(-1, e.getExitCode());
+    } catch (SecurityException e) {
       assertTrue(data.toString().contains("ERROR: Wrong number of arguments: 0"));
       assertTrue(data.toString().contains(
           "Usage: importtsv -Dimporttsv.columns=a,b,c <tablename> <inputdir>"));
-      assertEquals("org.apache.hadoop.hbase.util.ExitException", e.toString());
+      assertEquals("java.lang.SecurityException: Intercepted System.exit(-1)", e.toString());
 
     }
 
@@ -411,10 +410,11 @@ public class TestImportTsv {
       String[] args = { "-Dimporttsv.columns=a,b,HBASE_ROW_KEY", "myTableName", inputFile };
       ImportTsv.main(args);
       fail("should be exit!");
-    } catch (ExitException e) {
-      assertEquals(0, e.getExitCode());
+    } catch (SecurityException e) {
+      assertEquals("Intercepted System.exit(0)", e.getMessage());
     } finally {
       System.setErr(oldErrorStream);
+      System.setSecurityManager(oldSecurityManager);
       fconfig.delete();
       FileUtils.moveFile(new File("target" + File.separator + "test-classes" + File.separator
           + "hbase-site.xml.old"), new File("target" + File.separator + "test-classes"

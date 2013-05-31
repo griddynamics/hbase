@@ -33,7 +33,6 @@ import org.apache.hadoop.hbase.filter.CompareFilter.CompareOp;
 import org.apache.hadoop.hbase.filter.Filter;
 import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
 import org.apache.hadoop.hbase.util.Bytes;
-import org.apache.hadoop.hbase.util.ExitUtil;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import org.apache.hadoop.mapreduce.lib.output.SequenceFileOutputFormat;
@@ -184,9 +183,9 @@ public class Export {
     String[] otherArgs = new GenericOptionsParser(conf, args).getRemainingArgs();
     if (otherArgs.length < 2) {
       usage("Wrong number of arguments: " + otherArgs.length);
-      ExitUtil.exit(-1);
+      System.exit(-1);
     }
     Job job = createSubmittableJob(conf, otherArgs);
-    ExitUtil.exit(job.waitForCompletion(true)? 0 : 1);
+    System.exit(job.waitForCompletion(true)? 0 : 1);
   }
 }
