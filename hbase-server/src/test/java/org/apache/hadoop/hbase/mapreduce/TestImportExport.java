@@ -227,6 +227,7 @@ public class TestImportExport {
 
     FileSystem fs = FileSystem.get(UTIL.getConfiguration());
     fs.delete(new Path(FQ_OUTPUT_DIR), true);
+    t.close();
   }
 
   @Test
@@ -377,7 +378,8 @@ public class TestImportExport {
   public void testImportMain() throws Exception {
     PrintStream oldPrintStream = System.err;
     SecurityManager SECURITY_MANAGER = System.getSecurityManager();
-    new LauncherSecurityManager();
+    LauncherSecurityManager newSecurityManager= new LauncherSecurityManager();
+    System.setSecurityManager(newSecurityManager);
     ByteArrayOutputStream data = new ByteArrayOutputStream();
     String[] args = {};
     System.setErr(new PrintStream(data));
@@ -386,6 +388,7 @@ public class TestImportExport {
       Import.main(args);
       fail("should be SecurityException");
     } catch (SecurityException e) {
+      assertEquals(-1, newSecurityManager.getExitCode());
       assertTrue(data.toString().contains("Wrong number of arguments:"));
       assertTrue(data.toString().contains("-Dimport.bulk.output=/path/for/output"));
       assertTrue(data.toString().contains("-Dimport.filter.class=<name of filter class>"));
@@ -404,7 +407,8 @@ public class TestImportExport {
   public void testExportMain() throws Exception {
     PrintStream oldPrintStream = System.err;
     SecurityManager SECURITY_MANAGER = System.getSecurityManager();
-    new LauncherSecurityManager();
+    LauncherSecurityManager newSecurityManager= new LauncherSecurityManager();
+    System.setSecurityManager(newSecurityManager);
     ByteArrayOutputStream data = new ByteArrayOutputStream();
     String[] args = {};
     System.setErr(new PrintStream(data));
@@ -413,10 +417,9 @@ public class TestImportExport {
       Export.main(args);
       fail("should be SecurityException");
     } catch (SecurityException e) {
+      assertEquals(-1, newSecurityManager.getExitCode());
       assertTrue(data.toString().contains("Wrong number of arguments:"));
-      assertTrue(data
-          .toString()
-          .contains(
+      assertTrue(data.toString().contains(
               "Usage: Export [-D <property=value>]* <tablename> <outputdir> [<versions> " +
               "[<starttime> [<endtime>]] [^[regex pattern] or [Prefix] to filter]]"));
       assertTrue(data.toString().contains("-D hbase.mapreduce.scan.column.family=<familyName>"));

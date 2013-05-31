@@ -87,7 +87,8 @@ public class TestMapReduceExamples {
   public void testMainSampleUploader() throws Exception {
     PrintStream oldPrintStream = System.err;
     SecurityManager SECURITY_MANAGER = System.getSecurityManager();
-    new LauncherSecurityManager();
+    LauncherSecurityManager newSecurityManager= new LauncherSecurityManager();
+    System.setSecurityManager(newSecurityManager);
     ByteArrayOutputStream data = new ByteArrayOutputStream();
     String[] args = {};
     System.setErr(new PrintStream(data));
@@ -98,6 +99,7 @@ public class TestMapReduceExamples {
         SampleUploader.main(args);
         fail("should be SecurityException");
       } catch (SecurityException e) {
+        assertEquals(-1, newSecurityManager.getExitCode());
         assertTrue(data.toString().contains("Wrong number of arguments:"));
         assertTrue(data.toString().contains("Usage: SampleUploader <input> <tablename>"));
       }
@@ -152,7 +154,8 @@ public class TestMapReduceExamples {
   public void testMainIndexBuilder() throws Exception {
     PrintStream oldPrintStream = System.err;
     SecurityManager SECURITY_MANAGER = System.getSecurityManager();
-    new LauncherSecurityManager();
+    LauncherSecurityManager newSecurityManager= new LauncherSecurityManager();
+    System.setSecurityManager(newSecurityManager);
     ByteArrayOutputStream data = new ByteArrayOutputStream();
     String[] args = {};
     System.setErr(new PrintStream(data));
@@ -162,6 +165,7 @@ public class TestMapReduceExamples {
         IndexBuilder.main(args);
         fail("should be SecurityException");
       } catch (SecurityException e) {
+        assertEquals(-1, newSecurityManager.getExitCode());
         assertTrue(data.toString().contains("arguments supplied, required: 3"));
         assertTrue(data.toString().contains(
             "Usage: IndexBuilder <TABLE_NAME> <COLUMN_FAMILY> <ATTR> [<ATTR> ...]"));

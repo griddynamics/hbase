@@ -214,17 +214,17 @@ public class TestCopyTable {
     ByteArrayOutputStream data = new ByteArrayOutputStream();
     PrintStream writer = new PrintStream(data);
     System.setErr(writer);
-    SecurityManager securityManager = System.getSecurityManager();
-
-    new LauncherSecurityManager();
+    SecurityManager SECURITY_MANAGER = System.getSecurityManager();
+    LauncherSecurityManager newSecurityManager= new LauncherSecurityManager();
+    System.setSecurityManager(newSecurityManager);
     try {
       CopyTable.main(emptyArgs);
       fail("should be exit");
     } catch (SecurityException e) {
-      assertEquals(1, LauncherSecurityManager.getExitCode());
+      assertEquals(1, newSecurityManager.getExitCode());
     } finally {
       System.setErr(oldWriter);
-      System.setSecurityManager(securityManager);
+      System.setSecurityManager(SECURITY_MANAGER);
     }
     assertTrue(data.toString().contains("rs.class"));
     // should print usage information

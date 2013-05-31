@@ -17,6 +17,7 @@ package org.apache.hadoop.hbase.mapreduce;
 
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
+import static org.junit.Assert.assertEquals;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
@@ -37,7 +38,8 @@ public class TestDriver {
 
     PrintStream oldPrintStream = System.out;
     SecurityManager SECURITY_MANAGER = System.getSecurityManager();
-    new LauncherSecurityManager();
+    LauncherSecurityManager newSecurityManager= new LauncherSecurityManager();
+    System.setSecurityManager(newSecurityManager);
     ByteArrayOutputStream data = new ByteArrayOutputStream();
     String[] args = {};
     System.setOut(new PrintStream(data));
@@ -48,6 +50,7 @@ public class TestDriver {
         Driver.main(args);
         fail("should be SecurityException");
       } catch (InvocationTargetException e) {
+        assertEquals(-1, newSecurityManager.getExitCode());
         assertTrue(data.toString().contains(
             "An example program must be given as the first argument."));
         assertTrue(data.toString().contains("CellCounter: Count cells in HBase table"));
