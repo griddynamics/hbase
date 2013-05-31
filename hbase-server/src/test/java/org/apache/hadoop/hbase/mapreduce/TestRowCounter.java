@@ -36,7 +36,7 @@ import org.apache.hadoop.hbase.client.HTable;
 import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.mapreduce.RowCounter.RowCounterMapper;
 import org.apache.hadoop.hbase.util.Bytes;
-import org.apache.hadoop.hbase.util.ExitException;
+import org.apache.hadoop.hbase.util.LauncherSecurityManager;
 import org.apache.hadoop.mapreduce.Counter;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.util.GenericOptionsParser;
@@ -181,6 +181,8 @@ public class TestRowCounter {
   @Test
   public void testImportMain() throws Exception {
     PrintStream oldPrintStream = System.err;
+    SecurityManager SECURITY_MANAGER = System.getSecurityManager();
+    new LauncherSecurityManager();
     ByteArrayOutputStream data = new ByteArrayOutputStream();
     String[] args = {};
     System.setErr(new PrintStream(data));
@@ -188,11 +190,9 @@ public class TestRowCounter {
       System.setErr(new PrintStream(data));
 
       try {
-        RowCounter.test=true;
         RowCounter.main(args);
         fail("should be SecurityException");
-      } catch (ExitException e) {
-        assertEquals(-1,e.getExitCode());
+      } catch (SecurityException e) {
         assertTrue(data.toString().contains("Wrong number of parameters:"));
         assertTrue(data.toString().contains(
             "Usage: RowCounter [options] <tablename> [--range=[startKey],[endKey]] " +
@@ -218,6 +218,7 @@ public class TestRowCounter {
 
     } finally {
       System.setErr(oldPrintStream);
+      System.setSecurityManager(SECURITY_MANAGER);
     }
 
   }

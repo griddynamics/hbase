@@ -255,9 +255,9 @@ public class CellCounter {
           "string : used to separate the rowId/column family name and qualifier name.");
       System.err.println(" [^[regex pattern] or [Prefix] parameter can be used to limit the cell counter count " +
           "operation to a limited subset of rows from the table based on regex or prefix pattern.");
-      ExitUtil.exit(-1);
+      System.exit(-1);
     }
     Job job = createSubmittableJob(conf, otherArgs);
-    ExitUtil.exit(job.waitForCompletion(true) ? 0 : 1);
+    System.exit(job.waitForCompletion(true) ? 0 : 1);
   }
 }

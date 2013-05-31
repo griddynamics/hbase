@@ -25,7 +25,7 @@ import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
 import org.apache.hadoop.hbase.mapreduce.IndexBuilder.Map;
 import org.apache.hadoop.hbase.mapreduce.SampleUploader.Uploader;
 import org.apache.hadoop.hbase.util.Bytes;
-import org.apache.hadoop.hbase.util.ExitException;
+import org.apache.hadoop.hbase.util.LauncherSecurityManager;
 import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapreduce.Job;
@@ -86,23 +86,25 @@ public class TestMapReduceExamples {
   @Test
   public void testMainSampleUploader() throws Exception {
     PrintStream oldPrintStream = System.err;
+    SecurityManager SECURITY_MANAGER = System.getSecurityManager();
+    new LauncherSecurityManager();
     ByteArrayOutputStream data = new ByteArrayOutputStream();
     String[] args = {};
     System.setErr(new PrintStream(data));
     try {
       System.setErr(new PrintStream(data));
+
       try {
-        ExitUtil.activeTest();
         SampleUploader.main(args);
         fail("should be SecurityException");
-      } catch (ExitException e) {
-        assertEquals(-1, e.getExitCode());
+      } catch (SecurityException e) {
         assertTrue(data.toString().contains("Wrong number of arguments:"));
         assertTrue(data.toString().contains("Usage: SampleUploader <input> <tablename>"));
       }
 
     } finally {
       System.setErr(oldPrintStream);
+      System.setSecurityManager(SECURITY_MANAGER);
     }
 
   }
@@ -149,17 +151,17 @@ public class TestMapReduceExamples {
   @Test
   public void testMainIndexBuilder() throws Exception {
     PrintStream oldPrintStream = System.err;
+    SecurityManager SECURITY_MANAGER = System.getSecurityManager();
+    new LauncherSecurityManager();
     ByteArrayOutputStream data = new ByteArrayOutputStream();
     String[] args = {};
     System.setErr(new PrintStream(data));
     try {
       System.setErr(new PrintStream(data));
       try {
-        ExitUtil.activeTest();
         IndexBuilder.main(args);
         fail("should be SecurityException");
-      } catch (ExitException e) {
-        assertEquals(-1, e.getExitCode());
+      } catch (SecurityException e) {
         assertTrue(data.toString().contains("arguments supplied, required: 3"));
         assertTrue(data.toString().contains(
             "Usage: IndexBuilder <TABLE_NAME> <COLUMN_FAMILY> <ATTR> [<ATTR> ...]"));
@@ -167,6 +169,7 @@ public class TestMapReduceExamples {
 
     } finally {
       System.setErr(oldPrintStream);
+      System.setSecurityManager(SECURITY_MANAGER);
     }
 
   }

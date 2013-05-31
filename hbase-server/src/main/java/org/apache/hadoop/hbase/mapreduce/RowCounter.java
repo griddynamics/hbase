@@ -32,12 +32,9 @@ import org.apache.hadoop.hbase.filter.FirstKeyOnlyFilter;
 import org.apache.hadoop.hbase.filter.FirstKeyValueMatchingQualifiersFilter;
 import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
 import org.apache.hadoop.hbase.util.Bytes;
-import org.apache.hadoop.hbase.util.ExitException;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.lib.output.NullOutputFormat;
 import org.apache.hadoop.util.GenericOptionsParser;
-
-import com.google.common.annotations.VisibleForTesting;
 
 /**
  * A job with a just a map phase to count rows. Map outputs table rows IF the
@@ -49,7 +46,7 @@ public class RowCounter {
 
   /** Name of this 'program'. */
   static final String NAME = "rowcounter";
-  static boolean test=false;
+
   /**
    * Mapper that runs the count.
    */
@@ -183,21 +180,12 @@ public class RowCounter {
     String[] otherArgs = new GenericOptionsParser(conf, args).getRemainingArgs();
     if (otherArgs.length < 1) {
       printUsage("Wrong number of parameters: " + args.length);
-      exit(-1);
+      System.exit(-1);
     }
     Job job = createSubmittableJob(conf, otherArgs);
     if (job == null) {
       System.exit(-1);
     }
-    exit(job.waitForCompletion(true) ? 0 : 1);
-  }
-  @VisibleForTesting
-  private static void exit(int exitCode){
-    if(test){
-      throw new ExitException(exitCode);
-    }else{
-      System.exit(exitCode);
-      
-    }
+    System.exit(job.waitForCompletion(true) ? 0 : 1);
   }
 }

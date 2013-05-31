@@ -143,10 +143,9 @@ public class IndexBuilder {
     if(otherArgs.length < 3) {
       System.err.println("Only " + otherArgs.length + " arguments supplied, required: 3");
       System.err.println("Usage: IndexBuilder <TABLE_NAME> <COLUMN_FAMILY> <ATTR> [<ATTR> ...]");
-      ExitUtil.exit(-1);
+      System.exit(-1);
     }
     Job job = configureJob(conf, otherArgs);
-    ExitUtil.exit(job.waitForCompletion(true) ? 0 : 1);
+    System.exit(job.waitForCompletion(true) ? 0 : 1);
   }
-
 }
