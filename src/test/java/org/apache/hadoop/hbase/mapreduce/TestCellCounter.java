@@ -39,6 +39,7 @@ import java.io.*;
 
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
+import static org.junit.Assert.assertEquals;
 
 @Category(LargeTests.class)
 public class TestCellCounter {
@@ -129,7 +130,8 @@ public class TestCellCounter {
 
     PrintStream oldPrintStream = System.err;
     SecurityManager SECURITY_MANAGER = System.getSecurityManager();
-    new LauncherSecurityManager();
+    LauncherSecurityManager newSecurityManager=new LauncherSecurityManager();
+    System.setSecurityManager(newSecurityManager);
     ByteArrayOutputStream data = new ByteArrayOutputStream();
     String[] args = {};
     System.setErr(new PrintStream(data));
@@ -140,6 +142,7 @@ public class TestCellCounter {
         CellCounter.main(args);
         fail("should be SecurityException");
       } catch (SecurityException e) {
+        assertEquals(-1, newSecurityManager.getExitCode());
         assertTrue(data.toString().contains("ERROR: Wrong number of parameters:"));
         // should be print usage help
         assertTrue(data.toString().contains( "Usage:"));

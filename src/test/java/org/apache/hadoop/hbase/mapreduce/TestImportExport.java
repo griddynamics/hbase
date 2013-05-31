@@ -415,7 +415,8 @@ public class TestImportExport {
   public void testImportMain() throws Exception {
     PrintStream oldPrintStream = System.err;
     SecurityManager SECURITY_MANAGER = System.getSecurityManager();
-    new LauncherSecurityManager();
+    LauncherSecurityManager newSecurityManager=new LauncherSecurityManager();
+    System.setSecurityManager(newSecurityManager);
     ByteArrayOutputStream data = new ByteArrayOutputStream();
     String[] args = {};
     System.setErr(new PrintStream(data));
@@ -424,6 +425,7 @@ public class TestImportExport {
       Import.main(args);
       fail("should be SecurityException");
     } catch (SecurityException e) {
+      assertEquals(-1, newSecurityManager.getExitCode());
       assertTrue(data.toString().contains("Wrong number of arguments:"));
       assertTrue(data.toString().contains("-Dimport.bulk.output=/path/for/output"));
       assertTrue(data.toString().contains("-Dimport.filter.class=<name of filter class>"));
@@ -442,7 +444,8 @@ public class TestImportExport {
   public void testExportMain() throws Exception {
     PrintStream oldPrintStream = System.err;
     SecurityManager SECURITY_MANAGER = System.getSecurityManager();
-    new LauncherSecurityManager();
+    LauncherSecurityManager newSecurityManager=new LauncherSecurityManager();
+    System.setSecurityManager(newSecurityManager);
     ByteArrayOutputStream data = new ByteArrayOutputStream();
     String[] args = {};
     System.setErr(new PrintStream(data));
@@ -451,6 +454,7 @@ public class TestImportExport {
       Export.main(args);
       fail("should be SecurityException");
     } catch (SecurityException e) {
+      assertEquals(-1, newSecurityManager.getExitCode());
       assertTrue(data.toString().contains("Wrong number of arguments:"));
       assertTrue(data
           .toString()

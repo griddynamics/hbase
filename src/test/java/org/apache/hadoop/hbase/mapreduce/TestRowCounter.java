@@ -173,7 +173,8 @@ public class TestRowCounter {
   public void testImportMain() throws Exception {
     PrintStream oldPrintStream = System.err;
     SecurityManager SECURITY_MANAGER = System.getSecurityManager();
-    new LauncherSecurityManager();
+    LauncherSecurityManager newSecurityManager=new LauncherSecurityManager();
+    System.setSecurityManager(newSecurityManager);
     ByteArrayOutputStream data = new ByteArrayOutputStream();
     String[] args = {};
     System.setErr(new PrintStream(data));
@@ -195,14 +196,11 @@ public class TestRowCounter {
         RowCounter.main(args);
         fail("should be SecurityException");
       } catch (SecurityException e) {
-        assertTrue(data
-            .toString()
-            .contains(
+        assertEquals(-1, newSecurityManager.getExitCode());
+        assertTrue(data.toString().contains(
                 "Please specify range in such format as \"--range=a,b\" or, " +
                         "with only one boundary, \"--range=,b\" or \"--range=a,\""));
-        assertTrue(data
-            .toString()
-            .contains(
+        assertTrue(data.toString().contains(
                 "Usage: RowCounter [options] <tablename> [--range=[startKey],[endKey]]" +
                         " [<column1> <column2>...]"));
       }

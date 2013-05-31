@@ -36,14 +36,11 @@ import java.security.Permission;
 
 public class LauncherSecurityManager extends SecurityManager {
 
-  private static boolean exitInvoked;
-  private static int exitCode;
+  private int exitCode;
   private SecurityManager securityManager;
 
   public LauncherSecurityManager() {
-    reset();
     securityManager = System.getSecurityManager();
-    System.setSecurityManager(this);
   }
 
   @Override
@@ -64,22 +61,14 @@ public class LauncherSecurityManager extends SecurityManager {
 
   @Override
   public void checkExit(int status) throws SecurityException {
-    exitInvoked = true;
     exitCode = status;
     throw new SecurityException("Intercepted System.exit(" + status + ")");
   }
 
-  public static boolean getExitInvoked() {
-    return exitInvoked;
-  }
 
-  public static int getExitCode() {
+  public int getExitCode() {
     return exitCode;
   }
 
-  public static void reset() {
-    exitInvoked = false;
-    exitCode = 0;
-  }
 
 }

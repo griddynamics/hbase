@@ -359,8 +359,9 @@ public class TestImportTsv {
     PrintStream oldErrorStream = System.err;
     ByteArrayOutputStream data = new ByteArrayOutputStream();
     System.setErr(new PrintStream(data));
-    SecurityManager oldSecurityManager = System.getSecurityManager();
-    new LauncherSecurityManager();
+    SecurityManager SECURITY_MANAGER = System.getSecurityManager();
+    LauncherSecurityManager newSecurityManager=new LauncherSecurityManager();
+    System.setSecurityManager(newSecurityManager);
     // test print help test
     try {
       String args[] = {};
@@ -411,10 +412,11 @@ public class TestImportTsv {
       ImportTsv.main(args);
       fail("should be exit!");
     } catch (SecurityException e) {
+      assertEquals(0, newSecurityManager.getExitCode());
       assertEquals("Intercepted System.exit(0)", e.getMessage());
     } finally {
       System.setErr(oldErrorStream);
-      System.setSecurityManager(oldSecurityManager);
+      System.setSecurityManager(SECURITY_MANAGER);
       fconfig.delete();
       FileUtils.moveFile(new File("target" + File.separator + "test-classes" + File.separator
           + "hbase-site.xml.old"), new File("target" + File.separator + "test-classes"
