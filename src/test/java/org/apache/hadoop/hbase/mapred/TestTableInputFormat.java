@@ -35,12 +35,20 @@ import java.util.Map;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.apache.hadoop.hbase.*;
+import org.apache.hadoop.hbase.DoNotRetryIOException;
+import org.apache.hadoop.hbase.HBaseTestingUtility;
+import org.apache.hadoop.hbase.LargeTests;
+import org.apache.hadoop.hbase.UnknownScannerException;
 import org.apache.hadoop.hbase.client.HTable;
 import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.ResultScanner;
 import org.apache.hadoop.hbase.client.Scan;
+import org.apache.hadoop.hbase.client.ScannerCallable;
+import org.apache.hadoop.hbase.filter.CompareFilter.CompareOp;
+import org.apache.hadoop.hbase.filter.Filter;
+import org.apache.hadoop.hbase.filter.RegexStringComparator;
+import org.apache.hadoop.hbase.filter.ValueFilter;
 import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.junit.AfterClass;
@@ -100,6 +108,55 @@ public class TestTableInputFormat {
     return table;
   }
 
+  public static HTable createTableWithLogEnabledConfiguration(byte[] tableName,
+      int logFrame, int frameNumber) throws IOException {
+
+    // override setting
+    org.apache.hadoop.conf.Configuration c1 = UTIL.getConfiguration();
+    c1.setBoolean(ScannerCallable.LOG_SCANNER_ACTIVITY, true);
+    c1.setInt(
+        org.apache.hadoop.hbase.mapreduce.TableRecordReaderImpl.LOG_PER_ROW_COUNT,
+        logFrame);
+
+    HTable table = UTIL.createTable(tableName, FAMILY);
+    int rowLimit = logFrame * frameNumber;
+    for (int i = 0; i < rowLimit; i++) {
+      Put p = new Put(Bytes.toBytes("aaa" + i));
+      p.add(FAMILY, null, Bytes.toBytes("value" + i));
+      table.put(p);
+    }
+    return table;
+  }
+
+  static void runTestMapredWithLimit(HTable table, int logFrame, int frameNumber)
+      throws IOException {
+    org.apache.hadoop.hbase.mapred.TableRecordReader trr = new org.apache.hadoop.hbase.mapred.TableRecordReader();
+    boolean more = false;
+    Result r = new Result();
+    int rowLimit = logFrame * frameNumber;
+    ImmutableBytesWritable key = new ImmutableBytesWritable();
+
+    trr.setStartRow("aaa".getBytes());
+    trr.setEndRow("zzz".getBytes());
+    trr.setHTable(table);
+    trr.setInputColumns(columns);
+
+    // define custom filter
+    Filter vFilter = new ValueFilter(CompareOp.EQUAL,
+        new RegexStringComparator(".*value.*"));
+    trr.setRowFilter(vFilter);
+    trr.init();
+
+    for (int i = 0; i < rowLimit; i++) {
+      more = trr.next(key, r);
+      assertTrue(more);
+    }
+
+    // no more data
+    more = trr.next(key, r);
+    assertFalse(more);
+  }
+
   /**
    * Verify that the result and key have expected values.
    * 
@@ -126,8 +183,7 @@ public class TestTableInputFormat {
    * @throws IOException
    */
   static void runTestMapred(HTable table) throws IOException {
-    org.apache.hadoop.hbase.mapred.TableRecordReader trr = 
-        new org.apache.hadoop.hbase.mapred.TableRecordReader();
+    org.apache.hadoop.hbase.mapred.TableRecordReader trr = new org.apache.hadoop.hbase.mapred.TableRecordReader();
     trr.setStartRow("aaa".getBytes());
     trr.setEndRow("zzz".getBytes());
     trr.setHTable(table);
@@ -160,8 +216,7 @@ public class TestTableInputFormat {
    */
   static void runTestMapreduce(HTable table) throws IOException,
       InterruptedException {
-    org.apache.hadoop.hbase.mapreduce.TableRecordReaderImpl trr = 
-        new org.apache.hadoop.hbase.mapreduce.TableRecordReaderImpl();
+    org.apache.hadoop.hbase.mapreduce.TableRecordReaderImpl trr = new org.apache.hadoop.hbase.mapreduce.TableRecordReaderImpl();
     Scan s = new Scan();
     s.setStartRow("aaa".getBytes());
     s.setStopRow("zzz".getBytes());
@@ -262,6 +317,15 @@ public class TestTableInputFormat {
     return htable;
   }
 
+  @Test
+  public void testTableRecordReaderWithLogEnabled() throws IOException {
+    int logFrame = 10;
+    int frameNumber = 10;
+    HTable table = createTableWithLogEnabledConfiguration("table0".getBytes(),
+          logFrame, frameNumber);
+    runTestMapredWithLimit(table, logFrame, frameNumber);
+  }
+
   /**
    * Run test assuming no errors using mapred api.
    * 
@@ -352,8 +416,8 @@ public class TestTableInputFormat {
    * @throws InterruptedException
    */
   @Test(expected = IOException.class)
-  public void testTableRecordReaderScannerFailMapreduceTwice() throws IOException,
-      InterruptedException {
+  public void testTableRecordReaderScannerFailMapreduceTwice()
+      throws IOException, InterruptedException {
     HTable htable = createIOEScannerTable("table3-mr".getBytes(), 2);
     runTestMapreduce(htable);
   }
@@ -387,7 +451,5 @@ public class TestTableInputFormat {
   }
 
   @org.junit.Rule
-  public org.apache.hadoop.hbase.ResourceCheckerJUnitRule cu =
-    new org.apache.hadoop.hbase.ResourceCheckerJUnitRule();
+  public org.apache.hadoop.hbase.ResourceCheckerJUnitRule cu = new org.apache.hadoop.hbase.ResourceCheckerJUnitRule();
 }
-

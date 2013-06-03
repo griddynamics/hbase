@@ -1,5 +1,4 @@
 /**
- * Copyright 2010 The Apache Software Foundation
  *
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -19,38 +18,23 @@
  */
 package org.apache.hadoop.hbase.mapred;
 
+import org.apache.hadoop.hbase.SmallTests;
 import org.apache.hadoop.util.ProgramDriver;
+import org.junit.Test;
+import org.junit.experimental.categories.Category;
+import org.mockito.Mockito;
 
-import com.google.common.annotations.VisibleForTesting;
+@Category(SmallTests.class)
+public class TestDriver {
 
-/**
- * Driver for hbase mapreduce jobs. Select which to run by passing name of job
- * to this main.
- */
-@Deprecated
-public class Driver {
-
-  static ProgramDriver pgdMock;
-
-  @VisibleForTesting
-  static void setProgramDriver(ProgramDriver programDriverMock) {
-    pgdMock = programDriverMock;
-  }
-
-  /**
-   * @param args
-   * @throws Throwable
-   */
-  public static void main(String[] args) throws Throwable {
-    ProgramDriver pgd = null;
-
-    if (pgdMock != null)
-      pgd = pgdMock;
-    else
-      pgd = new ProgramDriver();
-
-    pgd.addClass(RowCounter.NAME, RowCounter.class, "Count rows in HBase table");
-    ProgramDriver.class.getMethod("driver", new Class[] { String[].class })
-        .invoke(pgd, new Object[] { args });
+  @Test
+  @SuppressWarnings("deprecation")
+  public void driverMethodshouldBeCalled() throws Throwable {
+    ProgramDriver programDriverMock = Mockito.mock(ProgramDriver.class);
+    Driver.setProgramDriver(programDriverMock);
+    Driver.main(new String[] {});
+    Mockito.verify(programDriverMock).driver(Mockito.any(String[].class));
+    
+    Driver.main(new String[] {});
   }
 }
