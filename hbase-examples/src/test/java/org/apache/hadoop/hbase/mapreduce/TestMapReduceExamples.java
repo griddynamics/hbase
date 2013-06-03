@@ -25,6 +25,7 @@ import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
 import org.apache.hadoop.hbase.mapreduce.IndexBuilder.Map;
 import org.apache.hadoop.hbase.mapreduce.SampleUploader.Uploader;
 import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.hbase.util.LauncherSecurityManager;
 import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapreduce.Job;
@@ -38,7 +39,6 @@ import org.mockito.stubbing.Answer;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
-import java.security.Permission;
 
 import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
@@ -176,45 +176,5 @@ public class TestMapReduceExamples {
       System.setSecurityManager(SECURITY_MANAGER);
     }
 
-  }
-  
-  private static class LauncherSecurityManager extends SecurityManager {
-
-    private int exitCode;
-    private SecurityManager securityManager;
-
-    public LauncherSecurityManager() {
-      reset();
-    }
-
-    @Override
-    public void checkPermission(Permission perm, Object context) {
-      if (securityManager != null) {
-        // check everything with the original SecurityManager
-        securityManager.checkPermission(perm, context);
-      }
-    }
-
-    @Override
-    public void checkPermission(Permission perm) {
-      if (securityManager != null) {
-        // check everything with the original SecurityManager
-        securityManager.checkPermission(perm);
-      }
-    }
-
-    @Override
-    public void checkExit(int status) throws SecurityException {
-      exitCode = status;
-      throw new SecurityException("Intercepted System.exit(" + status + ")");
-    }
-
-    public  int getExitCode() {
-      return exitCode;
-    }
-
-    public void reset() {
-      exitCode = 0;
-    }
   }
 }
