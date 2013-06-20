@@ -209,7 +209,8 @@ public class HRegion implements HeapSize { // , Writable{
    * startRegionOperation
    */
   protected enum Operation {
-    ANY, GET, PUT, DELETE, SCAN, APPEND, INCREMENT, SPLIT_REGION, MERGE_REGION
+    ANY, GET, PUT, DELETE, SCAN, APPEND, INCREMENT, SPLIT_REGION, MERGE_REGION, BATCH_MUTATE,
+    REPLAY_BATCH_MUTATE
   }
 
   //////////////////////////////////////////////////////////////////////////////
@@ -232,7 +233,7 @@ public class HRegion implements HeapSize { // , Writable{
   public final AtomicLong memstoreSize = new AtomicLong(0);
 
   // Debug possible data loss due to WAL off
-  final Counter numPutsWithoutWAL = new Counter();
+  final Counter numMutationsWithoutWAL = new Counter();
   final Counter dataInMemoryWithoutWAL = new Counter();
 
   // Debug why CAS operations are taking a while.
@@ -299,6 +300,11 @@ public class HRegion implements HeapSize { // , Writable{
   // are equal to or lower than maxSeqId for each store.
   // The following map is populated when opening the region
   Map<byte[], Long> maxSeqIdInStores = new TreeMap<byte[], Long>(Bytes.BYTES_COMPARATOR);
+
+  /**
+   * Config setting for whether to allow writes when a region is in recovering or not.
+   */
+  private boolean disallowWritesInRecovering = false;
 
   /**
    * @return The smallest mvcc readPoint across all the scanners in this
@@ -502,7 +508,6 @@ public class HRegion implements HeapSize { // , Writable{
     // When hbase.regionserver.optionallogflushinterval <= 0 , deferred log sync is disabled.
     this.deferredLogSyncDisabled = conf.getLong("hbase.regionserver.optionallogflushinterval",
         1 * 1000) <= 0;
-
     if (rsServices != null) {
       this.rsAccounting = this.rsServices.getRegionServerAccounting();
       // don't initialize coprocessors if not running within a regionserver
@@ -518,6 +523,11 @@ public class HRegion implements HeapSize { // , Writable{
       // Write out region name as string and its encoded name.
       LOG.debug("Instantiated " + this);
     }
+
+    // by default, we allow writes against a region when it's in recovering
+    this.disallowWritesInRecovering =
+        conf.getBoolean(HConstants.DISALLOW_WRITES_IN_RECOVERING,
+          HConstants.DEFAULT_DISALLOW_WRITES_IN_RECOVERING_CONFIG);
   }
 
   void setHTableSpecificConf() {
@@ -606,7 +616,8 @@ public class HRegion implements HeapSize { // , Writable{
     // Use maximum of log sequenceid or that which was found in stores
     // (particularly if no recovered edits, seqid will be -1).
     long nextSeqid = maxSeqId + 1;
-    LOG.info("Onlined " + this.toString() + "; next sequenceid=" + nextSeqid);
+    LOG.info("Onlined " + this.getRegionInfo().getShortNameToLog() +
+      "; next sequenceid=" + nextSeqid);
 
     // A region can be reopened if failed a split; reset flags
     this.closing.set(false);
@@ -632,8 +643,7 @@ public class HRegion implements HeapSize { // , Writable{
     if (!htableDescriptor.getFamilies().isEmpty()) {
       // initialize the thread pool for opening stores in parallel.
       ThreadPoolExecutor storeOpenerThreadPool =
-        getStoreOpenAndCloseThreadPool(
-          "StoreOpenerThread-" + this.getRegionNameAsString());
+        getStoreOpenAndCloseThreadPool("StoreOpener-" + this.getRegionInfo().getShortNameToLog());
       CompletionService<HStore> completionService =
         new ExecutorCompletionService<HStore>(storeOpenerThreadPool);
 
@@ -1320,8 +1330,8 @@ public class HRegion implements HeapSize { // , Writable{
         status.setStatus("Running coprocessor pre-flush hooks");
         coprocessorHost.preFlush();
       }
-      if (numPutsWithoutWAL.get() > 0) {
-        numPutsWithoutWAL.set(0);
+      if (numMutationsWithoutWAL.get() > 0) {
+        numMutationsWithoutWAL.set(0);
         dataInMemoryWithoutWAL.set(0);
       }
       synchronized (writestate) {
@@ -1919,7 +1929,11 @@ public class HRegion implements HeapSize { // , Writable{
       checkResources();
 
       long newSize;
-      startRegionOperation();
+      if (isReplay) {
+        startRegionOperation(Operation.REPLAY_BATCH_MUTATE);
+      } else {
+        startRegionOperation(Operation.BATCH_MUTATE);
+      }
 
       try {
         if (!initialized) {
@@ -2177,9 +2191,7 @@ public class HRegion implements HeapSize { // , Writable{
           durability = tmpDur;
         }
         if (tmpDur == Durability.SKIP_WAL) {
-          if (m instanceof Put) {
-            recordPutWithoutWal(m.getFamilyMap());
-          }
+          recordMutationWithoutWal(m.getFamilyMap());
           continue;
         }
 
@@ -4136,10 +4148,7 @@ public class HRegion implements HeapSize { // , Writable{
       final RegionServerServices rsServices, final CancelableProgressable reporter)
       throws IOException {
     if (info == null) throw new NullPointerException("Passed region info is null");
-    LOG.info("HRegion.openHRegion Region name ==" + info.getRegionNameAsString());
-    if (LOG.isDebugEnabled()) {
-      LOG.debug("Opening region: " + info);
-    }
+    LOG.info("Open " + info);
     Path dir = HTableDescriptor.getTableDir(rootDir, info.getTableName());
     HRegion r = HRegion.newHRegion(dir, wal, fs, conf, info, htd, rsServices);
     return r.openHRegion(reporter);
@@ -4822,10 +4831,11 @@ public class HRegion implements HeapSize { // , Writable{
           // Using default cluster id, as this can only happen in the orginating
           // cluster. A slave cluster receives the final value (not the delta)
           // as a Put.
-          txid = this.log.appendNoSync(this.getRegionInfo(),
-              this.htableDescriptor.getName(), walEdits,
-              HConstants.DEFAULT_CLUSTER_ID, EnvironmentEdgeManager.currentTimeMillis(),
-              this.htableDescriptor);
+          txid = this.log.appendNoSync(this.getRegionInfo(), this.htableDescriptor.getName(),
+            walEdits, HConstants.DEFAULT_CLUSTER_ID, EnvironmentEdgeManager.currentTimeMillis(),
+            this.htableDescriptor);
+        } else {
+          recordMutationWithoutWal(append.getFamilyMap());
         }
 
         //Actually write to Memstore now
@@ -4970,8 +4980,9 @@ public class HRegion implements HeapSize { // , Writable{
           txid = this.log.appendNoSync(this.getRegionInfo(), this.htableDescriptor.getName(),
               walEdits, HConstants.DEFAULT_CLUSTER_ID, EnvironmentEdgeManager.currentTimeMillis(),
               this.htableDescriptor);
+        } else {
+          recordMutationWithoutWal(increment.getFamilyMap());
         }
-
         //Actually write to Memstore now
         for (Map.Entry<Store, List<KeyValue>> entry : tempMemstore.entrySet()) {
           Store store = entry.getKey();
@@ -5033,7 +5044,7 @@ public class HRegion implements HeapSize { // , Writable{
       ClassSize.ARRAY +
       39 * ClassSize.REFERENCE + 2 * Bytes.SIZEOF_INT +
       (11 * Bytes.SIZEOF_LONG) +
-      Bytes.SIZEOF_BOOLEAN);
+      2 * Bytes.SIZEOF_BOOLEAN);
 
   public static final long DEEP_OVERHEAD = FIXED_OVERHEAD +
       ClassSize.OBJECT + // closeLock
@@ -5331,14 +5342,17 @@ public class HRegion implements HeapSize { // , Writable{
     case SCAN:
     case SPLIT_REGION:
     case MERGE_REGION:
+    case PUT:
+    case DELETE:
+    case BATCH_MUTATE:
       // when a region is in recovering state, no read, split or merge is allowed
-      if (this.isRecovering()) {
-        throw new RegionInRecoveryException(this.getRegionNameAsString()
-            + " is recovering");
+      if (this.isRecovering() && (this.disallowWritesInRecovering || 
+              (op != Operation.PUT && op != Operation.DELETE && op != Operation.BATCH_MUTATE))) {
+        throw new RegionInRecoveryException(this.getRegionNameAsString() + " is recovering");
       }
       break;
-      default:
-        break;
+    default:
+      break;
     }
     if (op == Operation.MERGE_REGION || op == Operation.SPLIT_REGION) {
       // split or merge region doesn't need to check the closing/closed state or lock the region
@@ -5398,22 +5412,22 @@ public class HRegion implements HeapSize { // , Writable{
    * Update counters for numer of puts without wal and the size of possible data loss.
    * These information are exposed by the region server metrics.
    */
-  private void recordPutWithoutWal(final Map<byte [], List<? extends Cell>> familyMap) {
-    numPutsWithoutWAL.increment();
-    if (numPutsWithoutWAL.get() <= 1) {
+  private void recordMutationWithoutWal(final Map<byte [], List<? extends Cell>> familyMap) {
+    numMutationsWithoutWAL.increment();
+    if (numMutationsWithoutWAL.get() <= 1) {
       LOG.info("writing data to region " + this +
                " with WAL disabled. Data may be lost in the event of a crash.");
     }
 
-    long putSize = 0;
+    long mutationSize = 0;
     for (List<? extends Cell> cells: familyMap.values()) {
       for (Cell cell : cells) {
         KeyValue kv = KeyValueUtil.ensureKeyValue(cell);
-        putSize += kv.getKeyLength() + kv.getValueLength();
+        mutationSize += kv.getKeyLength() + kv.getValueLength();
       }
     }
 
-    dataInMemoryWithoutWAL.add(putSize);
+    dataInMemoryWithoutWAL.add(mutationSize);
   }
 
   private void lock(final Lock lock)
