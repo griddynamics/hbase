@@ -197,6 +197,7 @@ import org.apache.hadoop.hbase.util.VersionInfo;
 import org.apache.hadoop.hbase.zookeeper.ClusterStatusTracker;
 import org.apache.hadoop.hbase.zookeeper.DrainingServerTracker;
 import org.apache.hadoop.hbase.zookeeper.LoadBalancerTracker;
+import org.apache.hadoop.hbase.zookeeper.MasterAddressTracker;
 import org.apache.hadoop.hbase.zookeeper.RegionServerTracker;
 import org.apache.hadoop.hbase.zookeeper.ZKClusterId;
 import org.apache.hadoop.hbase.zookeeper.ZKUtil;
@@ -258,6 +259,8 @@ MasterServices, Server {
   private DrainingServerTracker drainingServerTracker;
   // Tracker for load balancer state
   private LoadBalancerTracker loadBalancerTracker;
+  // master address manager and watcher
+  private MasterAddressTracker masterAddressManager;
 
   // RPC server for the HMaster
   private final RpcServerInterface rpcServer;
@@ -528,6 +531,20 @@ MasterServices, Server {
     masterStartTime = System.currentTimeMillis();
     try {
       this.registeredZKListenersBeforeRecovery = this.zooKeeper.getListeners();
+      this.masterAddressManager = new MasterAddressTracker(getZooKeeperWatcher(), this);
+      this.masterAddressManager.start();
+
+      // Put up info server.
+      int port = this.conf.getInt("hbase.master.info.port", 60010);
+      if (port >= 0) {
+        String a = this.conf.get("hbase.master.info.bindAddress", "0.0.0.0");
+        this.infoServer = new InfoServer(MASTER, a, port, false, this.conf);
+        this.infoServer.addServlet("status", "/master-status", MasterStatusServlet.class);
+        this.infoServer.addServlet("dump", "/dump", MasterDumpServlet.class);
+        this.infoServer.setAttribute(MASTER, this);
+        this.infoServer.start();
+      }
+
       /*
        * Block on becoming the active master.
        *
@@ -1057,6 +1074,14 @@ MasterServices, Server {
     return this.zooKeeper;
   }
 
+  public ActiveMasterManager getActiveMasterManager() {
+    return this.activeMasterManager;
+  }
+  
+  public MasterAddressTracker getMasterAddressManager() {
+    return this.masterAddressManager;
+  }
+  
   /*
    * Start up all services. If any of these threads gets an unhandled exception
    * then they just die with a logged message.  This should be fine because
@@ -1094,17 +1119,6 @@ MasterServices, Server {
     this.hfileCleaner = new HFileCleaner(cleanerInterval, this, conf, getMasterFileSystem()
         .getFileSystem(), archiveDir);
     Threads.setDaemonThreadRunning(hfileCleaner.getThread(), n + ".archivedHFileCleaner");
-
-   // Put up info server.
-   int port = this.conf.getInt(HConstants.MASTER_INFO_PORT, 60010);
-   if (port >= 0) {
-     String a = this.conf.get("hbase.master.info.bindAddress", "0.0.0.0");
-     this.infoServer = new InfoServer(MASTER, a, port, false, this.conf);
-     this.infoServer.addServlet("status", "/master-status", MasterStatusServlet.class);
-     this.infoServer.addServlet("dump", "/dump", MasterDumpServlet.class);
-     this.infoServer.setAttribute(MASTER, this);
-     this.infoServer.start();
-    }
 
     // Start the health checker
     if (this.healthCheckChore != null) {
@@ -1412,6 +1426,7 @@ MasterServices, Server {
     SYNC,
     ASYNC
   }
+
   /**
    * Assigns balancer switch according to BalanceSwitchMode
    * @param b new balancer switch
@@ -2395,32 +2410,54 @@ MasterServices, Server {
    */
   public GetTableDescriptorsResponse getTableDescriptors(
 	      RpcController controller, GetTableDescriptorsRequest req) throws ServiceException {
-    GetTableDescriptorsResponse.Builder builder = GetTableDescriptorsResponse.newBuilder();
-    if (req.getTableNamesCount() == 0) {
-      // request for all TableDescriptors
-      Map<String, HTableDescriptor> descriptors = null;
+    List<HTableDescriptor> descriptors = new ArrayList<HTableDescriptor>();
+
+    boolean bypass = false;
+    if (this.cpHost != null) {
       try {
-        descriptors = this.tableDescriptors.getAll();
-      } catch (IOException e) {
-          LOG.warn("Failed getting all descriptors", e);
+        bypass = this.cpHost.preGetTableDescriptors(req.getTableNamesList(), descriptors);
+      } catch (IOException ioe) {
+        throw new ServiceException(ioe);
       }
-      if (descriptors != null) {
-        for (HTableDescriptor htd : descriptors.values()) {
-          builder.addTableSchema(htd.convert());
+    }
+
+    if (!bypass) {
+      if (req.getTableNamesCount() == 0) {
+        // request for all TableDescriptors
+        Map<String, HTableDescriptor> descriptorMap = null;
+        try {
+          descriptorMap = this.tableDescriptors.getAll();
+        } catch (IOException e) {
+          LOG.warn("Failed getting all descriptors", e);
+        }
+        if (descriptorMap != null) {
+          descriptors.addAll(descriptorMap.values());
+        }
+      } else {
+        for (String s: req.getTableNamesList()) {
+          try {
+            HTableDescriptor desc = this.tableDescriptors.get(s);
+            if (desc != null) {
+              descriptors.add(desc);
+            }
+          } catch (IOException e) {
+            LOG.warn("Failed getting descriptor for " + s, e);
+          }
+        }
+      }
+
+      if (this.cpHost != null) {
+        try {
+          this.cpHost.postGetTableDescriptors(descriptors);
+        } catch (IOException ioe) {
+          throw new ServiceException(ioe);
         }
       }
     }
-    else {
-      for (String s: req.getTableNamesList()) {
-        HTableDescriptor htd = null;
-        try {
-          htd = this.tableDescriptors.get(s);
-        } catch (IOException e) {
-          LOG.warn("Failed getting descriptor for " + s, e);
-        }
-        if (htd == null) continue;
-        builder.addTableSchema(htd.convert());
-      }
+
+    GetTableDescriptorsResponse.Builder builder = GetTableDescriptorsResponse.newBuilder();
+    for (HTableDescriptor htd: descriptors) {
+      builder.addTableSchema(htd.convert());
     }
     return builder.build();
   }
