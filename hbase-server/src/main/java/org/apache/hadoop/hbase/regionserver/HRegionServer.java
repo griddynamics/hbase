@@ -1431,17 +1431,12 @@ public class HRegionServer implements ClientProtos.ClientService.BlockingInterfa
   }
 
   private HLog getMetaWAL() throws IOException {
-    if (this.hlogForMeta == null) {
-      final String logName
-      = HLogUtil.getHLogDirectoryName(this.serverNameFromMasterPOV.toString());
-
-      Path logdir = new Path(rootDir, logName);
-      if (LOG.isDebugEnabled()) LOG.debug("logdir=" + logdir);
-
-      this.hlogForMeta = HLogFactory.createMetaHLog(this.fs.getBackingFs(),
-          rootDir, logName, this.conf, getMetaWALActionListeners(),
-          this.serverNameFromMasterPOV.toString());
-    }
+    if (this.hlogForMeta != null) return this.hlogForMeta;
+    final String logName = HLogUtil.getHLogDirectoryName(this.serverNameFromMasterPOV.toString());
+    Path logdir = new Path(rootDir, logName);
+    if (LOG.isDebugEnabled()) LOG.debug("logdir=" + logdir);
+    this.hlogForMeta = HLogFactory.createMetaHLog(this.fs.getBackingFs(), rootDir, logName,
+      this.conf, getMetaWALActionListeners(), this.serverNameFromMasterPOV.toString());
     return this.hlogForMeta;
   }
 
@@ -1483,7 +1478,7 @@ public class HRegionServer implements ClientProtos.ClientService.BlockingInterfa
     MetaLogRoller tmpLogRoller = new MetaLogRoller(this, this);
     String n = Thread.currentThread().getName();
     Threads.setDaemonThreadRunning(tmpLogRoller.getThread(),
-        n + "MetaLogRoller", uncaughtExceptionHandler);
+        n + "-MetaLogRoller", uncaughtExceptionHandler);
     this.metaHLogRoller = tmpLogRoller;
     tmpLogRoller = null;
     listeners.add(this.metaHLogRoller);
@@ -1665,8 +1660,7 @@ public class HRegionServer implements ClientProtos.ClientService.BlockingInterfa
     //currently, we don't care about the region as much as we care about the
     //table.. (hence checking the tablename below)
     //_ROOT_ and .META. regions have separate WAL.
-    if (regionInfo != null &&
-        regionInfo.isMetaTable()) {
+    if (regionInfo != null && regionInfo.isMetaTable()) {
       return getMetaWAL();
     }
     return this.hlog;
@@ -3956,8 +3950,7 @@ public class HRegionServer implements ClientProtos.ClientService.BlockingInterfa
    */
   protected void doBatchOp(final MultiResponse.Builder builder, final HRegion region,
       final List<MutationProto> mutations, final CellScanner cells, boolean isReplay) {
-    @SuppressWarnings("unchecked")
-    Pair<Mutation, Integer>[] mutationsWithLocks = new Pair[mutations.size()];
+    Mutation[] mArray = new Mutation[mutations.size()];
     long before = EnvironmentEdgeManager.currentTimeMillis();
     boolean batchContainsPuts = false, batchContainsDelete = false;
     try {
@@ -3974,7 +3967,7 @@ public class HRegionServer implements ClientProtos.ClientService.BlockingInterfa
           mutation = ProtobufUtil.toDelete(m, cells);
           batchContainsDelete = true;
         }
-        mutationsWithLocks[i++] = new Pair<Mutation, Integer>(mutation, null);
+        mArray[i++] = mutation;
         builder.addResult(result);
       }
 
@@ -3983,7 +3976,7 @@ public class HRegionServer implements ClientProtos.ClientService.BlockingInterfa
         cacheFlusher.reclaimMemStoreMemory();
       }
 
-      OperationStatus codes[] = region.batchMutate(mutationsWithLocks, isReplay);
+      OperationStatus codes[] = region.batchMutate(mArray);
       for (i = 0; i < codes.length; i++) {
         switch (codes[i].getOperationStatusCode()) {
           case BAD_FAMILY:
