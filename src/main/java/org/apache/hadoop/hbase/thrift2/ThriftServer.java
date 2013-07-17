@@ -19,6 +19,7 @@
  */
 package org.apache.hadoop.hbase.thrift2;
 
+import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
@@ -46,6 +47,7 @@ import org.apache.hadoop.hbase.thrift.CallQueue.Call;
 import org.apache.hadoop.hbase.thrift.ThriftMetrics;
 import org.apache.hadoop.hbase.thrift2.generated.THBaseService;
 import org.apache.hadoop.hbase.util.InfoServer;
+import org.apache.hadoop.util.GenericOptionsParser;
 import org.apache.thrift.protocol.TBinaryProtocol;
 import org.apache.thrift.protocol.TCompactProtocol;
 import org.apache.thrift.protocol.TProtocolFactory;
@@ -104,9 +106,12 @@ public class ThriftServer {
     return options;
   }
 
-  private static CommandLine parseArguments(Options options, String[] args) throws ParseException {
+  private static CommandLine parseArguments(Configuration conf, Options options, String[] args)
+      throws ParseException, IOException {
+    GenericOptionsParser genParser = new GenericOptionsParser(conf, args);
+    String[] remainingArgs = genParser.getRemainingArgs();
     CommandLineParser parser = new PosixParser();
-    return parser.parse(options, args);
+    return parser.parse(options, remainingArgs);
   }
 
   private static TProtocolFactory getTProtocolFactory(boolean isCompact) {
@@ -221,7 +226,8 @@ public class ThriftServer {
     TServer server = null;
     Options options = getOptions();
     try {
-      CommandLine cmd = parseArguments(options, args);
+      Configuration conf = HBaseConfiguration.create();
+      CommandLine cmd = parseArguments(conf, options, args);
 
       /**
        * This is to please both bin/hbase and bin/hbase-daemon. hbase-daemon provides "start" and "stop" arguments hbase
@@ -244,7 +250,6 @@ public class ThriftServer {
       boolean nonblocking = cmd.hasOption("nonblocking");
       boolean hsha = cmd.hasOption("hsha");
 
-      Configuration conf = HBaseConfiguration.create();
       ThriftMetrics metrics = new ThriftMetrics(
           listenPort, conf, THBaseService.Iface.class);
 
@@ -260,14 +265,16 @@ public class ThriftServer {
       registerFilters(conf);
 
       // Construct correct ProtocolFactory
-      boolean compact = cmd.hasOption("compact");
+      boolean compact = cmd.hasOption("compact") ||
+        conf.getBoolean("hbase.regionserver.thrift.compact", false);
       TProtocolFactory protocolFactory = getTProtocolFactory(compact);
       THBaseService.Iface handler =
           ThriftHBaseServiceHandler.newInstance(conf, metrics);
       THBaseService.Processor processor = new THBaseService.Processor(handler);
       conf.setBoolean("hbase.regionserver.thrift.compact", compact);
 
-      boolean framed = cmd.hasOption("framed") || nonblocking || hsha;
+      boolean framed = cmd.hasOption("framed") ||
+        conf.getBoolean("hbase.regionserver.thrift.framed", false) || nonblocking || hsha;
       TTransportFactory transportFactory = getTTransportFactory(framed);
       conf.setBoolean("hbase.regionserver.thrift.framed", framed);
 
