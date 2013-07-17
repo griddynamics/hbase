@@ -154,7 +154,7 @@ public class TestAccessController {
       Coprocessor.PRIORITY_HIGHEST, 1, conf);
     RegionServerCoprocessorHost rsHost = TEST_UTIL.getMiniHBaseCluster().getRegionServer(0)
         .getCoprocessorHost();
-    RSCP_ENV = rsHost.createEnvironment(AccessController.class, ACCESS_CONTROLLER, 
+    RSCP_ENV = rsHost.createEnvironment(AccessController.class, ACCESS_CONTROLLER,
       Coprocessor.PRIORITY_HIGHEST, 1, conf);
 
     // Wait for the ACL table to become available
@@ -424,7 +424,7 @@ public class TestAccessController {
 
     verifyAllowed(disableTable, SUPERUSER, USER_ADMIN, USER_CREATE, USER_OWNER);
     verifyDenied(disableTable, USER_RW, USER_RO, USER_NONE);
-    
+
     // No user should be allowed to disable _acl_ table
     verifyDenied(disableAclTable, SUPERUSER, USER_ADMIN, USER_CREATE, USER_OWNER, USER_RW, USER_RO);
   }
@@ -620,7 +620,7 @@ public class TestAccessController {
     verifyDenied(action, USER_CREATE, USER_RW, USER_RO, USER_NONE);
   }
 
-  
+
   @Test
   public void testFlush() throws Exception {
     PrivilegedExceptionAction action = new PrivilegedExceptionAction() {
@@ -893,7 +893,8 @@ public class TestAccessController {
 
       HTable table = new HTable(conf, tableName);
       try {
-        TEST_UTIL.waitTableEnabled(tableName);
+        HBaseAdmin admin = new HBaseAdmin(TEST_UTIL.getConfiguration());
+        TEST_UTIL.waitTableEnabled(admin, tableName);
         LoadIncrementalHFiles loader = new LoadIncrementalHFiles(conf);
         loader.doBulkLoad(loadPath, table);
       } finally {
@@ -1935,11 +1936,11 @@ public class TestAccessController {
           + hbaseCluster.getLiveRegionServerThreads().size();
       ProtobufUtil.grant(protocol, activeUserForNewRs, null, null, null,
         Permission.Action.ADMIN, Permission.Action.CREATE,
-        Permission.Action.READ, Permission.Action.WRITE);      
+        Permission.Action.READ, Permission.Action.WRITE);
     } finally {
       acl.close();
     }
-    final HBaseAdmin admin = TEST_UTIL.getHBaseAdmin();
+    HBaseAdmin admin = TEST_UTIL.getHBaseAdmin();
     HTableDescriptor htd = new HTableDescriptor(TEST_TABLE2);
     htd.addFamily(new HColumnDescriptor(TEST_FAMILY));
     admin.createTable(htd);
@@ -1950,7 +1951,7 @@ public class TestAccessController {
     final HRegionServer newRs = newRsThread.getRegionServer();
 
     // Move region to the new RegionServer.
-    final HTable table = new HTable(TEST_UTIL.getConfiguration(), TEST_TABLE2);
+    HTable table = new HTable(TEST_UTIL.getConfiguration(), TEST_TABLE2);
     try {
       NavigableMap<HRegionInfo, ServerName> regions = table
           .getRegionLocations();
@@ -1959,6 +1960,7 @@ public class TestAccessController {
 
       PrivilegedExceptionAction moveAction = new PrivilegedExceptionAction() {
         public Object run() throws Exception {
+          HBaseAdmin admin = new HBaseAdmin(TEST_UTIL.getConfiguration());
           admin.move(firstRegion.getKey().getEncodedNameAsBytes(),
               Bytes.toBytes(newRs.getServerName().getServerName()));
           return null;
@@ -1972,7 +1974,7 @@ public class TestAccessController {
         LOG.debug("Waiting for region to be opened. Already retried " + retries
             + " times.");
         try {
-          Thread.sleep(200);
+          Thread.sleep(1000);
         } catch (InterruptedException e) {
         }
         retries++;
@@ -1984,6 +1986,7 @@ public class TestAccessController {
       // permissions.
       PrivilegedExceptionAction putAction = new PrivilegedExceptionAction() {
         public Object run() throws Exception {
+          HTable table = new HTable(TEST_UTIL.getConfiguration(), TEST_TABLE2);
           Put put = new Put(Bytes.toBytes("test"));
           put.add(TEST_FAMILY, Bytes.toBytes("qual"), Bytes.toBytes("value"));
           table.put(put);

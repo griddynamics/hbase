@@ -109,16 +109,15 @@ import org.apache.hadoop.hbase.filter.CompareFilter.CompareOp;
 import org.apache.hadoop.hbase.fs.HFileSystem;
 import org.apache.hadoop.hbase.io.hfile.CacheConfig;
 import org.apache.hadoop.hbase.ipc.HBaseRPCErrorHandler;
+import org.apache.hadoop.hbase.ipc.PayloadCarryingRpcController;
 import org.apache.hadoop.hbase.ipc.RpcClient;
 import org.apache.hadoop.hbase.ipc.RpcServer;
-import org.apache.hadoop.hbase.ipc.PayloadCarryingRpcController;
-import org.apache.hadoop.hbase.ipc.RpcServerInterface;
 import org.apache.hadoop.hbase.ipc.RpcServer.BlockingServiceAndInterface;
+import org.apache.hadoop.hbase.ipc.RpcServerInterface;
 import org.apache.hadoop.hbase.ipc.ServerRpcController;
 import org.apache.hadoop.hbase.master.SplitLogManager;
 import org.apache.hadoop.hbase.master.TableLockManager;
 import org.apache.hadoop.hbase.protobuf.ProtobufUtil;
-import org.apache.hadoop.hbase.protobuf.ReplicationProtbufUtil;
 import org.apache.hadoop.hbase.protobuf.RequestConverter;
 import org.apache.hadoop.hbase.protobuf.ResponseConverter;
 import org.apache.hadoop.hbase.protobuf.generated.AdminProtos;
@@ -172,9 +171,9 @@ import org.apache.hadoop.hbase.protobuf.generated.ClientProtos.ResultCellMeta;
 import org.apache.hadoop.hbase.protobuf.generated.ClientProtos.ScanRequest;
 import org.apache.hadoop.hbase.protobuf.generated.ClientProtos.ScanResponse;
 import org.apache.hadoop.hbase.protobuf.generated.ClusterStatusProtos;
+import org.apache.hadoop.hbase.protobuf.generated.ClusterStatusProtos.RegionLoad;
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.Coprocessor;
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.NameStringPair;
-import org.apache.hadoop.hbase.protobuf.generated.ClusterStatusProtos.RegionLoad;
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.RegionSpecifier;
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.RegionSpecifier.RegionSpecifierType;
 import org.apache.hadoop.hbase.protobuf.generated.RegionServerStatusProtos.GetLastFlushedSequenceIdRequest;
@@ -527,7 +526,9 @@ public class HRegionServer implements ClientProtos.ClientService.BlockingInterfa
     this.abortRequested = false;
     this.stopped = false;
 
-    this.scannerLeaseTimeoutPeriod = conf.getInt(HConstants.HBASE_CLIENT_SCANNER_TIMEOUT_PERIOD,
+    this.scannerLeaseTimeoutPeriod = HBaseConfiguration.getInt(conf,
+      HConstants.HBASE_CLIENT_SCANNER_TIMEOUT_PERIOD,
+      HConstants.HBASE_REGIONSERVER_LEASE_PERIOD_KEY,
       HConstants.DEFAULT_HBASE_CLIENT_SCANNER_TIMEOUT_PERIOD);
 
     // Server to handle client requests.
@@ -570,6 +571,7 @@ public class HRegionServer implements ClientProtos.ClientService.BlockingInterfa
     regionServerAccounting = new RegionServerAccounting();
     cacheConfig = new CacheConfig(conf);
     uncaughtExceptionHandler = new UncaughtExceptionHandler() {
+      @Override
       public void uncaughtException(Thread t, Throwable e) {
         abort("Uncaught exception in service thread " + t.getName(), e);
       }
@@ -773,6 +775,7 @@ public class HRegionServer implements ClientProtos.ClientService.BlockingInterfa
   /**
    * The HRegionServer sticks in this loop until closed.
    */
+  @Override
   public void run() {
     try {
       // Do pre-registration initializations; zookeeper, lease threads, etc.
@@ -1217,6 +1220,7 @@ public class HRegionServer implements ClientProtos.ClientService.BlockingInterfa
     ZKUtil.deleteNode(this.zooKeeper, getMyEphemeralNodePath());
   }
 
+  @Override
   public RegionServerAccounting getRegionServerAccounting() {
     return regionServerAccounting;
   }
@@ -1427,17 +1431,12 @@ public class HRegionServer implements ClientProtos.ClientService.BlockingInterfa
   }
 
   private HLog getMetaWAL() throws IOException {
-    if (this.hlogForMeta == null) {
-      final String logName
-      = HLogUtil.getHLogDirectoryName(this.serverNameFromMasterPOV.toString());
-
-      Path logdir = new Path(rootDir, logName);
-      if (LOG.isDebugEnabled()) LOG.debug("logdir=" + logdir);
-
-      this.hlogForMeta = HLogFactory.createMetaHLog(this.fs.getBackingFs(),
-          rootDir, logName, this.conf, getMetaWALActionListeners(),
-          this.serverNameFromMasterPOV.toString());
-    }
+    if (this.hlogForMeta != null) return this.hlogForMeta;
+    final String logName = HLogUtil.getHLogDirectoryName(this.serverNameFromMasterPOV.toString());
+    Path logdir = new Path(rootDir, logName);
+    if (LOG.isDebugEnabled()) LOG.debug("logdir=" + logdir);
+    this.hlogForMeta = HLogFactory.createMetaHLog(this.fs.getBackingFs(), rootDir, logName,
+      this.conf, getMetaWALActionListeners(), this.serverNameFromMasterPOV.toString());
     return this.hlogForMeta;
   }
 
@@ -1479,7 +1478,7 @@ public class HRegionServer implements ClientProtos.ClientService.BlockingInterfa
     MetaLogRoller tmpLogRoller = new MetaLogRoller(this, this);
     String n = Thread.currentThread().getName();
     Threads.setDaemonThreadRunning(tmpLogRoller.getThread(),
-        n + "MetaLogRoller", uncaughtExceptionHandler);
+        n + "-MetaLogRoller", uncaughtExceptionHandler);
     this.metaHLogRoller = tmpLogRoller;
     tmpLogRoller = null;
     listeners.add(this.metaHLogRoller);
@@ -1578,7 +1577,7 @@ public class HRegionServer implements ClientProtos.ClientService.BlockingInterfa
     // quite a while inside HConnection layer. The worker won't be available for other
     // tasks even after current task is preempted after a split task times out.
     Configuration sinkConf = HBaseConfiguration.create(conf);
-    sinkConf.setInt(HConstants.HBASE_CLIENT_RETRIES_NUMBER, 
+    sinkConf.setInt(HConstants.HBASE_CLIENT_RETRIES_NUMBER,
       conf.getInt("hbase.log.replay.retries.number", 8)); // 8 retries take about 23 seconds
     sinkConf.setInt(HConstants.HBASE_RPC_TIMEOUT_KEY,
       conf.getInt("hbase.log.replay.rpc.timeout", 30000)); // default 30 seconds
@@ -1661,8 +1660,7 @@ public class HRegionServer implements ClientProtos.ClientService.BlockingInterfa
     //currently, we don't care about the region as much as we care about the
     //table.. (hence checking the tablename below)
     //_ROOT_ and .META. regions have separate WAL.
-    if (regionInfo != null &&
-        regionInfo.isMetaTable()) {
+    if (regionInfo != null && regionInfo.isMetaTable()) {
       return getMetaWAL();
     }
     return this.hlog;
@@ -1741,6 +1739,7 @@ public class HRegionServer implements ClientProtos.ClientService.BlockingInterfa
    * @param cause
    *          the exception that caused the abort, or null
    */
+  @Override
   public void abort(String reason, Throwable cause) {
     String msg = "ABORTING region server " + this + ": " + reason;
     if (cause != null) {
@@ -1782,6 +1781,7 @@ public class HRegionServer implements ClientProtos.ClientService.BlockingInterfa
     abort(reason, null);
   }
 
+  @Override
   public boolean isAborted() {
     return this.abortRequested;
   }
@@ -2025,6 +2025,7 @@ public class HRegionServer implements ClientProtos.ClientService.BlockingInterfa
   /**
    * @return true if a stop has been requested.
    */
+  @Override
   public boolean isStopped() {
     return this.stopped;
   }
@@ -2034,6 +2035,7 @@ public class HRegionServer implements ClientProtos.ClientService.BlockingInterfa
     return this.stopping;
   }
 
+  @Override
   public Map<String, HRegion> getRecoveringRegions() {
     return this.recoveringRegions;
   }
@@ -2042,6 +2044,7 @@ public class HRegionServer implements ClientProtos.ClientService.BlockingInterfa
    *
    * @return the configuration
    */
+  @Override
   public Configuration getConfiguration() {
     return conf;
   }
@@ -2082,6 +2085,7 @@ public class HRegionServer implements ClientProtos.ClientService.BlockingInterfa
     // we'll sort the regions in reverse
     SortedMap<Long, HRegion> sortedRegions = new TreeMap<Long, HRegion>(
         new Comparator<Long>() {
+          @Override
           public int compare(Long a, Long b) {
             return -1 * a.compareTo(b);
           }
@@ -2101,6 +2105,7 @@ public class HRegionServer implements ClientProtos.ClientService.BlockingInterfa
   }
 
   /** @return reference to FlushRequester */
+  @Override
   public FlushRequester getFlushRequester() {
     return this.cacheFlusher;
   }
@@ -2141,10 +2146,12 @@ public class HRegionServer implements ClientProtos.ClientService.BlockingInterfa
   /**
    * @return Return the fs.
    */
+  @Override
   public FileSystem getFileSystem() {
     return fs;
   }
 
+  @Override
   public String toString() {
     return getServerName().toString();
   }
@@ -2185,10 +2192,12 @@ public class HRegionServer implements ClientProtos.ClientService.BlockingInterfa
   }
 
 
+  @Override
   public ConcurrentMap<byte[], Boolean> getRegionsInTransitionInRS() {
     return this.regionsInTransitionInRS;
   }
 
+  @Override
   public ExecutorService getExecutorService() {
     return service;
   }
@@ -2243,7 +2252,7 @@ public class HRegionServer implements ClientProtos.ClientService.BlockingInterfa
       ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
       clazz = Class.forName(classname, true, classLoader);
     } catch (java.lang.ClassNotFoundException nfe) {
-      throw new IOException("Cound not find class for " + classname);
+      throw new IOException("Could not find class for " + classname);
     }
 
     // create an instance of the replication object.
@@ -2324,7 +2333,8 @@ public class HRegionServer implements ClientProtos.ClientService.BlockingInterfa
    * @param tableName
    * @return Online regions from <code>tableName</code>
    */
-   public List<HRegion> getOnlineRegions(byte[] tableName) {
+   @Override
+  public List<HRegion> getOnlineRegions(byte[] tableName) {
      List<HRegion> tableRegions = new ArrayList<HRegion>();
      synchronized (this.onlineRegions) {
        for (HRegion region: this.onlineRegions.values()) {
@@ -2359,6 +2369,7 @@ public class HRegionServer implements ClientProtos.ClientService.BlockingInterfa
       this.scannerName = n;
     }
 
+    @Override
     public void leaseExpired() {
       RegionScannerHolder rsh = scanners.remove(this.scannerName);
       if (rsh != null) {
@@ -2638,6 +2649,7 @@ public class HRegionServer implements ClientProtos.ClientService.BlockingInterfa
    *
    * @return True if we OOME'd and are aborting.
    */
+  @Override
   public boolean checkOOME(final Throwable e) {
     boolean stop = false;
     try {
@@ -2998,6 +3010,7 @@ public class HRegionServer implements ClientProtos.ClientService.BlockingInterfa
         if (request.hasScannerId()) {
           rsh = scanners.get(scannerName);
           if (rsh == null) {
+            LOG.info("Client tried to access missing scanner " + scannerName);
             throw new UnknownScannerException(
               "Name: " + scannerName + ", already closed?");
           }
@@ -3414,10 +3427,19 @@ public class HRegionServer implements ClientProtos.ClientService.BlockingInterfa
           Pair<HRegionInfo, ServerName> p = MetaReader.getRegion(
               this.catalogTracker, region.getRegionName());
           if (this.getServerName().equals(p.getSecond())) {
-            LOG.warn("Attempted open of " + region.getEncodedName()
+            Boolean closing = regionsInTransitionInRS.get(region.getEncodedNameAsBytes());
+            // Map regionsInTransitionInRSOnly has an entry for a region only if the region
+            // is in transition on this RS, so here closing can be null. If not null, it can
+            // be true or false. True means the region is opening on this RS; while false
+            // means the region is closing. Only return ALREADY_OPENED if not closing (i.e.
+            // not in transition any more, or still transition to open.
+            if (!Boolean.FALSE.equals(closing)
+                && getFromOnlineRegions(region.getEncodedName()) != null) {
+              LOG.warn("Attempted open of " + region.getEncodedName()
                 + " but already online on this server");
-            builder.addOpeningState(RegionOpeningState.ALREADY_OPENED);
-            continue;
+              builder.addOpeningState(RegionOpeningState.ALREADY_OPENED);
+              continue;
+            }
           } else {
             LOG.warn("The region " + region.getEncodedName() + " is online on this server" +
                 " but META does not have this server - continue opening.");
@@ -3928,8 +3950,7 @@ public class HRegionServer implements ClientProtos.ClientService.BlockingInterfa
    */
   protected void doBatchOp(final MultiResponse.Builder builder, final HRegion region,
       final List<MutationProto> mutations, final CellScanner cells, boolean isReplay) {
-    @SuppressWarnings("unchecked")
-    Pair<Mutation, Integer>[] mutationsWithLocks = new Pair[mutations.size()];
+    Mutation[] mArray = new Mutation[mutations.size()];
     long before = EnvironmentEdgeManager.currentTimeMillis();
     boolean batchContainsPuts = false, batchContainsDelete = false;
     try {
@@ -3946,7 +3967,7 @@ public class HRegionServer implements ClientProtos.ClientService.BlockingInterfa
           mutation = ProtobufUtil.toDelete(m, cells);
           batchContainsDelete = true;
         }
-        mutationsWithLocks[i++] = new Pair<Mutation, Integer>(mutation, null);
+        mArray[i++] = mutation;
         builder.addResult(result);
       }
 
@@ -3955,7 +3976,7 @@ public class HRegionServer implements ClientProtos.ClientService.BlockingInterfa
         cacheFlusher.reclaimMemStoreMemory();
       }
 
-      OperationStatus codes[] = region.batchMutate(mutationsWithLocks, isReplay);
+      OperationStatus codes[] = region.batchMutate(mArray);
       for (i = 0; i < codes.length; i++) {
         switch (codes[i].getOperationStatusCode()) {
           case BAD_FAMILY:
@@ -4233,7 +4254,7 @@ public class HRegionServer implements ClientProtos.ClientService.BlockingInterfa
       nodePath = ZKUtil.joinZNode(nodePath, previousRSName);
       ZKUtil.setData(zkw, nodePath,
         ZKUtil.regionSequenceIdsToByteArray(minSeqIdForLogReplay, maxSeqIdInStores));
-      LOG.debug("Update last flushed sequence id of region " + region.getEncodedName() + " for " 
+      LOG.debug("Update last flushed sequence id of region " + region.getEncodedName() + " for "
           + previousRSName);
     } else {
       LOG.warn("Can't find failed region server for recovering region " + region.getEncodedName());

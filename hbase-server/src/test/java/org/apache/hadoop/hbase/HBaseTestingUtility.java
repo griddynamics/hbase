@@ -100,6 +100,7 @@ import org.apache.hadoop.hbase.zookeeper.MiniZooKeeperCluster;
 import org.apache.hadoop.hbase.zookeeper.ZKAssign;
 import org.apache.hadoop.hbase.zookeeper.ZKConfig;
 import org.apache.hadoop.hbase.zookeeper.ZooKeeperWatcher;
+import org.apache.hadoop.hbase.tool.Canary;
 import org.apache.hadoop.hdfs.DFSClient;
 import org.apache.hadoop.hdfs.DistributedFileSystem;
 import org.apache.hadoop.hdfs.MiniDFSCluster;
@@ -558,7 +559,7 @@ public class HBaseTestingUtility extends HBaseCommonTestingUtility {
     if (readOnProp != null){
       return  Boolean.parseBoolean(readOnProp);
     } else {
-      return conf.getBoolean(propName, true);
+      return conf.getBoolean(propName, false);
     }
   }
 
@@ -1071,6 +1072,8 @@ public class HBaseTestingUtility extends HBaseCommonTestingUtility {
       desc.addFamily(hcd);
     }
     getHBaseAdmin().createTable(desc, startKey, endKey, numRegions);
+    // HBaseAdmin only waits for regions to appear in META we should wait until they are assigned
+    waitUntilAllRegionsAssigned(tableName);
     return new HTable(getConfiguration(), tableName);
   }
 
@@ -1095,6 +1098,8 @@ public class HBaseTestingUtility extends HBaseCommonTestingUtility {
       desc.addFamily(hcd);
     }
     getHBaseAdmin().createTable(desc);
+    // HBaseAdmin only waits for regions to appear in META we should wait until they are assigned
+    waitUntilAllRegionsAssigned(tableName);
     return new HTable(c, tableName);
   }
 
@@ -1117,6 +1122,8 @@ public class HBaseTestingUtility extends HBaseCommonTestingUtility {
       desc.addFamily(hcd);
     }
     getHBaseAdmin().createTable(desc);
+    // HBaseAdmin only waits for regions to appear in META we should wait until they are assigned
+    waitUntilAllRegionsAssigned(tableName);
     return new HTable(c, tableName);
   }
 
@@ -1150,6 +1157,8 @@ public class HBaseTestingUtility extends HBaseCommonTestingUtility {
       desc.addFamily(hcd);
     }
     getHBaseAdmin().createTable(desc);
+    // HBaseAdmin only waits for regions to appear in META we should wait until they are assigned
+    waitUntilAllRegionsAssigned(tableName);
     return new HTable(new Configuration(getConfiguration()), tableName);
   }
 
@@ -1171,6 +1180,8 @@ public class HBaseTestingUtility extends HBaseCommonTestingUtility {
       desc.addFamily(hcd);
     }
     getHBaseAdmin().createTable(desc);
+    // HBaseAdmin only waits for regions to appear in META we should wait until they are assigned
+    waitUntilAllRegionsAssigned(tableName);
     return new HTable(new Configuration(getConfiguration()), tableName);
   }
 
@@ -1194,6 +1205,8 @@ public class HBaseTestingUtility extends HBaseCommonTestingUtility {
       i++;
     }
     getHBaseAdmin().createTable(desc);
+    // HBaseAdmin only waits for regions to appear in META we should wait until they are assigned
+    waitUntilAllRegionsAssigned(tableName);
     return new HTable(new Configuration(getConfiguration()), tableName);
   }
 
@@ -1211,6 +1224,8 @@ public class HBaseTestingUtility extends HBaseCommonTestingUtility {
     HColumnDescriptor hcd = new HColumnDescriptor(family);
     desc.addFamily(hcd);
     getHBaseAdmin().createTable(desc, splitRows);
+    // HBaseAdmin only waits for regions to appear in META we should wait until they are assigned
+    waitUntilAllRegionsAssigned(tableName);
     return new HTable(getConfiguration(), tableName);
   }
 
@@ -1230,6 +1245,8 @@ public class HBaseTestingUtility extends HBaseCommonTestingUtility {
       desc.addFamily(hcd);
     }
     getHBaseAdmin().createTable(desc, splitRows);
+    // HBaseAdmin only waits for regions to appear in META we should wait until they are assigned
+    waitUntilAllRegionsAssigned(tableName);
     return new HTable(getConfiguration(), tableName);
   }
 
@@ -1532,7 +1549,7 @@ public class HBaseTestingUtility extends HBaseCommonTestingUtility {
     Path tableDir = new Path(getDefaultRootDirPath().toString()
         + System.getProperty("file.separator") + htd.getNameAsString()
         + System.getProperty("file.separator") + regionToDeleteInFS);
-    getDFSCluster().getFileSystem().delete(tableDir);
+    FileSystem.get(c).delete(tableDir);
     // flush cache of regions
     HConnection conn = table.getConnection();
     conn.clearRegionCache();
@@ -1636,7 +1653,7 @@ public class HBaseTestingUtility extends HBaseCommonTestingUtility {
    * @param tableName user table to lookup in .META.
    * @return region server that holds it, null if the row doesn't exist
    * @throws IOException
-   * @throws InterruptedException 
+   * @throws InterruptedException
    */
   public HRegionServer getRSForFirstRegionInTable(byte[] tableName)
   throws IOException, InterruptedException {
@@ -2079,7 +2096,12 @@ public class HBaseTestingUtility extends HBaseCommonTestingUtility {
    */
   public void waitTableAvailable(byte[] table)
       throws InterruptedException, IOException {
-    waitTableAvailable(table, 30000);
+    waitTableAvailable(getHBaseAdmin(), table, 30000);
+  }
+
+  public void waitTableAvailable(HBaseAdmin admin, byte[] table)
+      throws InterruptedException, IOException {
+    waitTableAvailable(admin, table, 30000);
   }
 
   /**
@@ -2091,8 +2113,13 @@ public class HBaseTestingUtility extends HBaseCommonTestingUtility {
    */
   public void waitTableAvailable(byte[] table, long timeoutMillis)
   throws InterruptedException, IOException {
+    waitTableAvailable(getHBaseAdmin(), table, timeoutMillis);
+  }
+
+  public void waitTableAvailable(HBaseAdmin admin, byte[] table, long timeoutMillis)
+  throws InterruptedException, IOException {
     long startWait = System.currentTimeMillis();
-    while (!getHBaseAdmin().isTableAvailable(table)) {
+    while (!admin.isTableAvailable(table)) {
       assertTrue("Timed out waiting for table to become available " +
         Bytes.toStringBinary(table),
         System.currentTimeMillis() - startWait < timeoutMillis);
@@ -2111,7 +2138,12 @@ public class HBaseTestingUtility extends HBaseCommonTestingUtility {
    */
   public void waitTableEnabled(byte[] table)
       throws InterruptedException, IOException {
-    waitTableEnabled(table, 30000);
+    waitTableEnabled(getHBaseAdmin(), table, 30000);
+  }
+
+  public void waitTableEnabled(HBaseAdmin admin, byte[] table)
+      throws InterruptedException, IOException {
+    waitTableEnabled(admin, table, 30000);
   }
 
   /**
@@ -2125,14 +2157,29 @@ public class HBaseTestingUtility extends HBaseCommonTestingUtility {
    */
   public void waitTableEnabled(byte[] table, long timeoutMillis)
   throws InterruptedException, IOException {
+    waitTableEnabled(getHBaseAdmin(), table, timeoutMillis);
+  }
+
+  public void waitTableEnabled(HBaseAdmin admin, byte[] table, long timeoutMillis)
+  throws InterruptedException, IOException {
     long startWait = System.currentTimeMillis();
-    waitTableAvailable(table, timeoutMillis);
+    waitTableAvailable(admin, table, timeoutMillis);
     long remainder = System.currentTimeMillis() - startWait;
-    while (!getHBaseAdmin().isTableEnabled(table)) {
+    while (!admin.isTableEnabled(table)) {
       assertTrue("Timed out waiting for table to become available and enabled " +
          Bytes.toStringBinary(table),
          System.currentTimeMillis() - remainder < timeoutMillis);
       Thread.sleep(200);
+    }
+    // Finally make sure all regions are fully open and online out on the cluster. Regions may be
+    // in the .META. table and almost open on all regionservers but there setting the region
+    // online in the regionserver is the very last thing done and can take a little while to happen.
+    // Below we do a get.  The get will retry if a NotServeringRegionException or a
+    // RegionOpeningException.  It is crass but when done all will be online.
+    try {
+      Canary.sniff(admin, Bytes.toString(table));
+    } catch (Exception e) {
+      throw new IOException(e);
     }
   }
 

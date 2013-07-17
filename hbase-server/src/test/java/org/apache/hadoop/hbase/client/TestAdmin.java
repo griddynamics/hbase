@@ -39,7 +39,15 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hbase.*;
+import org.apache.hadoop.hbase.HBaseTestingUtility;
+import org.apache.hadoop.hbase.HColumnDescriptor;
+import org.apache.hadoop.hbase.HConstants;
+import org.apache.hadoop.hbase.HRegionInfo;
+import org.apache.hadoop.hbase.HRegionLocation;
+import org.apache.hadoop.hbase.HTableDescriptor;
+import org.apache.hadoop.hbase.LargeTests;
+import org.apache.hadoop.hbase.MiniHBaseCluster;
+import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.catalog.CatalogTracker;
 import org.apache.hadoop.hbase.client.HTable;
 import org.apache.hadoop.hbase.exceptions.InvalidFamilyOperationException;
@@ -761,7 +769,7 @@ public class TestAdmin {
     }
     ladmin.close();
   }
-  
+
   @Test
   public void testTableAvailableWithRandomSplitKeys() throws Exception {
     byte[] tableName = Bytes.toBytes("testTableAvailableWithRandomSplitKeys");
@@ -927,7 +935,12 @@ public class TestAdmin {
 
   void splitTest(byte[] splitPoint, byte[][] familyNames, int[] rowCounts,
     int numVersions, int blockSize) throws Exception {
-    byte [] tableName = Bytes.toBytes("testForceSplit");
+    StringBuilder sb = new StringBuilder();
+    // Add tail to String so can see better in logs where a test is running.
+    for (int i = 0; i < rowCounts.length; i++) {
+      sb.append("_").append(Integer.toString(rowCounts[i]));
+    }
+    byte [] tableName = Bytes.toBytes("testForceSplit" + sb.toString());
     assertFalse(admin.tableExists(tableName));
     final HTable table = TEST_UTIL.createTable(tableName, familyNames,
       numVersions, blockSize);
@@ -954,7 +967,7 @@ public class TestAdmin {
 
     // get the initial layout (should just be one region)
     Map<HRegionInfo, ServerName> m = table.getRegionLocations();
-    System.out.println("Initial regions (" + m.size() + "): " + m);
+    LOG.info("Initial regions (" + m.size() + "): " + m);
     assertTrue(m.size() == 1);
 
     // Verify row count
@@ -994,7 +1007,10 @@ public class TestAdmin {
           }
           if (regions == null) continue;
           count.set(regions.size());
-          if (count.get() >= 2) break;
+          if (count.get() >= 2) {
+            LOG.info("Found: " + regions);
+            break;
+          }
           LOG.debug("Cycle waiting on split");
         }
         LOG.debug("CheckForSplit thread exited, current region count: " + count.get());
@@ -1038,7 +1054,8 @@ public class TestAdmin {
         // check if splitKey is based on the largest column family
         // in terms of it store size
         int deltaForLargestFamily = Math.abs(rowCount/2 - splitKey);
-        LOG.debug("SplitKey=" + splitKey + "&deltaForLargestFamily=" + deltaForLargestFamily);
+        LOG.debug("SplitKey=" + splitKey + "&deltaForLargestFamily=" + deltaForLargestFamily +
+          ", r=" + r[0]);
         for (int index = 0; index < familyNames.length; index++) {
           int delta = Math.abs(rowCounts[index]/2 - splitKey);
           if (delta < deltaForLargestFamily) {
@@ -1068,7 +1085,7 @@ public class TestAdmin {
      new HColumnDescriptor("/cfamily/name");
   }
 
-  @Test(timeout=36000)
+  @Test(timeout=300000)
   public void testEnableDisableAddColumnDeleteColumn() throws Exception {
     ZooKeeperWatcher zkw = HBaseTestingUtility.getZooKeeperWatcher(TEST_UTIL);
     byte [] tableName = Bytes.toBytes("testMasterAdmin");
@@ -1311,10 +1328,15 @@ public class TestAdmin {
             .getServerName().getServerName());
       }
     }
-    Thread.sleep(1000);
-    onlineRegions = ProtobufUtil.getOnlineRegions(rs);
+    boolean isInList = ProtobufUtil.getOnlineRegions(rs).contains(info);
+    long timeout = System.currentTimeMillis() + 10000;
+    while ((System.currentTimeMillis() < timeout) && (isInList)) {
+      Thread.sleep(100);
+      isInList = ProtobufUtil.getOnlineRegions(rs).contains(info);
+    }
+
     assertFalse("The region should not be present in online regions list.",
-        onlineRegions.contains(info));
+      isInList);
   }
 
   @Test
@@ -1363,7 +1385,7 @@ public class TestAdmin {
     }
 
     boolean isInList = ProtobufUtil.getOnlineRegions(rs).contains(info);
-    long timeout = System.currentTimeMillis() + 2000;
+    long timeout = System.currentTimeMillis() + 10000;
     while ((System.currentTimeMillis() < timeout) && (isInList)) {
       Thread.sleep(100);
       isInList = ProtobufUtil.getOnlineRegions(rs).contains(info);

@@ -18,6 +18,14 @@
  */
 package org.apache.hadoop.hbase.regionserver;
 
+import static org.mockito.Matchers.any;
+import static org.mockito.Matchers.anyLong;
+import static org.mockito.Matchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+
 import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.util.ArrayList;
@@ -27,6 +35,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.TreeMap;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -56,13 +65,13 @@ import org.apache.hadoop.hbase.MiniHBaseCluster;
 import org.apache.hadoop.hbase.MultithreadedTestUtil;
 import org.apache.hadoop.hbase.MultithreadedTestUtil.RepeatingTestThread;
 import org.apache.hadoop.hbase.MultithreadedTestUtil.TestThread;
+import org.apache.hadoop.hbase.Waiter;
 import org.apache.hadoop.hbase.client.Append;
 import org.apache.hadoop.hbase.client.Delete;
 import org.apache.hadoop.hbase.client.Durability;
 import org.apache.hadoop.hbase.client.Get;
 import org.apache.hadoop.hbase.client.HTable;
 import org.apache.hadoop.hbase.client.Increment;
-import org.apache.hadoop.hbase.client.Mutation;
 import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.Scan;
@@ -86,6 +95,7 @@ import org.apache.hadoop.hbase.monitoring.TaskMonitor;
 import org.apache.hadoop.hbase.protobuf.ProtobufUtil;
 import org.apache.hadoop.hbase.protobuf.generated.WALProtos.CompactionDescriptor;
 import org.apache.hadoop.hbase.regionserver.HRegion.RegionScannerImpl;
+import org.apache.hadoop.hbase.regionserver.HRegion.RowLock;
 import org.apache.hadoop.hbase.regionserver.wal.HLog;
 import org.apache.hadoop.hbase.regionserver.wal.HLogFactory;
 import org.apache.hadoop.hbase.regionserver.wal.HLogKey;
@@ -97,7 +107,6 @@ import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.EnvironmentEdgeManagerTestHelper;
 import org.apache.hadoop.hbase.util.FSUtils;
 import org.apache.hadoop.hbase.util.IncrementingEnvironmentEdge;
-import org.apache.hadoop.hbase.util.Pair;
 import org.apache.hadoop.hbase.util.PairOfSameType;
 import org.apache.hadoop.hbase.util.Threads;
 import org.junit.Assert;
@@ -754,7 +763,6 @@ public class TestHRegion extends HBaseTestCase {
     }
   }
 
-  @SuppressWarnings("unchecked")
   public void testBatchPut() throws Exception {
     byte[] b = Bytes.toBytes(getName());
     byte[] cf = Bytes.toBytes(COLUMN_FAMILY);
@@ -773,7 +781,7 @@ public class TestHRegion extends HBaseTestCase {
         puts[i].add(cf, qual, val);
       }
 
-      OperationStatus[] codes = this.region.put(puts);
+      OperationStatus[] codes = this.region.batchMutate(puts);
       assertEquals(10, codes.length);
       for (int i = 0; i < 10; i++) {
         assertEquals(OperationStatusCode.SUCCESS, codes[i]
@@ -784,7 +792,7 @@ public class TestHRegion extends HBaseTestCase {
 
       LOG.info("Next a batch put with one invalid family");
       puts[5].add(Bytes.toBytes("BAD_CF"), qual, val);
-      codes = this.region.put(puts);
+      codes = this.region.batchMutate(puts);
       assertEquals(10, codes.length);
       for (int i = 0; i < 10; i++) {
         assertEquals((i == 5) ? OperationStatusCode.BAD_FAMILY :
@@ -794,7 +802,7 @@ public class TestHRegion extends HBaseTestCase {
       metricsAssertHelper.assertCounter("syncTimeNumOps", syncs + 2, source);
 
       LOG.info("Next a batch put that has to break into two batches to avoid a lock");
-      Integer lockedRow = region.obtainRowLock(Bytes.toBytes("row_2"));
+      RowLock rowLock = region.getRowLock(Bytes.toBytes("row_2"));
 
       MultithreadedTestUtil.TestContext ctx =
         new MultithreadedTestUtil.TestContext(conf);
@@ -803,7 +811,7 @@ public class TestHRegion extends HBaseTestCase {
       TestThread putter = new TestThread(ctx) {
         @Override
         public void doWork() throws IOException {
-          retFromThread.set(region.put(puts));
+          retFromThread.set(region.batchMutate(puts));
         }
       };
       LOG.info("...starting put thread while holding lock");
@@ -819,7 +827,7 @@ public class TestHRegion extends HBaseTestCase {
         }
       }
       LOG.info("...releasing row lock, which should let put thread continue");
-      region.releaseRowLock(lockedRow);
+      rowLock.release();
       LOG.info("...joining on thread");
       ctx.stop();
       LOG.info("...checking that next batch was synced");
@@ -830,29 +838,6 @@ public class TestHRegion extends HBaseTestCase {
           OperationStatusCode.SUCCESS, codes[i].getOperationStatusCode());
       }
 
-      LOG.info("Nexta, a batch put which uses an already-held lock");
-      lockedRow = region.obtainRowLock(Bytes.toBytes("row_2"));
-      LOG.info("...obtained row lock");
-      List<Pair<Mutation, Integer>> putsAndLocks = Lists.newArrayList();
-      for (int i = 0; i < 10; i++) {
-        Pair<Mutation, Integer> pair = new Pair<Mutation, Integer>(puts[i], null);
-        if (i == 2) pair.setSecond(lockedRow);
-        putsAndLocks.add(pair);
-      }
-
-      codes = region.batchMutate(putsAndLocks.toArray(new Pair[0]));
-      LOG.info("...performed put");
-      for (int i = 0; i < 10; i++) {
-        assertEquals((i == 5) ? OperationStatusCode.BAD_FAMILY :
-          OperationStatusCode.SUCCESS, codes[i].getOperationStatusCode());
-      }
-      // Make sure we didn't do an extra batch
-      metricsAssertHelper.assertCounter("syncTimeNumOps", syncs + 5, source);
-
-      // Make sure we still hold lock
-      assertTrue(region.isRowLocked(lockedRow));
-      LOG.info("...releasing lock");
-      region.releaseRowLock(lockedRow);
     } finally {
       HRegion.closeHRegion(this.region);
        this.region = null;
@@ -881,7 +866,7 @@ public class TestHRegion extends HBaseTestCase {
         puts[i].add(cf, qual, val);
       }
 
-      OperationStatus[] codes = this.region.put(puts);
+      OperationStatus[] codes = this.region.batchMutate(puts);
       assertEquals(10, codes.length);
       for (int i = 0; i < 10; i++) {
         assertEquals(OperationStatusCode.SANITY_CHECK_FAILURE, codes[i]
@@ -3868,6 +3853,107 @@ public class TestHRegion extends HBaseTestCase {
     assertEquals(Bytes.toBytes("value1"), kvs.get(0).getValue());
   }
 
+  @Test
+  public void testDurability() throws Exception {
+    String method = "testDurability";
+    // there are 5 x 5 cases:
+    // table durability(SYNC,FSYNC,ASYC,SKIP,USE_DEFAULT) x mutation durability(SYNC,FSYNC,ASYC,SKIP,USE_DEFAULT)
+
+    // expected cases for append and sync wal
+    durabilityTest(method, Durability.SYNC_WAL, Durability.SYNC_WAL, 0, true, true, false);
+    durabilityTest(method, Durability.SYNC_WAL, Durability.FSYNC_WAL, 0, true, true, false);
+    durabilityTest(method, Durability.SYNC_WAL, Durability.USE_DEFAULT, 0, true, true, false);
+
+    durabilityTest(method, Durability.FSYNC_WAL, Durability.SYNC_WAL, 0, true, true, false);
+    durabilityTest(method, Durability.FSYNC_WAL, Durability.FSYNC_WAL, 0, true, true, false);
+    durabilityTest(method, Durability.FSYNC_WAL, Durability.USE_DEFAULT, 0, true, true, false);
+
+    durabilityTest(method, Durability.ASYNC_WAL, Durability.SYNC_WAL, 0, true, true, false);
+    durabilityTest(method, Durability.ASYNC_WAL, Durability.FSYNC_WAL, 0, true, true, false);
+
+    durabilityTest(method, Durability.SKIP_WAL, Durability.SYNC_WAL, 0, true, true, false);
+    durabilityTest(method, Durability.SKIP_WAL, Durability.FSYNC_WAL, 0, true, true, false);
+
+    durabilityTest(method, Durability.USE_DEFAULT, Durability.SYNC_WAL, 0, true, true, false);
+    durabilityTest(method, Durability.USE_DEFAULT, Durability.FSYNC_WAL, 0, true, true, false);
+    durabilityTest(method, Durability.USE_DEFAULT, Durability.USE_DEFAULT, 0, true, true, false);
+
+    // expected cases for async wal
+    // do not sync for deferred flush with large optionallogflushinterval
+    conf.setLong("hbase.regionserver.optionallogflushinterval", Integer.MAX_VALUE);
+    durabilityTest(method, Durability.SYNC_WAL, Durability.ASYNC_WAL, 0, true, false, false);
+    durabilityTest(method, Durability.FSYNC_WAL, Durability.ASYNC_WAL, 0, true, false, false);
+    durabilityTest(method, Durability.ASYNC_WAL, Durability.ASYNC_WAL, 0, true, false, false);
+    durabilityTest(method, Durability.SKIP_WAL, Durability.ASYNC_WAL, 0, true, false, false);
+    durabilityTest(method, Durability.USE_DEFAULT, Durability.ASYNC_WAL, 0, true, false, false);
+    durabilityTest(method, Durability.ASYNC_WAL, Durability.USE_DEFAULT, 0, true, false, false);
+
+    // now small deferred log flush optionallogflushinterval, expect sync
+    conf.setLong("hbase.regionserver.optionallogflushinterval", 5);
+    durabilityTest(method, Durability.SYNC_WAL, Durability.ASYNC_WAL, 5000, true, false, true);
+    durabilityTest(method, Durability.FSYNC_WAL, Durability.ASYNC_WAL, 5000, true, false, true);
+    durabilityTest(method, Durability.ASYNC_WAL, Durability.ASYNC_WAL, 5000, true, false, true);
+    durabilityTest(method, Durability.SKIP_WAL, Durability.ASYNC_WAL, 5000, true, false, true);
+    durabilityTest(method, Durability.USE_DEFAULT, Durability.ASYNC_WAL, 5000, true, false, true);
+    durabilityTest(method, Durability.ASYNC_WAL, Durability.USE_DEFAULT, 5000, true, false, true);
+
+    // expect skip wal cases
+    durabilityTest(method, Durability.SYNC_WAL, Durability.SKIP_WAL, 0, false, false, false);
+    durabilityTest(method, Durability.FSYNC_WAL, Durability.SKIP_WAL, 0, false, false, false);
+    durabilityTest(method, Durability.ASYNC_WAL, Durability.SKIP_WAL, 0, false, false, false);
+    durabilityTest(method, Durability.SKIP_WAL, Durability.SKIP_WAL, 0, false, false, false);
+    durabilityTest(method, Durability.USE_DEFAULT, Durability.SKIP_WAL, 0, false, false, false);
+    durabilityTest(method, Durability.SKIP_WAL, Durability.USE_DEFAULT, 0, false, false, false);
+
+  }
+
+  private void durabilityTest(String method, Durability tableDurability,
+      Durability mutationDurability, long timeout, boolean expectAppend,
+      final boolean expectSync, final boolean expectSyncFromLogSyncer) throws Exception {
+    method = method + "_" + tableDurability.name() + "_" + mutationDurability.name();
+    byte[] tableName = Bytes.toBytes(method);
+    byte[] family = Bytes.toBytes("family");
+    Path logDir = new Path(new Path(DIR + method), "log");
+    HLog hlog = HLogFactory.createHLog(fs, logDir, UUID.randomUUID().toString(), conf);
+    final HLog log = spy(hlog);
+    this.region = initHRegion(tableName, HConstants.EMPTY_START_ROW,
+      HConstants.EMPTY_END_ROW, method, conf, false,
+      tableDurability, log, new byte[][] {family});
+
+    Put put = new Put(Bytes.toBytes("r1"));
+    put.add(family, Bytes.toBytes("q1"), Bytes.toBytes("v1"));
+    put.setDurability(mutationDurability);
+    region.put(put);
+
+    //verify append called or not
+    verify(log, expectAppend ? times(1) : never())
+      .appendNoSync((HRegionInfo)any(), eq(tableName),
+        (WALEdit)any(), (UUID)any(), anyLong(), (HTableDescriptor)any());
+
+    //verify sync called or not
+    if (expectSync || expectSyncFromLogSyncer) {
+      TEST_UTIL.waitFor(timeout, new Waiter.Predicate<Exception>() {
+        @Override
+        public boolean evaluate() throws Exception {
+          try {
+            if (expectSync) {
+              verify(log, times(1)).sync(anyLong()); //Hregion calls this one
+            } else if (expectSyncFromLogSyncer) {
+              verify(log, times(1)).sync(); //log syncer calls this one
+            }
+          } catch (Throwable ignore) {}
+          return true;
+        }
+      });
+    } else {
+      verify(log, never()).sync(anyLong());
+      verify(log, never()).sync();
+    }
+
+    hlog.close();
+    region.close();
+  }
+
   private void putData(int startRow, int numRows, byte [] qf,
       byte [] ...families)
   throws IOException {
@@ -3997,6 +4083,13 @@ public class TestHRegion extends HBaseTestCase {
     return initHRegion(tableName, null, null, callingMethod, conf, isReadOnly, families);
   }
 
+  private static HRegion initHRegion(byte[] tableName, byte[] startKey, byte[] stopKey,
+      String callingMethod, Configuration conf, boolean isReadOnly, byte[]... families)
+      throws IOException {
+    return initHRegion(tableName, startKey, stopKey, callingMethod, conf, isReadOnly,
+      Durability.SYNC_WAL, null, families);
+  }
+
   /**
    * @param tableName
    * @param startKey
@@ -4009,7 +4102,8 @@ public class TestHRegion extends HBaseTestCase {
    * @return A region on which you must call {@link HRegion#closeHRegion(HRegion)} when done.
    */
   private static HRegion initHRegion(byte[] tableName, byte[] startKey, byte[] stopKey,
-      String callingMethod, Configuration conf, boolean isReadOnly, byte[]... families)
+      String callingMethod, Configuration conf, boolean isReadOnly, Durability durability,
+      HLog hlog, byte[]... families)
       throws IOException {
     HTableDescriptor htd = new HTableDescriptor(tableName);
     htd.setReadOnly(isReadOnly);
@@ -4019,6 +4113,7 @@ public class TestHRegion extends HBaseTestCase {
       hcd.setMaxVersions(Integer.MAX_VALUE);
       htd.addFamily(hcd);
     }
+    htd.setDurability(durability);
     HRegionInfo info = new HRegionInfo(htd.getName(), startKey, stopKey, false);
     Path path = new Path(DIR + callingMethod);
     FileSystem fs = FileSystem.get(conf);
@@ -4027,7 +4122,7 @@ public class TestHRegion extends HBaseTestCase {
         throw new IOException("Failed delete of " + path);
       }
     }
-    return HRegion.createHRegion(info, path, conf, htd);
+    return HRegion.createHRegion(info, path, conf, htd, hlog);
   }
 
   /**
