@@ -127,6 +127,7 @@ public class TestAccessController {
   // user with no permissions
   private static User USER_NONE;
 
+  private static byte[] TEST_TABLE2 = Bytes.toBytes("testtable2");
   private static byte[] TEST_FAMILY = Bytes.toBytes("f1");
 
   private static MasterCoprocessorEnvironment CP_ENV;
@@ -153,7 +154,7 @@ public class TestAccessController {
       Coprocessor.PRIORITY_HIGHEST, 1, conf);
     RegionServerCoprocessorHost rsHost = TEST_UTIL.getMiniHBaseCluster().getRegionServer(0)
         .getCoprocessorHost();
-    RSCP_ENV = rsHost.createEnvironment(AccessController.class, ACCESS_CONTROLLER, 
+    RSCP_ENV = rsHost.createEnvironment(AccessController.class, ACCESS_CONTROLLER,
       Coprocessor.PRIORITY_HIGHEST, 1, conf);
 
     // Wait for the ACL table to become available
@@ -423,7 +424,7 @@ public class TestAccessController {
 
     verifyAllowed(disableTable, SUPERUSER, USER_ADMIN, USER_CREATE, USER_OWNER);
     verifyDenied(disableTable, USER_RW, USER_RO, USER_NONE);
-    
+
     // No user should be allowed to disable _acl_ table
     verifyDenied(disableAclTable, SUPERUSER, USER_ADMIN, USER_CREATE, USER_OWNER, USER_RW, USER_RO);
   }
@@ -619,7 +620,7 @@ public class TestAccessController {
     verifyDenied(action, USER_CREATE, USER_RW, USER_RO, USER_NONE);
   }
 
-  
+
   @Test
   public void testFlush() throws Exception {
     PrivilegedExceptionAction action = new PrivilegedExceptionAction() {
@@ -1917,7 +1918,7 @@ public class TestAccessController {
     verifyDenied(cloneAction, USER_CREATE, USER_RW, USER_RO, USER_NONE, USER_OWNER);
   }
 
-  @Test (timeout=30000)
+  @Test
   public void testGlobalAuthorizationForNewRegisteredRS() throws Exception {
     LOG.debug("Test for global authorization for a new registered RegionServer.");
     MiniHBaseCluster hbaseCluster = TEST_UTIL.getHBaseCluster();
@@ -1935,13 +1936,12 @@ public class TestAccessController {
           + hbaseCluster.getLiveRegionServerThreads().size();
       ProtobufUtil.grant(protocol, activeUserForNewRs, null, null, null,
         Permission.Action.ADMIN, Permission.Action.CREATE,
-        Permission.Action.READ, Permission.Action.WRITE);      
+        Permission.Action.READ, Permission.Action.WRITE);
     } finally {
       acl.close();
     }
     HBaseAdmin admin = TEST_UTIL.getHBaseAdmin();
-    final byte [] tableName = Bytes.toBytes("testGlobalAuthorizationForNewRegisteredRS");
-    HTableDescriptor htd = new HTableDescriptor(tableName);
+    HTableDescriptor htd = new HTableDescriptor(TEST_TABLE2);
     htd.addFamily(new HColumnDescriptor(TEST_FAMILY));
     admin.createTable(htd);
 
@@ -1951,7 +1951,7 @@ public class TestAccessController {
     final HRegionServer newRs = newRsThread.getRegionServer();
 
     // Move region to the new RegionServer.
-    HTable table = new HTable(TEST_UTIL.getConfiguration(), tableName);
+    HTable table = new HTable(TEST_UTIL.getConfiguration(), TEST_TABLE2);
     try {
       NavigableMap<HRegionInfo, ServerName> regions = table
           .getRegionLocations();
@@ -1968,25 +1968,25 @@ public class TestAccessController {
       };
       SUPERUSER.runAs(moveAction);
 
-      final int RETRIES_LIMIT = 100;
+      final int RETRIES_LIMIT = 10;
       int retries = 0;
-      while (newRs.getOnlineRegions(tableName).size() < 1 && retries < RETRIES_LIMIT) {
-        LOG.debug("Waiting for a region to be opened. Already retried " + retries + " times.");
+      while (newRs.getOnlineRegions(TEST_TABLE2).size() < 1 && retries < RETRIES_LIMIT) {
+        LOG.debug("Waiting for region to be opened. Already retried " + retries
+            + " times.");
         try {
           Thread.sleep(1000);
         } catch (InterruptedException e) {
         }
         retries++;
         if (retries == RETRIES_LIMIT - 1) {
-          fail("Retry exhaust for waiting region to be opened: " +
-            newRs.getOnlineRegions(tableName));
+          fail("Retry exhaust for waiting region to be opened.");
         }
       }
       // Verify write permission for user "admin2" who has the global
       // permissions.
       PrivilegedExceptionAction putAction = new PrivilegedExceptionAction() {
         public Object run() throws Exception {
-          HTable table = new HTable(TEST_UTIL.getConfiguration(), tableName);
+          HTable table = new HTable(TEST_UTIL.getConfiguration(), TEST_TABLE2);
           Put put = new Put(Bytes.toBytes("test"));
           put.add(TEST_FAMILY, Bytes.toBytes("qual"), Bytes.toBytes("value"));
           table.put(put);
