@@ -1,5 +1,4 @@
 /**
- *
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -21,18 +20,17 @@ package org.apache.hadoop.hbase.exceptions;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
 
-import java.io.IOException;
-
 /**
- * Thrown if a request is table schema modification is requested but
- * made for an invalid family name.
+ * Thrown when something is wrong in trying to merge two regions.
  */
 @InterfaceAudience.Public
-@InterfaceStability.Evolving
-public class InvalidFamilyOperationException extends DoNotRetryIOException {
-  private static final long serialVersionUID = 1L << 22 - 1L;
+@InterfaceStability.Stable
+public class MergeRegionException extends RegionException {
+
+  private static final long serialVersionUID = 4970899110066124122L;
+
   /** default constructor */
-  public InvalidFamilyOperationException() {
+  public MergeRegionException() {
     super();
   }
 
@@ -40,15 +38,7 @@ public class InvalidFamilyOperationException extends DoNotRetryIOException {
    * Constructor
    * @param s message
    */
-  public InvalidFamilyOperationException(String s) {
+  public MergeRegionException(String s) {
     super(s);
-  }
-
-  /**
-   * Constructor taking another exception.
-   * @param e Exception to grab data from.
-   */
-  public InvalidFamilyOperationException(Exception e) {
-    super(e);
   }
 }
