@@ -1085,7 +1085,9 @@ public class HConnectionManager {
         for (Map<byte[], HRegionLocation> tableLocations :
             cachedRegionLocations.values()) {
           for (Entry<byte[], HRegionLocation> e : tableLocations.entrySet()) {
-            if (serverName.equals(e.getValue().getServerName())) {
+            HRegionLocation value = e.getValue();
+            if (value != null
+                && serverName.equals(value.getServerName())) {
               tableLocations.remove(e.getKey());
               deletedSomething = true;
             }
@@ -1952,18 +1954,6 @@ public class HConnectionManager {
         closeMasterService(adminMasterServiceState);
         closeMasterService(monitorMasterServiceState);
       }
-    }
-
-    @Override
-    public <T> T getRegionServerWithRetries(ServerCallable<T> callable)
-    throws IOException, RuntimeException {
-      return callable.withRetries();
-    }
-
-    @Override
-    public <T> T getRegionServerWithoutRetries(ServerCallable<T> callable)
-    throws IOException, RuntimeException {
-      return callable.withoutRetries();
     }
 
     void updateCachedLocation(HRegionInfo hri, HRegionLocation source,
