@@ -34,6 +34,8 @@ import java.util.Map.Entry;
 import java.util.Random;
 import java.util.concurrent.Callable;
 
+import com.google.common.collect.Lists;
+
 import junit.framework.Assert;
 
 import org.apache.commons.logging.Log;
@@ -76,11 +78,10 @@ import org.apache.hadoop.mapreduce.Mapper;
 import org.apache.hadoop.mapreduce.RecordWriter;
 import org.apache.hadoop.mapreduce.TaskAttemptContext;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 import org.mockito.Mockito;
-
-import com.google.common.collect.Lists;
 
 /**
  * Simple test for {@link KeyValueSortReducer} and {@link HFileOutputFormat}.
@@ -683,7 +684,7 @@ public class TestHFileOutputFormat  {
    * Without the fix of HBASE-6901, an ArrayIndexOutOfBoundsException
    * will be thrown.
    */
-  @Test
+  @Ignore ("Flakey: See HBASE-9051") @Test
   public void testExcludeAllFromMinorCompaction() throws Exception {
     Configuration conf = util.getConfiguration();
     conf.setInt("hbase.hstore.compaction.min", 2);
