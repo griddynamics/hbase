@@ -26,8 +26,8 @@ import org.junit.experimental.categories.Category;
 
 /**
  * Tests for testing methods added in HBASE-9093. This set of tests is meant
- * to test the {@linkplain Mutation#setWriteToWal(boolean)}
- * and {@linkplain Mutation#getWriteToWal()} methods which provide
+ * to test the {@linkplain Mutation#setWriteToWAL(boolean)}
+ * and {@linkplain Mutation#getWriteToWAL()} methods which provide
  * a compatibility layer with HBase versions < 95's client side WAL semantics.
  */
 @Category(SmallTests.class)
@@ -40,32 +40,32 @@ public class TestPutWriteToWal {
   }
 
   @Test
-  public void testWriteToWal(){
-    put.setWriteToWal(true);
+  public void testWriteToWAL(){
+    put.setWriteToWAL(true);
     Assert.assertEquals(Durability.USE_DEFAULT, put.getDurability());
   }
 
   @Test
-  public void testNoWriteToWal() {
-    put.setWriteToWal(false);
+  public void testNoWriteToWAL() {
+    put.setWriteToWAL(false);
     Assert.assertEquals(Durability.SKIP_WAL, put.getDurability());
   }
 
   @Test
-  public void testWriteToWalSwitch() {
-    put.setWriteToWal(false);
+  public void testWriteToWALSwitch() {
+    put.setWriteToWAL(false);
     Assert.assertEquals(Durability.SKIP_WAL, put.getDurability());
-    put.setWriteToWal(true);
+    put.setWriteToWAL(true);
     Assert.assertEquals(Durability.USE_DEFAULT, put.getDurability());
   }
 
   @Test
   public void testPutCopy() {
-    put.setWriteToWal(false);
+    put.setWriteToWAL(false);
     Put putCopy1 = new Put(put);
     Assert.assertEquals(Durability.SKIP_WAL, putCopy1.getDurability());
 
-    put.setWriteToWal(true);
+    put.setWriteToWAL(true);
     Put putCopy2 = new Put(put);
     Assert.assertEquals(Durability.USE_DEFAULT, putCopy2.getDurability());
   }
