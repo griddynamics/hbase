@@ -184,7 +184,7 @@ public abstract class Mutation extends OperationWithAttributes implements Row, C
    * @param writeToWal
    */
   @Deprecated
-  public void setWriteToWal(boolean writeToWal) {
+  public void setWriteToWAL(boolean writeToWal) {
     if(!writeToWal) {
       setDurability(Durability.SKIP_WAL);
     } else {
@@ -202,7 +202,7 @@ public abstract class Mutation extends OperationWithAttributes implements Row, C
    * - to get the exact durability, use the {#getDurability} method.
    */
   @Deprecated
-  public boolean getWriteToWal() {
+  public boolean getWriteToWAL() {
     return Durability.SKIP_WAL != getDurability();
   }
 
