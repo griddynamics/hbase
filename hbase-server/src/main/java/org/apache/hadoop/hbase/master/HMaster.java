@@ -1045,7 +1045,7 @@ MasterServices, Server {
         MetaReader.fullScan(catalogTracker, disabledOrDisablingOrEnabling, true);
     for(Iterator<HRegionInfo> iter = allRegions.keySet().iterator();
         iter.hasNext();) {
-      if (!HTableDescriptor.isSystemTable(iter.next().getTableName())) {
+      if (!iter.next().getTableName().isSystemTable()) {
         iter.remove();
       }
     }
@@ -2601,7 +2601,7 @@ MasterServices, Server {
         }
         if (descriptorMap != null) {
           for(HTableDescriptor desc: descriptorMap.values()) {
-            if(!HTableDescriptor.isSystemTable(desc.getTableName())) {
+            if(!desc.getTableName().isSystemTable()) {
               descriptors.add(desc);
             }
           }
@@ -2648,7 +2648,7 @@ MasterServices, Server {
       Collection<HTableDescriptor> descriptors = this.tableDescriptors.getAll().values();
       GetTableNamesResponse.Builder builder = GetTableNamesResponse.newBuilder();
       for (HTableDescriptor descriptor: descriptors) {
-        if (descriptor.isMetaTable()) {
+        if (descriptor.getTableName().isSystemTable()) {
           continue;
         }
         builder.addTableNames(ProtobufUtil.toProtoTableName(descriptor.getTableName()));
