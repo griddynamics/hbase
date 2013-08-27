@@ -1,5 +1,4 @@
 /**
- * Copyright 2012 The Apache Software Foundation
  *
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -37,9 +36,9 @@ import org.jboss.netty.util.internal.ConcurrentHashMap;
  * All the access to this class is thread-safe.
  */
 @InterfaceAudience.Private
-public class FavoredNodes {
+public class FavoredNodesPlan {
   protected static final Log LOG = LogFactory.getLog(
-      FavoredNodes.class.getName());
+      FavoredNodesPlan.class.getName());
 
   /** the map between each region and its favored region server list */
   private Map<HRegionInfo, List<ServerName>> favoredNodesMap;
@@ -50,7 +49,7 @@ public class FavoredNodes {
     TERTIARY;
   };
 
-  public FavoredNodes() {
+  public FavoredNodesPlan() {
     favoredNodesMap = new ConcurrentHashMap<HRegionInfo, List<ServerName>>();
   }
 
@@ -81,7 +80,7 @@ public class FavoredNodes {
    * @param server
    * @return position
    */
-  static Position getFavoredServerPosition(
+  public static Position getFavoredServerPosition(
       List<ServerName> favoredNodes, ServerName server) {
     if (favoredNodes == null || server == null ||
         favoredNodes.size() != FavoredNodeAssignmentHelper.FAVORED_NODES_NUM) {
@@ -93,5 +92,64 @@ public class FavoredNodes {
       }
     }
     return null;
+  }
+
+  /**
+   * @return the mapping between each region to its favored region server list
+   */
+  public synchronized Map<HRegionInfo, List<ServerName>> getAssignmentMap() {
+    return this.favoredNodesMap;
+  }
+
+  /**
+   * Add an assignment to the plan
+   * @param region
+   * @param servers
+   */
+  public synchronized void updateAssignmentPlan(HRegionInfo region,
+      List<ServerName> servers) {
+    if (region == null || servers == null || servers.size() ==0)
+      return;
+    this.favoredNodesMap.put(region, servers);
+    LOG.info("Update the assignment plan for region " +
+        region.getRegionNameAsString() + " ; favored nodes " +
+        FavoredNodeAssignmentHelper.getFavoredNodesAsString(servers));
+  }
+
+  @Override
+  public boolean equals(Object o) {
+    if (this == o) {
+      return true;
+    }
+    if (o == null) {
+      return false;
+    }
+    if (getClass() != o.getClass()) {
+      return false;
+    }
+    // To compare the map from objec o is identical to current assignment map.
+    Map<HRegionInfo, List<ServerName>> comparedMap=
+      ((FavoredNodesPlan)o).getAssignmentMap();
+
+    // compare the size
+    if (comparedMap.size() != this.favoredNodesMap.size())
+      return false;
+
+    // compare each element in the assignment map
+    for (Map.Entry<HRegionInfo, List<ServerName>> entry :
+      comparedMap.entrySet()) {
+      List<ServerName> serverList = this.favoredNodesMap.get(entry.getKey());
+      if (serverList == null && entry.getValue() != null) {
+        return false;
+      } else if (serverList != null && !serverList.equals(entry.getValue())) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  @Override
+  public int hashCode() {
+    return favoredNodesMap.hashCode();
   }
 }
