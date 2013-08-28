@@ -40,9 +40,6 @@ import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.SynchronousQueue;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.commons.lang.ArrayUtils;
@@ -51,7 +48,6 @@ import org.apache.commons.logging.LogFactory;
 import org.apache.commons.logging.impl.Log4JLogger;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.Abortable;
-import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.DoNotRetryIOException;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.HColumnDescriptor;
@@ -63,6 +59,7 @@ import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.LargeTests;
 import org.apache.hadoop.hbase.MiniHBaseCluster;
 import org.apache.hadoop.hbase.ServerName;
+import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.metrics.ScanMetrics;
 import org.apache.hadoop.hbase.coprocessor.CoprocessorHost;
 import org.apache.hadoop.hbase.coprocessor.MultiRowMutationEndpoint;
@@ -94,7 +91,6 @@ import org.apache.hadoop.hbase.regionserver.NoSuchColumnFamilyException;
 import org.apache.hadoop.hbase.regionserver.Store;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
-import org.apache.hadoop.hbase.util.Threads;
 import org.apache.hadoop.hbase.zookeeper.ZooKeeperWatcher;
 import org.apache.log4j.Level;
 import org.junit.After;
@@ -5101,6 +5097,65 @@ public class TestFromClientSide {
     bar = scanner.next(100);
     assertEquals(1, bar.length);
     assertEquals(2, bar[0].size());
+  }
+
+  @Test
+  public void testNegativeTimestamp() throws IOException {
+    HTable table = TEST_UTIL.createTable(Bytes.toBytes("testNegativeTimestamp"), FAMILY);
+
+    try {
+      Put put = new Put(ROW, -1);
+      put.add(FAMILY, QUALIFIER, VALUE);
+      table.put(put);
+      fail("Negative timestamps should not have been allowed");
+    } catch (IllegalArgumentException ex) {
+      assertTrue(ex.getMessage().contains("negative"));
+    }
+
+    try {
+      Put put = new Put(ROW);
+      put.add(FAMILY, QUALIFIER, -1, VALUE);
+      table.put(put);
+      fail("Negative timestamps should not have been allowed");
+    } catch (IllegalArgumentException ex) {
+      assertTrue(ex.getMessage().contains("negative"));
+    }
+
+    try {
+      Delete delete = new Delete(ROW, -1);
+      table.delete(delete);
+      fail("Negative timestamps should not have been allowed");
+    } catch (IllegalArgumentException ex) {
+      assertTrue(ex.getMessage().contains("negative"));
+    }
+
+    try {
+      Delete delete = new Delete(ROW);
+      delete.deleteFamily(FAMILY, -1);
+      table.delete(delete);
+      fail("Negative timestamps should not have been allowed");
+    } catch (IllegalArgumentException ex) {
+      assertTrue(ex.getMessage().contains("negative"));
+    }
+
+    try {
+      Scan scan = new Scan();
+      scan.setTimeRange(-1, 1);
+      table.getScanner(scan);
+      fail("Negative timestamps should not have been allowed");
+    } catch (IllegalArgumentException ex) {
+      assertTrue(ex.getMessage().contains("negative"));
+    }
+
+    // KeyValue should allow negative timestamps for backwards compat. Otherwise, if the user
+    // already has negative timestamps in cluster data, HBase won't be able to handle that
+    try {
+      new KeyValue(Bytes.toBytes(42), Bytes.toBytes(42), Bytes.toBytes(42), -1, Bytes.toBytes(42));
+    } catch (IllegalArgumentException ex) {
+      fail("KeyValue SHOULD allow negative timestamps");
+    }
+
+    table.close();
   }
 
   @Test
