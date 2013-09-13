@@ -1944,6 +1944,10 @@ public class HBaseAdmin implements Abortable, Closeable {
 
   private void split(final ServerName sn, final HRegionInfo hri,
       byte[] splitPoint) throws IOException {
+    if (hri.getStartKey() != null && splitPoint != null &&
+         Bytes.compareTo(hri.getStartKey(), splitPoint) == 0) {
+       throw new IOException("should not give a splitkey which equals to startkey!");
+    }
     AdminService.BlockingInterface admin = this.connection.getAdmin(sn);
     ProtobufUtil.split(admin, hri, splitPoint);
   }
@@ -2524,6 +2528,15 @@ public class HBaseAdmin implements Abortable, Closeable {
               LOG.debug("Trying to get compaction state of " +
                 pair.getFirst() + ": " +
                 StringUtils.stringifyException(e));
+            }
+          } catch (RemoteException e) {
+            if (e.getMessage().indexOf(NotServingRegionException.class.getName()) >= 0) {
+              if (LOG.isDebugEnabled()) {
+                LOG.debug("Trying to get compaction state of " + pair.getFirst() + ": "
+                    + StringUtils.stringifyException(e));
+              }
+            } else {
+              throw e;
             }
           }
         }
