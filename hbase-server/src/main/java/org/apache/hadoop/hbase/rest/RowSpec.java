@@ -25,7 +25,6 @@ import java.util.Collection;
 import java.util.TreeSet;
 
 import org.apache.hadoop.classification.InterfaceAudience;
-import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.util.Bytes;
 
@@ -107,8 +106,7 @@ public class RowSpec {
     return i;
   }
 
-  private int parseColumns(final String path, int i)
-      throws IllegalArgumentException {
+  private int parseColumns(final String path, int i) throws IllegalArgumentException {
     if (i >= path.length()) {
       return i;
     }
@@ -120,13 +118,8 @@ public class RowSpec {
           if (column.length() < 1) {
             throw new IllegalArgumentException("invalid path");
           }
-          String s = URLDecoder.decode(column.toString(),
-            HConstants.UTF8_ENCODING);
-          if (!s.contains(":")) {
-            this.columns.add(Bytes.toBytes(s + ":"));
-          } else {
-            this.columns.add(Bytes.toBytes(s));
-          }
+          String s = URLDecoder.decode(column.toString(), HConstants.UTF8_ENCODING);
+          this.columns.add(Bytes.toBytes(s));
           column.setLength(0);
           i++;
           continue;
@@ -136,14 +129,9 @@ public class RowSpec {
       }
       i++;
       // trailing list entry
-      if (column.length() > 1) {
-        String s = URLDecoder.decode(column.toString(),
-          HConstants.UTF8_ENCODING);
-        if (!s.contains(":")) {
-          this.columns.add(Bytes.toBytes(s + ":"));
-        } else {
-          this.columns.add(Bytes.toBytes(s));
-        }
+      if (column.length() > 0) {
+        String s = URLDecoder.decode(column.toString(), HConstants.UTF8_ENCODING);
+        this.columns.add(Bytes.toBytes(s));
       }
     } catch (IndexOutOfBoundsException e) {
       throw new IllegalArgumentException(e);

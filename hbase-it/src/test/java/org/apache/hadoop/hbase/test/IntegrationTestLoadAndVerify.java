@@ -47,10 +47,12 @@ import org.apache.hadoop.hbase.client.HTable;
 import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.Scan;
+import org.apache.hadoop.hbase.client.ScannerCallable;
 import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
 import org.apache.hadoop.hbase.mapreduce.NMapInputFormat;
 import org.apache.hadoop.hbase.mapreduce.TableMapReduceUtil;
 import org.apache.hadoop.hbase.mapreduce.TableMapper;
+import org.apache.hadoop.hbase.mapreduce.TableRecordReaderImpl;
 import org.apache.hadoop.hbase.util.AbstractHBaseTool;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.io.BytesWritable;
@@ -177,7 +179,7 @@ public class IntegrationTestLoadAndVerify  extends IntegrationTestBase  {
       numBackReferencesPerRow = conf.getInt(NUM_BACKREFS_KEY, NUM_BACKREFS_DEFAULT);
       table = new HTable(conf, tableName);
       table.setWriteBufferSize(4*1024*1024);
-      table.setAutoFlush(false);
+      table.setAutoFlush(false, true);
 
       String taskId = conf.get("mapred.task.id");
       Matcher matcher = Pattern.compile(".+_m_(\\d+_\\d+)").matcher(taskId);
@@ -316,6 +318,7 @@ public class IntegrationTestLoadAndVerify  extends IntegrationTestBase  {
     job.setMapperClass(LoadMapper.class);
     job.setInputFormatClass(NMapInputFormat.class);
     job.setNumReduceTasks(0);
+    setJobScannerConf(job);
     FileOutputFormat.setOutputPath(job, outputDir);
 
     TableMapReduceUtil.addDependencyJars(job);
@@ -331,6 +334,7 @@ public class IntegrationTestLoadAndVerify  extends IntegrationTestBase  {
     Job job = new Job(conf);
     job.setJarByClass(this.getClass());
     job.setJobName(TEST_NAME + " Verification for " + htd.getTableName());
+    setJobScannerConf(job);
 
     Scan scan = new Scan();
 
@@ -348,6 +352,13 @@ public class IntegrationTestLoadAndVerify  extends IntegrationTestBase  {
 
     long numOutputRecords = job.getCounters().findCounter(Counters.ROWS_WRITTEN).getValue();
     assertEquals(0, numOutputRecords);
+  }
+
+  private static void setJobScannerConf(Job job) {
+    // Make sure scanners log something useful to make debugging possible.
+    job.getConfiguration().setBoolean(ScannerCallable.LOG_SCANNER_ACTIVITY, true);
+    long lpr = job.getConfiguration().getLong(NUM_TO_WRITE_KEY, NUM_TO_WRITE_DEFAULT) / 100;
+    job.getConfiguration().setInt(TableRecordReaderImpl.LOG_PER_ROW_COUNT, (int)lpr);
   }
 
   public Path getTestDir(String testName, String subdir) throws IOException {
@@ -374,26 +385,7 @@ public class IntegrationTestLoadAndVerify  extends IntegrationTestBase  {
 
     // Only disable and drop if we succeeded to verify - otherwise it's useful
     // to leave it around for post-mortem
-    deleteTable(admin, htd);
-  }
-
-  private void deleteTable(HBaseAdmin admin, HTableDescriptor htd)
-    throws IOException, InterruptedException {
-    // Use disableTestAsync because disable can take a long time to complete
-    System.out.print("Disabling table " + htd.getTableName() +" ");
-    admin.disableTableAsync(htd.getTableName());
-
-    long start = System.currentTimeMillis();
-    // NOTE tables can be both admin.isTableEnabled=false and
-    // isTableDisabled=false, when disabling must use isTableDisabled!
-    while (!admin.isTableDisabled(htd.getTableName())) {
-      System.out.print(".");
-      Thread.sleep(1000);
-    }
-    long delta = System.currentTimeMillis() - start;
-    System.out.println(" " + delta +" ms");
-    System.out.println("Deleting table " + htd.getTableName() +" ");
-    admin.deleteTable(htd.getTableName());
+    getTestingUtil(getConf()).deleteTable(htd.getName());
   }
 
   public void usage() {
@@ -456,7 +448,7 @@ public class IntegrationTestLoadAndVerify  extends IntegrationTestBase  {
     if (doVerify) {
       doVerify(getConf(), htd);
       if (doDelete) {
-        deleteTable(admin, htd);
+        getTestingUtil(getConf()).deleteTable(htd.getName());
       }
     }
     return 0;

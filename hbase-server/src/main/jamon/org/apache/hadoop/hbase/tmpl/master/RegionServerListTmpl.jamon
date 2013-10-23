@@ -108,7 +108,7 @@ Arrays.sort(serverNames);
 <tr>
     <td><& serverNameLink; serverName=serverName; serverLoad = sl; &></td>
     <td><% new Date(startcode) %></td>
-    <td><% requestsPerSecond %></td>
+    <td><% String.format("%.0f", requestsPerSecond) %></td>
     <td><% numRegionsOnline %></td>
 </tr>
 <%java>
@@ -178,7 +178,7 @@ if (sl != null) {
 </%java>
 <tr>
 <td><& serverNameLink; serverName=serverName; serverLoad = sl; &></td>
-<td><% sl.getRequestsPerSecond() %></td>
+<td><% String.format("%.0f", sl.getRequestsPerSecond()) %></td>
 <td><% sl.getReadRequestsCount() %></td>
 <td><% sl.getWriteRequestsCount() %></td>
 </tr>
@@ -243,6 +243,7 @@ if (sl != null) {
     <th>ServerName</th>
     <th>Num. Compacting KVs</th>
     <th>Num. Compacted KVs</th>
+    <th>Remaining KVs</th>
     <th>Compaction Progress</th>
 </tr>
 <%java>
@@ -260,6 +261,7 @@ if  (sl.getTotalCompactingKVs() > 0) {
 <td><& serverNameLink; serverName=serverName; serverLoad = sl; &></td>
 <td><% sl.getTotalCompactingKVs() %></td>
 <td><% sl.getCurrentCompactedKVs() %></td>
+<td><% sl.getTotalCompactingKVs() - sl.getCurrentCompactedKVs() %></td>
 <td><% percentDone %></td>
 </tr>
 <%java>

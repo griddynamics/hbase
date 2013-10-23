@@ -18,6 +18,8 @@
  */
 package org.apache.hadoop.hbase.mapred;
 
+import org.apache.hadoop.classification.InterfaceAudience;
+import org.apache.hadoop.classification.InterfaceStability;
 import org.apache.hadoop.util.ProgramDriver;
 import com.google.common.annotations.VisibleForTesting;
 
@@ -26,6 +28,8 @@ import com.google.common.annotations.VisibleForTesting;
  * to this main.
  */
 @Deprecated
+@InterfaceAudience.Public
+@InterfaceStability.Stable
 public class Driver {
 
   private static ProgramDriver pgd = new ProgramDriver();
