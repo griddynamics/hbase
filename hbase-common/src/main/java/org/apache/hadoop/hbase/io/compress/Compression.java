@@ -77,7 +77,6 @@ public final class Compression {
 
   /**
    * Returns the classloader to load the Codec class from.
-   * @return
    */
   private static ClassLoader getClassLoaderForCodec() {
     ClassLoader cl = Thread.currentThread().getContextClassLoader();
@@ -231,7 +230,6 @@ public final class Compression {
               lz4Codec = buildCodec(conf);
             }
           }
-          buildCodec(conf);
         }
         return lz4Codec;
       }

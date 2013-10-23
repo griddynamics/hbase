@@ -40,7 +40,6 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.Cell;
 import org.apache.hadoop.hbase.CellScanner;
 import org.apache.hadoop.hbase.CellUtil;
-import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.DoNotRetryIOException;
 import org.apache.hadoop.hbase.HBaseConfiguration;
 import org.apache.hadoop.hbase.HConstants;
@@ -50,6 +49,8 @@ import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.KeyValueUtil;
 import org.apache.hadoop.hbase.NamespaceDescriptor;
 import org.apache.hadoop.hbase.ServerName;
+import org.apache.hadoop.hbase.TableName;
+import org.apache.hadoop.hbase.Tag;
 import org.apache.hadoop.hbase.client.Append;
 import org.apache.hadoop.hbase.client.Delete;
 import org.apache.hadoop.hbase.client.Durability;
@@ -99,18 +100,18 @@ import org.apache.hadoop.hbase.protobuf.generated.ClientProtos.MutationProto.Col
 import org.apache.hadoop.hbase.protobuf.generated.ClientProtos.MutationProto.DeleteType;
 import org.apache.hadoop.hbase.protobuf.generated.ClientProtos.MutationProto.MutationType;
 import org.apache.hadoop.hbase.protobuf.generated.ClientProtos.ScanRequest;
+import org.apache.hadoop.hbase.protobuf.generated.ClusterStatusProtos.RegionLoad;
 import org.apache.hadoop.hbase.protobuf.generated.ComparatorProtos;
 import org.apache.hadoop.hbase.protobuf.generated.FilterProtos;
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos;
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.NameBytesPair;
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.RegionInfo;
-import org.apache.hadoop.hbase.protobuf.generated.ClusterStatusProtos.RegionLoad;
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.RegionSpecifier;
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.RegionSpecifier.RegionSpecifierType;
 import org.apache.hadoop.hbase.protobuf.generated.MapReduceProtos;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.CreateTableRequest;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.MasterAdminService;
-import org.apache.hadoop.hbase.protobuf.generated.MasterMonitorProtos.GetTableDescriptorsResponse;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.CreateTableRequest;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.GetTableDescriptorsResponse;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.MasterService;
 import org.apache.hadoop.hbase.protobuf.generated.RegionServerStatusProtos.RegionServerReportRequest;
 import org.apache.hadoop.hbase.protobuf.generated.RegionServerStatusProtos.RegionServerStartupRequest;
 import org.apache.hadoop.hbase.protobuf.generated.WALProtos.CompactionDescriptor;
@@ -406,6 +407,12 @@ public final class ProtobufUtil {
         }
       }
     }
+    if (proto.hasExistenceOnly() && proto.getExistenceOnly()){
+      get.setCheckExistenceOnly(true);
+    }
+    if (proto.hasClosestRowBefore() && proto.getClosestRowBefore()){
+      get.setClosestRowBefore(true);
+    }
     return get;
   }
 
@@ -471,7 +478,18 @@ public final class ProtobufUtil {
           if (qv.hasTimestamp()) {
             ts = qv.getTimestamp();
           }
-          put.add(family, qualifier, ts, value);
+          byte[] tags;
+          if (qv.hasTags()) {
+            tags = qv.getTags().toByteArray();
+            Object[] array = Tag.createTags(tags, 0, (short)tags.length).toArray();
+            Tag[] tagArray = new Tag[array.length];
+            for(int i = 0; i< array.length; i++) {
+              tagArray[i] = (Tag)array[i];
+            }
+            put.add(family, qualifier, ts, value, tagArray);
+          } else {
+            put.add(family, qualifier, ts, value);
+          }
         }
       }
     }
@@ -719,6 +737,9 @@ public final class ProtobufUtil {
     if (scan.getMaxResultSize() > 0) {
       scanBuilder.setMaxResultSize(scan.getMaxResultSize());
     }
+    if (scan.isSmall()) {
+      scanBuilder.setSmall(scan.isSmall());
+    }
     Boolean loadColumnFamiliesOnDemand = scan.getLoadColumnFamiliesOnDemandValue();
     if (loadColumnFamiliesOnDemand != null) {
       scanBuilder.setLoadColumnFamiliesOnDemand(loadColumnFamiliesOnDemand.booleanValue());
@@ -831,6 +852,9 @@ public final class ProtobufUtil {
     if (proto.hasMaxResultSize()) {
       scan.setMaxResultSize(proto.getMaxResultSize());
     }
+    if (proto.hasSmall()) {
+      scan.setSmall(proto.getSmall());
+    }
     for (NameBytesPair attribute: proto.getAttributeList()) {
       scan.setAttribute(attribute.getName(), attribute.getValue().toByteArray());
     }
@@ -904,6 +928,12 @@ public final class ProtobufUtil {
     if (get.getRowOffsetPerColumnFamily() > 0) {
       builder.setStoreOffset(get.getRowOffsetPerColumnFamily());
     }
+    if (get.isCheckExistenceOnly()){
+      builder.setExistenceOnly(true);
+    }
+    if (get.isClosestRowBefore()){
+      builder.setClosestRowBefore(true);
+    }
     return builder.build();
   }
 
@@ -966,6 +996,9 @@ public final class ProtobufUtil {
         valueBuilder.setQualifier(ByteString.copyFrom(kv.getQualifier()));
         valueBuilder.setValue(ByteString.copyFrom(kv.getValue()));
         valueBuilder.setTimestamp(kv.getTimestamp());
+        if(cell.getTagsLength() > 0) {
+          valueBuilder.setTags(ByteString.copyFrom(CellUtil.getTagArray(kv)));
+        }
         if (type == MutationType.DELETE) {
           KeyValue.Type keyValueType = KeyValue.Type.codeToType(kv.getType());
           valueBuilder.setDeleteType(toDeleteType(keyValueType));
@@ -1032,6 +1065,21 @@ public final class ProtobufUtil {
         builder.addCell(toCell(c));
       }
     }
+    if (result.getExists() != null){
+      builder.setExists(result.getExists());
+    }
+    return builder.build();
+  }
+
+  /**
+   * Convert a client Result to a protocol buffer Result
+   *
+   * @param existence the client existence to send
+   * @return the converted protocol buffer Result
+   */
+  public static ClientProtos.Result toResult(final boolean existence) {
+    ClientProtos.Result.Builder builder = ClientProtos.Result.newBuilder();
+    builder.setExists(existence);
     return builder.build();
   }
 
@@ -1045,6 +1093,9 @@ public final class ProtobufUtil {
   public static ClientProtos.Result toResultNoData(final Result result) {
     ClientProtos.Result.Builder builder = ClientProtos.Result.newBuilder();
     builder.setAssociatedCellCount(result.size());
+    if (result.getExists() != null){
+      builder.setExists(result.getExists());
+    }
     return builder.build();
   }
 
@@ -1055,12 +1106,16 @@ public final class ProtobufUtil {
    * @return the converted client Result
    */
   public static Result toResult(final ClientProtos.Result proto) {
+    if (proto.hasExists()) {
+      return Result.create(null, proto.getExists());
+    }
+
     List<CellProtos.Cell> values = proto.getCellList();
     List<Cell> cells = new ArrayList<Cell>(values.size());
-    for (CellProtos.Cell c: values) {
+    for (CellProtos.Cell c : values) {
       cells.add(toCell(c));
     }
-    return new Result(cells);
+    return Result.create(cells, null);
   }
 
   /**
@@ -1073,6 +1128,10 @@ public final class ProtobufUtil {
    */
   public static Result toResult(final ClientProtos.Result proto, final CellScanner scanner)
   throws IOException {
+    if (proto.hasExists()){
+      return Result.create(null, proto.getExists());
+    }
+
     // TODO: Unit test that has some Cells in scanner and some in the proto.
     List<Cell> cells = null;
     if (proto.hasAssociatedCellCount()) {
@@ -1088,7 +1147,7 @@ public final class ProtobufUtil {
     for (CellProtos.Cell c: values) {
       cells.add(toCell(c));
     }
-    return new Result(cells);
+    return Result.create(cells, null);
   }
 
   /**
@@ -1306,7 +1365,7 @@ public final class ProtobufUtil {
   }
 
   public static CoprocessorServiceResponse execService(
-    final MasterAdminService.BlockingInterface client, final CoprocessorServiceCall call)
+    final MasterService.BlockingInterface client, final CoprocessorServiceCall call)
   throws IOException {
     CoprocessorServiceRequest request = CoprocessorServiceRequest.newBuilder()
         .setCall(call).setRegion(
@@ -2236,11 +2295,15 @@ public final class ProtobufUtil {
           ", row=" + getStringForByteString(r.getGet().getRow());
     } else if (m instanceof ClientProtos.MultiRequest) {
       ClientProtos.MultiRequest r = (ClientProtos.MultiRequest) m;
-      ClientProtos.MultiAction action = r.getActionList().get(0);
-      return "region= " + getStringForByteString(r.getRegion().getValue()) +
-          ", for " + r.getActionCount() +
-          " actions and 1st row key=" + getStringForByteString(action.hasMutation() ?
-          action.getMutation().getRow() : action.getGet().getRow());
+      // Get first set of Actions.
+      ClientProtos.RegionAction actions = r.getRegionActionList().get(0);
+      String row = actions.getActionCount() <= 0? "":
+        getStringForByteString(actions.getAction(0).hasGet()?
+          actions.getAction(0).getGet().getRow():
+          actions.getAction(0).getMutation().getRow());
+      return "region= " + getStringForByteString(actions.getRegion().getValue()) +
+          ", for " + r.getRegionActionCount() +
+          " actions and 1st row key=" + row;
     } else if (m instanceof ClientProtos.MutateRequest) {
       ClientProtos.MutateRequest r = (ClientProtos.MutateRequest) m;
       return "region= " + getStringForByteString(r.getRegion().getValue()) +
