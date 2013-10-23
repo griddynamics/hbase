@@ -41,7 +41,6 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import javax.management.ObjectName;
 
-import com.google.common.collect.Lists;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.classification.InterfaceAudience;
@@ -51,22 +50,21 @@ import org.apache.hadoop.hbase.Abortable;
 import org.apache.hadoop.hbase.Chore;
 import org.apache.hadoop.hbase.ClusterId;
 import org.apache.hadoop.hbase.ClusterStatus;
-import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.HBaseIOException;
-import org.apache.hadoop.hbase.NamespaceDescriptor;
-import org.apache.hadoop.hbase.constraint.ConstraintException;
-import org.apache.hadoop.hbase.exceptions.DeserializationException;
 import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.HealthCheckChore;
 import org.apache.hadoop.hbase.MasterNotRunningException;
+import org.apache.hadoop.hbase.NamespaceDescriptor;
+import org.apache.hadoop.hbase.NamespaceNotFoundException;
 import org.apache.hadoop.hbase.PleaseHoldException;
 import org.apache.hadoop.hbase.Server;
 import org.apache.hadoop.hbase.ServerLoad;
 import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.TableDescriptors;
+import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.TableNotDisabledException;
 import org.apache.hadoop.hbase.TableNotFoundException;
 import org.apache.hadoop.hbase.UnknownRegionException;
@@ -78,14 +76,15 @@ import org.apache.hadoop.hbase.client.MetaScanner.MetaScannerVisitor;
 import org.apache.hadoop.hbase.client.MetaScanner.MetaScannerVisitorBase;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.coprocessor.CoprocessorHost;
+import org.apache.hadoop.hbase.exceptions.DeserializationException;
 import org.apache.hadoop.hbase.exceptions.MergeRegionException;
 import org.apache.hadoop.hbase.exceptions.UnknownProtocolException;
 import org.apache.hadoop.hbase.executor.ExecutorService;
 import org.apache.hadoop.hbase.executor.ExecutorType;
 import org.apache.hadoop.hbase.ipc.FifoRpcScheduler;
+import org.apache.hadoop.hbase.ipc.RequestContext;
 import org.apache.hadoop.hbase.ipc.RpcServer;
 import org.apache.hadoop.hbase.ipc.RpcServer.BlockingServiceAndInterface;
-import org.apache.hadoop.hbase.ipc.RequestContext;
 import org.apache.hadoop.hbase.ipc.RpcServerInterface;
 import org.apache.hadoop.hbase.ipc.ServerRpcController;
 import org.apache.hadoop.hbase.master.balancer.BalancerChore;
@@ -115,70 +114,83 @@ import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos;
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.NameStringPair;
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.RegionSpecifier.RegionSpecifierType;
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.SnapshotDescription;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.AddColumnRequest;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.AddColumnResponse;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.AssignRegionRequest;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.AssignRegionResponse;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.BalanceRequest;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.BalanceResponse;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.RunCatalogScanRequest;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.RunCatalogScanResponse;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.CreateTableRequest;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.CreateTableResponse;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.DeleteColumnRequest;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.DeleteColumnResponse;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.DeleteSnapshotRequest;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.DeleteSnapshotResponse;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.DeleteTableRequest;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.DeleteTableResponse;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.DisableTableRequest;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.DisableTableResponse;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.DispatchMergingRegionsRequest;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.DispatchMergingRegionsResponse;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.EnableCatalogJanitorRequest;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.EnableCatalogJanitorResponse;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.EnableTableRequest;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.EnableTableResponse;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.IsCatalogJanitorEnabledRequest;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.IsCatalogJanitorEnabledResponse;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.IsRestoreSnapshotDoneRequest;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.IsRestoreSnapshotDoneResponse;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.IsSnapshotDoneRequest;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.IsSnapshotDoneResponse;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.GetCompletedSnapshotsRequest;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.GetCompletedSnapshotsResponse;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.ModifyColumnRequest;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.ModifyColumnResponse;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.ModifyTableRequest;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.ModifyTableResponse;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.MoveRegionRequest;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.MoveRegionResponse;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.OfflineRegionRequest;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.OfflineRegionResponse;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.RestoreSnapshotRequest;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.RestoreSnapshotResponse;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.SetBalancerRunningRequest;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.SetBalancerRunningResponse;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.ShutdownRequest;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.ShutdownResponse;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.StopMasterRequest;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.StopMasterResponse;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.SnapshotRequest;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.SnapshotResponse;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.UnassignRegionRequest;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.UnassignRegionResponse;
-import org.apache.hadoop.hbase.protobuf.generated.MasterMonitorProtos;
-import org.apache.hadoop.hbase.protobuf.generated.MasterMonitorProtos.GetClusterStatusRequest;
-import org.apache.hadoop.hbase.protobuf.generated.MasterMonitorProtos.GetClusterStatusResponse;
-import org.apache.hadoop.hbase.protobuf.generated.MasterMonitorProtos.GetSchemaAlterStatusRequest;
-import org.apache.hadoop.hbase.protobuf.generated.MasterMonitorProtos.GetSchemaAlterStatusResponse;
-import org.apache.hadoop.hbase.protobuf.generated.MasterMonitorProtos.GetTableDescriptorsRequest;
-import org.apache.hadoop.hbase.protobuf.generated.MasterMonitorProtos.GetTableDescriptorsResponse;
-import org.apache.hadoop.hbase.protobuf.generated.MasterMonitorProtos.GetTableNamesRequest;
-import org.apache.hadoop.hbase.protobuf.generated.MasterMonitorProtos.GetTableNamesResponse;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.AddColumnRequest;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.AddColumnResponse;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.AssignRegionRequest;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.AssignRegionResponse;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.BalanceRequest;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.BalanceResponse;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.CreateNamespaceRequest;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.CreateNamespaceResponse;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.CreateTableRequest;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.CreateTableResponse;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.DeleteColumnRequest;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.DeleteColumnResponse;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.DeleteNamespaceRequest;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.DeleteNamespaceResponse;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.DeleteSnapshotRequest;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.DeleteSnapshotResponse;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.DeleteTableRequest;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.DeleteTableResponse;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.DisableTableRequest;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.DisableTableResponse;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.DispatchMergingRegionsRequest;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.DispatchMergingRegionsResponse;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.EnableCatalogJanitorRequest;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.EnableCatalogJanitorResponse;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.EnableTableRequest;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.EnableTableResponse;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.GetClusterStatusRequest;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.GetClusterStatusResponse;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.GetCompletedSnapshotsRequest;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.GetCompletedSnapshotsResponse;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.GetNamespaceDescriptorRequest;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.GetNamespaceDescriptorResponse;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.GetSchemaAlterStatusRequest;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.GetSchemaAlterStatusResponse;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.GetTableDescriptorsRequest;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.GetTableDescriptorsResponse;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.GetTableNamesRequest;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.GetTableNamesResponse;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.IsCatalogJanitorEnabledRequest;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.IsCatalogJanitorEnabledResponse;
 import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.IsMasterRunningRequest;
 import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.IsMasterRunningResponse;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.IsRestoreSnapshotDoneRequest;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.IsRestoreSnapshotDoneResponse;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.IsSnapshotDoneRequest;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.IsSnapshotDoneResponse;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.ListNamespaceDescriptorsRequest;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.ListNamespaceDescriptorsResponse;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.ListTableDescriptorsByNamespaceRequest;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.ListTableDescriptorsByNamespaceResponse;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.ListTableNamesByNamespaceRequest;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.ListTableNamesByNamespaceResponse;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.ModifyColumnRequest;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.ModifyColumnResponse;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.ModifyNamespaceRequest;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.ModifyNamespaceResponse;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.ModifyTableRequest;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.ModifyTableResponse;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.MoveRegionRequest;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.MoveRegionResponse;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.OfflineRegionRequest;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.OfflineRegionResponse;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.RestoreSnapshotRequest;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.RestoreSnapshotResponse;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.RunCatalogScanRequest;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.RunCatalogScanResponse;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.SetBalancerRunningRequest;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.SetBalancerRunningResponse;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.ShutdownRequest;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.ShutdownResponse;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.SnapshotRequest;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.SnapshotResponse;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.StopMasterRequest;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.StopMasterResponse;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.UnassignRegionRequest;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.UnassignRegionResponse;
 import org.apache.hadoop.hbase.protobuf.generated.RegionServerStatusProtos;
 import org.apache.hadoop.hbase.protobuf.generated.RegionServerStatusProtos.GetLastFlushedSequenceIdRequest;
 import org.apache.hadoop.hbase.protobuf.generated.RegionServerStatusProtos.GetLastFlushedSequenceIdResponse;
@@ -200,6 +212,7 @@ import org.apache.hadoop.hbase.util.FSUtils;
 import org.apache.hadoop.hbase.util.HFileArchiveUtil;
 import org.apache.hadoop.hbase.util.HasThread;
 import org.apache.hadoop.hbase.util.InfoServer;
+import org.apache.hadoop.hbase.util.JvmPauseMonitor;
 import org.apache.hadoop.hbase.util.Pair;
 import org.apache.hadoop.hbase.util.Sleeper;
 import org.apache.hadoop.hbase.util.Strings;
@@ -219,6 +232,7 @@ import org.apache.hadoop.net.DNS;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.Watcher;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.protobuf.Descriptors;
 import com.google.protobuf.Message;
@@ -244,9 +258,7 @@ import com.google.protobuf.ServiceException;
  */
 @InterfaceAudience.Private
 @SuppressWarnings("deprecation")
-public class HMaster extends HasThread
-implements MasterMonitorProtos.MasterMonitorService.BlockingInterface,
-MasterAdminProtos.MasterAdminService.BlockingInterface,
+public class HMaster extends HasThread implements MasterProtos.MasterService.BlockingInterface,
 RegionServerStatusProtos.RegionServerStatusService.BlockingInterface,
 MasterServices, Server {
   private static final Log LOG = LogFactory.getLog(HMaster.class.getName());
@@ -275,6 +287,7 @@ MasterServices, Server {
 
   // RPC server for the HMaster
   private final RpcServerInterface rpcServer;
+  private JvmPauseMonitor pauseMonitor;
   // Set after we've called HBaseServer#openServer and ready to receive RPCs.
   // Set back to false after we stop rpcServer.  Used by tests.
   private volatile boolean rpcServerOpen = false;
@@ -366,7 +379,7 @@ MasterServices, Server {
 
   /** The health check chore. */
   private HealthCheckChore healthCheckChore;
-  
+
   /**
    * is in distributedLogReplay mode. When true, SplitLogWorker directly replays WAL edits to newly
    * assigned region servers instead of creating recovered.edits files.
@@ -454,6 +467,8 @@ MasterServices, Server {
 
     this.zooKeeper = new ZooKeeperWatcher(conf, MASTER + ":" + isa.getPort(), this, true);
     this.rpcServer.startThreads();
+    this.pauseMonitor = new JvmPauseMonitor(conf);
+    this.pauseMonitor.start();
 
     // metrics interval: using the same property as region server.
     this.msgInterval = conf.getInt("hbase.regionserver.msginterval", 3 * 1000);
@@ -489,7 +504,7 @@ MasterServices, Server {
       }
     }
 
-    distributedLogReplay = this.conf.getBoolean(HConstants.DISTRIBUTED_LOG_REPLAY_KEY, 
+    distributedLogReplay = this.conf.getBoolean(HConstants.DISTRIBUTED_LOG_REPLAY_KEY,
       HConstants.DEFAULT_DISTRIBUTED_LOG_REPLAY_CONFIG);
   }
 
@@ -499,11 +514,8 @@ MasterServices, Server {
   private List<BlockingServiceAndInterface> getServices() {
     List<BlockingServiceAndInterface> bssi = new ArrayList<BlockingServiceAndInterface>(3);
     bssi.add(new BlockingServiceAndInterface(
-        MasterMonitorProtos.MasterMonitorService.newReflectiveBlockingService(this),
-        MasterMonitorProtos.MasterMonitorService.BlockingInterface.class));
-    bssi.add(new BlockingServiceAndInterface(
-        MasterAdminProtos.MasterAdminService.newReflectiveBlockingService(this),
-        MasterAdminProtos.MasterAdminService.BlockingInterface.class));
+        MasterProtos.MasterService.newReflectiveBlockingService(this),
+        MasterProtos.MasterService.BlockingInterface.class));
     bssi.add(new BlockingServiceAndInterface(
         RegionServerStatusProtos.RegionServerStatusService.newReflectiveBlockingService(this),
         RegionServerStatusProtos.RegionServerStatusService.BlockingInterface.class));
@@ -902,7 +914,7 @@ MasterServices, Server {
       status.setStatus("Starting namespace manager");
       initNamespace();
     }
-    
+
     if (this.cpHost != null) {
       try {
         this.cpHost.preMasterInitialization();
@@ -1233,6 +1245,9 @@ MasterServices, Server {
     if (this.healthCheckChore != null) {
       this.healthCheckChore.interrupt();
     }
+    if (this.pauseMonitor != null) {
+      this.pauseMonitor.stop();
+    }
   }
 
   private static Thread getAndStartClusterStatusChore(HMaster master) {
@@ -1361,6 +1376,7 @@ MasterServices, Server {
     return !isStopped();
   }
 
+  @Override
   public IsMasterRunningResponse isMasterRunning(RpcController c, IsMasterRunningRequest req)
   throws ServiceException {
     return IsMasterRunningResponse.newBuilder().setIsMasterRunning(isMasterRunning()).build();
@@ -1718,9 +1734,7 @@ MasterServices, Server {
     }
 
     String namespace = hTableDescriptor.getTableName().getNamespaceAsString();
-    if (getNamespaceDescriptor(namespace) == null) {
-      throw new ConstraintException("Namespace " + namespace + " does not exist");
-    }
+    getNamespaceDescriptor(namespace); // ensure namespace exists
 
     HRegionInfo[] newRegions = getHRegionInfos(hTableDescriptor, splitKeys);
     checkInitialized();
@@ -2101,6 +2115,7 @@ MasterServices, Server {
       }
     }
     Collections.sort(backupMasters, new Comparator<ServerName>() {
+      @Override
       public int compare(ServerName s1, ServerName s2) {
         return s1.getServerName().compareTo(s2.getServerName());
       }});
@@ -2208,6 +2223,7 @@ MasterServices, Server {
     this.zooKeeper.reconnectAfterExpiration();
 
     Callable<Boolean> callable = new Callable<Boolean> () {
+      @Override
       public Boolean call() throws InterruptedException,
           IOException, KeeperException {
         MonitoredTask status =
@@ -2383,6 +2399,7 @@ MasterServices, Server {
     return this.stopped;
   }
 
+  @Override
   public boolean isAborted() {
     return this.abort;
   }
@@ -2414,6 +2431,7 @@ MasterServices, Server {
    *
    * @return true if master is ready to go, false if not.
    */
+  @Override
   public boolean isInitialized() {
     return initialized;
   }
@@ -2423,6 +2441,7 @@ MasterServices, Server {
    * assignMeta to prevent processing of ServerShutdownHandler.
    * @return true if assignMeta has completed;
    */
+  @Override
   public boolean isServerShutdownHandlerEnabled() {
     return this.serverShutdownHandlerEnabled;
   }
@@ -2497,8 +2516,7 @@ MasterServices, Server {
       LOG.debug(getClientIdAuditPrefix() + " unassign " + hri.getRegionNameAsString()
           + " in current location if it is online and reassign.force=" + force);
       this.assignmentManager.unassign(hri, force);
-      if (!this.assignmentManager.getRegionStates().isRegionInTransition(hri)
-          && !this.assignmentManager.getRegionStates().isRegionAssigned(hri)) {
+      if (this.assignmentManager.getRegionStates().isRegionOffline(hri)) {
         LOG.debug("Region " + hri.getRegionNameAsString()
             + " is not online on any region server, reassigning it.");
         assignRegion(hri);
@@ -2521,6 +2539,7 @@ MasterServices, Server {
    * @return GetTableDescriptorsResponse
    * @throws ServiceException
    */
+  @Override
   public GetTableDescriptorsResponse getTableDescriptors(
 	      RpcController controller, GetTableDescriptorsRequest req) throws ServiceException {
     List<HTableDescriptor> descriptors = new ArrayList<HTableDescriptor>();
@@ -2589,6 +2608,7 @@ MasterServices, Server {
    * @return GetTableNamesResponse
    * @throws ServiceException
    */
+  @Override
   public GetTableNamesResponse getTableNames(
         RpcController controller, GetTableNamesRequest req) throws ServiceException {
     try {
@@ -2931,44 +2951,44 @@ MasterServices, Server {
   }
 
   @Override
-  public MasterAdminProtos.ModifyNamespaceResponse modifyNamespace(RpcController controller,
-      MasterAdminProtos.ModifyNamespaceRequest request) throws ServiceException {
+  public ModifyNamespaceResponse modifyNamespace(RpcController controller,
+      ModifyNamespaceRequest request) throws ServiceException {
     try {
       modifyNamespace(ProtobufUtil.toNamespaceDescriptor(request.getNamespaceDescriptor()));
-      return MasterAdminProtos.ModifyNamespaceResponse.getDefaultInstance();
+      return ModifyNamespaceResponse.getDefaultInstance();
     } catch (IOException e) {
       throw new ServiceException(e);
     }
   }
 
   @Override
-  public MasterAdminProtos.CreateNamespaceResponse createNamespace(RpcController controller,
-     MasterAdminProtos.CreateNamespaceRequest request) throws ServiceException {
+  public CreateNamespaceResponse createNamespace(RpcController controller,
+     CreateNamespaceRequest request) throws ServiceException {
     try {
       createNamespace(ProtobufUtil.toNamespaceDescriptor(request.getNamespaceDescriptor()));
-      return MasterAdminProtos.CreateNamespaceResponse.getDefaultInstance();
+      return CreateNamespaceResponse.getDefaultInstance();
     } catch (IOException e) {
       throw new ServiceException(e);
     }
   }
 
   @Override
-  public MasterAdminProtos.DeleteNamespaceResponse deleteNamespace(RpcController controller,
-      MasterAdminProtos.DeleteNamespaceRequest request) throws ServiceException {
+  public DeleteNamespaceResponse deleteNamespace(RpcController controller,
+      DeleteNamespaceRequest request) throws ServiceException {
     try {
       deleteNamespace(request.getNamespaceName());
-      return MasterAdminProtos.DeleteNamespaceResponse.getDefaultInstance();
+      return DeleteNamespaceResponse.getDefaultInstance();
     } catch (IOException e) {
       throw new ServiceException(e);
     }
   }
 
   @Override
-  public MasterAdminProtos.GetNamespaceDescriptorResponse getNamespaceDescriptor(
-      RpcController controller, MasterAdminProtos.GetNamespaceDescriptorRequest request)
+  public GetNamespaceDescriptorResponse getNamespaceDescriptor(
+      RpcController controller, GetNamespaceDescriptorRequest request)
       throws ServiceException {
     try {
-      return MasterAdminProtos.GetNamespaceDescriptorResponse.newBuilder()
+      return GetNamespaceDescriptorResponse.newBuilder()
           .setNamespaceDescriptor(
               ProtobufUtil.toProtoNamespaceDescriptor(getNamespaceDescriptor(request.getNamespaceName())))
           .build();
@@ -2978,12 +2998,12 @@ MasterServices, Server {
   }
 
   @Override
-  public MasterAdminProtos.ListNamespaceDescriptorsResponse listNamespaceDescriptors(
-      RpcController controller, MasterAdminProtos.ListNamespaceDescriptorsRequest request)
+  public ListNamespaceDescriptorsResponse listNamespaceDescriptors(
+      RpcController controller, ListNamespaceDescriptorsRequest request)
       throws ServiceException {
     try {
-      MasterAdminProtos.ListNamespaceDescriptorsResponse.Builder response =
-          MasterAdminProtos.ListNamespaceDescriptorsResponse.newBuilder();
+      ListNamespaceDescriptorsResponse.Builder response =
+          ListNamespaceDescriptorsResponse.newBuilder();
       for(NamespaceDescriptor ns: listNamespaceDescriptors()) {
         response.addNamespaceDescriptor(ProtobufUtil.toProtoNamespaceDescriptor(ns));
       }
@@ -2994,12 +3014,12 @@ MasterServices, Server {
   }
 
   @Override
-  public MasterAdminProtos.ListTableDescriptorsByNamespaceResponse listTableDescriptorsByNamespace(
-      RpcController controller, MasterAdminProtos.ListTableDescriptorsByNamespaceRequest request)
+  public ListTableDescriptorsByNamespaceResponse listTableDescriptorsByNamespace(
+      RpcController controller, ListTableDescriptorsByNamespaceRequest request)
       throws ServiceException {
     try {
-      MasterAdminProtos.ListTableDescriptorsByNamespaceResponse.Builder b =
-          MasterAdminProtos.ListTableDescriptorsByNamespaceResponse.newBuilder();
+      ListTableDescriptorsByNamespaceResponse.Builder b =
+          ListTableDescriptorsByNamespaceResponse.newBuilder();
       for(HTableDescriptor htd: listTableDescriptorsByNamespace(request.getNamespaceName())) {
         b.addTableSchema(htd.convert());
       }
@@ -3010,12 +3030,12 @@ MasterServices, Server {
   }
 
   @Override
-  public MasterAdminProtos.ListTableNamesByNamespaceResponse listTableNamesByNamespace(
-      RpcController controller, MasterAdminProtos.ListTableNamesByNamespaceRequest request)
+  public ListTableNamesByNamespaceResponse listTableNamesByNamespace(
+      RpcController controller, ListTableNamesByNamespaceRequest request)
       throws ServiceException {
     try {
-      MasterAdminProtos.ListTableNamesByNamespaceResponse.Builder b =
-          MasterAdminProtos.ListTableNamesByNamespaceResponse.newBuilder();
+      ListTableNamesByNamespaceResponse.Builder b =
+          ListTableNamesByNamespaceResponse.newBuilder();
       for (TableName tableName: listTableNamesByNamespace(request.getNamespaceName())) {
         b.addTableName(ProtobufUtil.toProtoTableName(tableName));
       }
@@ -3030,6 +3050,7 @@ MasterServices, Server {
     return org.apache.commons.lang.StringUtils.isNotBlank(healthScriptLocation);
   }
 
+  @Override
   public void createNamespace(NamespaceDescriptor descriptor) throws IOException {
     TableName.isLegalNamespaceName(Bytes.toBytes(descriptor.getName()));
     if (cpHost != null) {
@@ -3044,6 +3065,7 @@ MasterServices, Server {
     }
   }
 
+  @Override
   public void modifyNamespace(NamespaceDescriptor descriptor) throws IOException {
     TableName.isLegalNamespaceName(Bytes.toBytes(descriptor.getName()));
     if (cpHost != null) {
@@ -3058,6 +3080,7 @@ MasterServices, Server {
     }
   }
 
+  @Override
   public void deleteNamespace(String name) throws IOException {
     if (cpHost != null) {
       if (cpHost.preDeleteNamespace(name)) {
@@ -3071,24 +3094,55 @@ MasterServices, Server {
     }
   }
 
+  @Override
   public NamespaceDescriptor getNamespaceDescriptor(String name) throws IOException {
-      return tableNamespaceManager.get(name);
+    if (!isTableNamespaceManagerReady()) {
+      throw new IOException("Table Namespace Manager not ready yet, try again later");
+    }
+    NamespaceDescriptor nsd = tableNamespaceManager.get(name);
+    if (nsd == null) {
+      throw new NamespaceNotFoundException(name);
+    }
+    return nsd;
   }
 
+  @Override
   public List<NamespaceDescriptor> listNamespaceDescriptors() throws IOException {
+    if (!isTableNamespaceManagerReady()) {
+      return Lists.newArrayList();
+    }
     return Lists.newArrayList(tableNamespaceManager.list());
   }
 
+  @Override
   public List<HTableDescriptor> listTableDescriptorsByNamespace(String name) throws IOException {
+    if (!isTableNamespaceManagerReady()) {
+      return Lists.newArrayList();
+    }
+    getNamespaceDescriptor(name); // check that namespace exists
     return Lists.newArrayList(tableDescriptors.getByNamespace(name).values());
   }
 
+  @Override
   public List<TableName> listTableNamesByNamespace(String name) throws IOException {
     List<TableName> tableNames = Lists.newArrayList();
+    if (!isTableNamespaceManagerReady()) {
+      return tableNames;
+    }
+    getNamespaceDescriptor(name); // check that namespace exists
     for (HTableDescriptor descriptor: tableDescriptors.getByNamespace(name).values()) {
       tableNames.add(descriptor.getTableName());
     }
     return tableNames;
+  }
+
+  private boolean isTableNamespaceManagerReady() throws IOException {
+    boolean ready = tableNamespaceManager != null &&
+        tableNamespaceManager.isTableAvailableAndInitialized();
+    if (!ready) {
+      LOG.warn("Table Namespace Manager not ready yet");
+    }
+    return ready;
   }
 
 }

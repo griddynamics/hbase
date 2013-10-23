@@ -61,7 +61,7 @@
 
 function usage {
   echo "Usage: $0 CURRENT_VERSION NEW_VERSION"
-  echo "For example, $0 hbase-0.95.2-SNAPSHOT hbase-0.95.2-hadoop1-SNAPSHOT"
+  echo "For example, $0 0.95.2-SNAPSHOT 0.95.2-hadoop1-SNAPSHOT"
   echo "Presumes VERSION has hadoop1 or hadoop2 in it."
   exit 1
 }
@@ -124,7 +124,7 @@ for p in $poms; do
   sed -e "s/\${compat.module}/hbase-${hadoop_version}-compat/" \
     -e "s/${old_hbase_version}/${new_hbase_version}/" \
     -e "s/\(<module>[^<]*\)/\1\/${nupom}/" \
-    -e "s/\(relativePath\>\.\.\)/\1\/${nupom}/" \
+    -e "s/\(relativePath>\.\.\)/\1\/${nupom}/" \
     -e "s/<!--h1-->.*name>.*/${h1}/" \
     -e "s/<!--h2-->.*<name>.*/${h2}/" \
     -e '/--Below formatting for .*poms\.sh--/d' \

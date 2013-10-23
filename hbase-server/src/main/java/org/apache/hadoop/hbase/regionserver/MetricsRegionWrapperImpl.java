@@ -33,6 +33,7 @@ import java.util.concurrent.TimeUnit;
 public class MetricsRegionWrapperImpl implements MetricsRegionWrapper, Closeable {
 
   public static final int PERIOD = 45;
+  public static final String UNKNOWN = "unknown";
 
   private final HRegion region;
   private ScheduledExecutorService executor;
@@ -55,16 +56,26 @@ public class MetricsRegionWrapperImpl implements MetricsRegionWrapper, Closeable
   public String getTableName() {
     HTableDescriptor tableDesc = this.region.getTableDesc();
     if (tableDesc == null) {
-      return "";
+      return UNKNOWN;
     }
-    return tableDesc.getTableName().getNameAsString();
+    return tableDesc.getTableName().getQualifierAsString();
   }
+
+  @Override
+  public String getNamespace() {
+    HTableDescriptor tableDesc = this.region.getTableDesc();
+    if (tableDesc == null) {
+      return UNKNOWN;
+    }
+    return tableDesc.getTableName().getNamespaceAsString();
+  }
+
 
   @Override
   public String getRegionName() {
     HRegionInfo regionInfo = this.region.getRegionInfo();
     if (regionInfo == null) {
-      return "";
+      return UNKNOWN;
     }
     return regionInfo.getEncodedName();
   }
@@ -101,6 +112,21 @@ public class MetricsRegionWrapperImpl implements MetricsRegionWrapper, Closeable
   @Override
   public long getWriteRequestCount() {
     return this.region.getWriteRequestsCount();
+  }
+
+  @Override
+  public long getNumFilesCompacted() {
+    return this.region.compactionNumFilesCompacted.get();
+  }
+
+  @Override
+  public long getNumBytesCompacted() {
+    return this.region.compactionNumBytesCompacted.get();
+  }
+
+  @Override
+  public long getNumCompactionsCompleted() {
+    return this.region.compactionsFinished.get();
   }
 
   public class HRegionMetricsWrapperRunnable implements Runnable {

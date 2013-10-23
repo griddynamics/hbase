@@ -37,11 +37,19 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.FilterFileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.PositionedReadable;
-import org.apache.hadoop.hbase.*;
+import org.apache.hadoop.hbase.HBaseTestingUtility;
+import org.apache.hadoop.hbase.HColumnDescriptor;
+import org.apache.hadoop.hbase.HConstants;
+import org.apache.hadoop.hbase.HTableDescriptor;
+import org.apache.hadoop.hbase.KeyValue;
+import org.apache.hadoop.hbase.MediumTests;
+import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.HBaseAdmin;
 import org.apache.hadoop.hbase.client.HTable;
 import org.apache.hadoop.hbase.fs.HFileSystem;
 import org.apache.hadoop.hbase.io.hfile.CacheConfig;
+import org.apache.hadoop.hbase.io.hfile.HFileContext;
+import org.apache.hadoop.hbase.io.hfile.HFileContextBuilder;
 import org.apache.hadoop.hbase.io.hfile.HFileScanner;
 import org.apache.hadoop.hbase.io.hfile.NoOpDataBlockEncoder;
 import org.apache.hadoop.hbase.util.Bytes;
@@ -72,9 +80,11 @@ public class TestFSErrorsExposed {
     FaultyFileSystem faultyfs = new FaultyFileSystem(hfs.getBackingFs());
     FileSystem fs = new HFileSystem(faultyfs);
     CacheConfig cacheConf = new CacheConfig(util.getConfiguration());
+    HFileContext meta = new HFileContextBuilder().withBlockSize(2 * 1024).build();
     StoreFile.Writer writer = new StoreFile.WriterBuilder(
-        util.getConfiguration(), cacheConf, hfs, 2*1024)
+        util.getConfiguration(), cacheConf, hfs)
             .withOutputDir(hfilePath)
+            .withFileContext(meta)
             .build();
     TestStoreFile.writeStoreFile(
         writer, Bytes.toBytes("cf"), Bytes.toBytes("qual"));
@@ -121,9 +131,11 @@ public class TestFSErrorsExposed {
     FaultyFileSystem faultyfs = new FaultyFileSystem(hfs.getBackingFs());
     HFileSystem fs = new HFileSystem(faultyfs);
     CacheConfig cacheConf = new CacheConfig(util.getConfiguration());
+    HFileContext meta = new HFileContextBuilder().withBlockSize(2 * 1024).build();
     StoreFile.Writer writer = new StoreFile.WriterBuilder(
-        util.getConfiguration(), cacheConf, hfs, 2 * 1024)
+        util.getConfiguration(), cacheConf, hfs)
             .withOutputDir(hfilePath)
+            .withFileContext(meta)
             .build();
     TestStoreFile.writeStoreFile(
         writer, Bytes.toBytes("cf"), Bytes.toBytes("qual"));
@@ -132,7 +144,9 @@ public class TestFSErrorsExposed {
         cacheConf, BloomType.NONE, NoOpDataBlockEncoder.INSTANCE);
 
     List<StoreFileScanner> scanners = StoreFileScanner.getScannersForStoreFiles(
-        Collections.singletonList(sf), false, true, false);
+        Collections.singletonList(sf), false, true, false,
+        // 0 is passed as readpoint because this test operates on StoreFile directly
+        0);
     KeyValueScanner scanner = scanners.get(0);
 
     FaultyInputStream inStream = faultyfs.inStreams.get(0).get();
