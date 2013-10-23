@@ -36,6 +36,8 @@ import org.apache.hadoop.hbase.SmallTests;
 import org.apache.hadoop.hbase.io.encoding.DataBlockEncoding;
 import org.apache.hadoop.hbase.io.hfile.CacheConfig;
 import org.apache.hadoop.hbase.io.hfile.HFile;
+import org.apache.hadoop.hbase.io.hfile.HFileContext;
+import org.apache.hadoop.hbase.io.hfile.HFileContextBuilder;
 import org.apache.hadoop.hbase.io.hfile.HFileScanner;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.junit.AfterClass;
@@ -81,10 +83,10 @@ public class TestHalfStoreFileReader {
     Configuration conf = TEST_UTIL.getConfiguration();
     FileSystem fs = FileSystem.get(conf);
     CacheConfig cacheConf = new CacheConfig(conf);
-
+    HFileContext meta = new HFileContextBuilder().withBlockSize(1024).build();
     HFile.Writer w = HFile.getWriterFactory(conf, cacheConf)
         .withPath(fs, p)
-        .withBlockSize(1024)
+        .withFileContext(meta)
         .create();
 
     // write some things.
@@ -146,10 +148,10 @@ public class TestHalfStoreFileReader {
       Configuration conf = TEST_UTIL.getConfiguration();
       FileSystem fs = FileSystem.get(conf);
       CacheConfig cacheConf = new CacheConfig(conf);
-
+      HFileContext meta = new HFileContextBuilder().withBlockSize(1024).build();
       HFile.Writer w = HFile.getWriterFactory(conf, cacheConf)
               .withPath(fs, p)
-              .withBlockSize(1024)
+              .withFileContext(meta)
               .create();
 
       // write some things.
@@ -172,11 +174,13 @@ public class TestHalfStoreFileReader {
       // Ugly code to get the item before the midkey
       KeyValue beforeMidKey = null;
       for (KeyValue item : items) {
-          if (item.equals(midKV)) {
+          if (KeyValue.COMPARATOR.compare(item, midKV) >= 0) {
               break;
           }
           beforeMidKey = item;
       }
+      System.out.println("midkey: " + midKV + " or: " + Bytes.toStringBinary(midkey));
+      System.out.println("beforeMidKey: " + beforeMidKey);
 
 
       // Seek on the splitKey, should be in top, not in bottom

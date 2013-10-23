@@ -75,7 +75,7 @@ public interface Store extends HeapSize, StoreConfigInformation {
    * @return a scanner over the current key values
    * @throws IOException on failure
    */
-  KeyValueScanner getScanner(Scan scan, final NavigableSet<byte[]> targetCols)
+  KeyValueScanner getScanner(Scan scan, final NavigableSet<byte[]> targetCols, long readPt)
       throws IOException;
 
   /**
@@ -83,19 +83,23 @@ public interface Store extends HeapSize, StoreConfigInformation {
    * the line).
    * @param cacheBlocks
    * @param isGet
+   * @param usePread
    * @param isCompaction
    * @param matcher
    * @param startRow
    * @param stopRow
+   * @param readPt
    * @return all scanners for this store
    */
   List<KeyValueScanner> getScanners(
     boolean cacheBlocks,
     boolean isGet,
+    boolean usePread,
     boolean isCompaction,
     ScanQueryMatcher matcher,
     byte[] startRow,
-    byte[] stopRow
+    byte[] stopRow,
+    long readPt
   ) throws IOException;
 
   ScanInfo getScanInfo();
@@ -161,7 +165,8 @@ public interface Store extends HeapSize, StoreConfigInformation {
     long maxKeyCount,
     Compression.Algorithm compression,
     boolean isCompaction,
-    boolean includeMVCCReadpoint
+    boolean includeMVCCReadpoint,
+    boolean includesTags
   ) throws IOException;
 
   // Compaction oriented methods

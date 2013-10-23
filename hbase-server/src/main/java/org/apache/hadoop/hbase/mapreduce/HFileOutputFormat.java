@@ -48,9 +48,8 @@ import org.apache.hadoop.hbase.io.compress.Compression;
 import org.apache.hadoop.hbase.io.encoding.DataBlockEncoding;
 import org.apache.hadoop.hbase.io.hfile.AbstractHFileWriter;
 import org.apache.hadoop.hbase.io.hfile.CacheConfig;
-import org.apache.hadoop.hbase.io.hfile.HFileDataBlockEncoder;
-import org.apache.hadoop.hbase.io.hfile.HFileDataBlockEncoderImpl;
-import org.apache.hadoop.hbase.io.hfile.NoOpDataBlockEncoder;
+import org.apache.hadoop.hbase.io.hfile.HFileContext;
+import org.apache.hadoop.hbase.io.hfile.HFileContextBuilder;
 import org.apache.hadoop.hbase.regionserver.BloomType;
 import org.apache.hadoop.hbase.regionserver.HStore;
 import org.apache.hadoop.hbase.regionserver.StoreFile;
@@ -106,20 +105,7 @@ public class HFileOutputFormat extends FileOutputFormat<ImmutableBytesWritable, 
     final Map<byte[], String> bloomTypeMap = createFamilyBloomMap(conf);
     final Map<byte[], String> blockSizeMap = createFamilyBlockSizeMap(conf);
 
-    String dataBlockEncodingStr = conf.get(DATABLOCK_ENCODING_CONF_KEY);
-    final HFileDataBlockEncoder encoder;
-    if (dataBlockEncodingStr == null) {
-      encoder = NoOpDataBlockEncoder.INSTANCE;
-    } else {
-      try {
-        encoder = new HFileDataBlockEncoderImpl(DataBlockEncoding
-            .valueOf(dataBlockEncodingStr));
-      } catch (IllegalArgumentException ex) {
-        throw new RuntimeException(
-            "Invalid data block encoding type configured for the param "
-                + DATABLOCK_ENCODING_CONF_KEY + " : " + dataBlockEncodingStr);
-      }
-    }
+    final String dataBlockEncodingStr = conf.get(DATABLOCK_ENCODING_CONF_KEY);
 
     return new RecordWriter<ImmutableBytesWritable, KeyValue>() {
       // Map of families to writers and how much has been output on the writer.
@@ -206,14 +192,20 @@ public class HFileOutputFormat extends FileOutputFormat<ImmutableBytesWritable, 
             : Integer.parseInt(blockSizeString);
         Configuration tempConf = new Configuration(conf);
         tempConf.setFloat(HConstants.HFILE_BLOCK_CACHE_SIZE_KEY, 0.0f);
-        wl.writer = new StoreFile.WriterBuilder(conf, new CacheConfig(tempConf), fs, blockSize)
-            .withOutputDir(familydir)
-            .withCompression(AbstractHFileWriter.compressionByName(compression))
-            .withBloomType(bloomType)
-            .withComparator(KeyValue.COMPARATOR)
-            .withDataBlockEncoder(encoder)
-            .withChecksumType(HStore.getChecksumType(conf))
-            .withBytesPerChecksum(HStore.getBytesPerChecksum(conf))
+        HFileContextBuilder contextBuilder = new HFileContextBuilder()
+                                    .withCompressionAlgo(AbstractHFileWriter.compressionByName(compression))
+                                    .withChecksumType(HStore.getChecksumType(conf))
+                                    .withBytesPerCheckSum(HStore.getBytesPerChecksum(conf))
+                                    .withBlockSize(blockSize);
+        if(dataBlockEncodingStr !=  null) {
+          contextBuilder.withDataBlockEncodingOnDisk(DataBlockEncoding.valueOf(dataBlockEncodingStr))
+                        .withDataBlockEncodingInCache(DataBlockEncoding.valueOf(dataBlockEncodingStr));
+        }
+        HFileContext hFileContext = contextBuilder.build();
+                                    
+        wl.writer = new StoreFile.WriterBuilder(conf, new CacheConfig(tempConf), fs)
+            .withOutputDir(familydir).withBloomType(bloomType).withComparator(KeyValue.COMPARATOR)
+            .withFileContext(hFileContext)
             .build();
 
         this.writers.put(family, wl);
@@ -343,6 +335,7 @@ public class HFileOutputFormat extends FileOutputFormat<ImmutableBytesWritable, 
     }
 
     conf.setStrings("io.serializations", conf.get("io.serializations"),
+        MutationSerialization.class.getName(), ResultSerialization.class.getName(),
         KeyValueSerialization.class.getName());
 
     // Use table's region boundaries for TOP split points.

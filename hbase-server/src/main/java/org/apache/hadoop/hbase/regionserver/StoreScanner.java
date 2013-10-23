@@ -34,6 +34,7 @@ import org.apache.hadoop.hbase.DoNotRetryIOException;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.KeyValueUtil;
+import org.apache.hadoop.hbase.client.IsolationLevel;
 import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.executor.ExecutorService;
 import org.apache.hadoop.hbase.filter.Filter;
@@ -93,9 +94,15 @@ public class StoreScanner extends NonLazyKeyValueScanner
   // if heap == null and lastTop != null, you need to reseek given the key below
   protected KeyValue lastTop = null;
 
+  // A flag whether use pread for scan
+  private boolean scanUsePread = false;
+  
+  private final long readPt;
+
   /** An internal constructor. */
   protected StoreScanner(Store store, boolean cacheBlocks, Scan scan,
-      final NavigableSet<byte[]> columns, long ttl, int minVersions) {
+      final NavigableSet<byte[]> columns, long ttl, int minVersions, long readPt) {
+    this.readPt = readPt;
     this.store = store;
     this.cacheBlocks = cacheBlocks;
     isGet = scan.isGetScan();
@@ -111,6 +118,7 @@ public class StoreScanner extends NonLazyKeyValueScanner
     // for multi-row (non-"get") scans because this is not done in
     // StoreFile.passesBloomFilter(Scan, SortedSet<byte[]>).
     useRowColBloom = numCol > 1 || (!isGet && numCol == 1);
+    this.scanUsePread = scan.isSmall();
     // The parallel-seeking is on :
     // 1) the config value is *true*
     // 2) store has more than one store file
@@ -133,10 +141,11 @@ public class StoreScanner extends NonLazyKeyValueScanner
    * @param columns which columns we are scanning
    * @throws IOException
    */
-  public StoreScanner(Store store, ScanInfo scanInfo, Scan scan, final NavigableSet<byte[]> columns)
+  public StoreScanner(Store store, ScanInfo scanInfo, Scan scan, final NavigableSet<byte[]> columns,
+      long readPt)
                               throws IOException {
     this(store, scan.getCacheBlocks(), scan, columns, scanInfo.getTtl(),
-        scanInfo.getMinVersions());
+        scanInfo.getMinVersions(), readPt);
     if (columns != null && scan.isRaw()) {
       throw new DoNotRetryIOException(
           "Cannot specify any column for a raw scan");
@@ -215,8 +224,8 @@ public class StoreScanner extends NonLazyKeyValueScanner
   private StoreScanner(Store store, ScanInfo scanInfo, Scan scan,
       List<? extends KeyValueScanner> scanners, ScanType scanType, long smallestReadPoint,
       long earliestPutTs, byte[] dropDeletesFromRow, byte[] dropDeletesToRow) throws IOException {
-    this(store, false, scan, null, scanInfo.getTtl(),
-        scanInfo.getMinVersions());
+    this(store, false, scan, null, scanInfo.getTtl(), scanInfo.getMinVersions(),
+        ((HStore)store).getHRegion().getReadpoint(IsolationLevel.READ_COMMITTED));
     if (dropDeletesFromRow == null) {
       matcher = new ScanQueryMatcher(scan, scanInfo, null, scanType,
           smallestReadPoint, earliestPutTs, oldestUnexpiredTS);
@@ -246,16 +255,27 @@ public class StoreScanner extends NonLazyKeyValueScanner
       ScanType scanType, final NavigableSet<byte[]> columns,
       final List<KeyValueScanner> scanners) throws IOException {
     this(scan, scanInfo, scanType, columns, scanners,
-        HConstants.LATEST_TIMESTAMP);
+        HConstants.LATEST_TIMESTAMP,
+        // 0 is passed as readpoint because the test bypasses Store
+        0);
   }
 
   // Constructor for testing.
   StoreScanner(final Scan scan, ScanInfo scanInfo,
+    ScanType scanType, final NavigableSet<byte[]> columns,
+    final List<KeyValueScanner> scanners, long earliestPutTs)
+        throws IOException {
+    this(scan, scanInfo, scanType, columns, scanners, earliestPutTs,
+      // 0 is passed as readpoint because the test bypasses Store
+      0);
+  }
+  
+  private StoreScanner(final Scan scan, ScanInfo scanInfo,
       ScanType scanType, final NavigableSet<byte[]> columns,
-      final List<KeyValueScanner> scanners, long earliestPutTs)
+      final List<KeyValueScanner> scanners, long earliestPutTs, long readPt)
           throws IOException {
     this(null, scan.getCacheBlocks(), scan, columns, scanInfo.getTtl(),
-        scanInfo.getMinVersions());
+        scanInfo.getMinVersions(), readPt);
     this.matcher = new ScanQueryMatcher(scan, scanInfo, columns, scanType,
         Long.MAX_VALUE, earliestPutTs, oldestUnexpiredTS);
 
@@ -276,8 +296,9 @@ public class StoreScanner extends NonLazyKeyValueScanner
    */
   protected List<KeyValueScanner> getScannersNoCompaction() throws IOException {
     final boolean isCompaction = false;
-    return selectScannersFrom(store.getScanners(cacheBlocks, isGet,
-        isCompaction, matcher, scan.getStartRow(), scan.getStopRow()));
+    boolean usePread = isGet || scanUsePread;
+    return selectScannersFrom(store.getScanners(cacheBlocks, isGet, usePread,
+        isCompaction, matcher, scan.getStartRow(), scan.getStopRow(), this.readPt));
   }
 
   /**
@@ -621,7 +642,7 @@ public class StoreScanner extends NonLazyKeyValueScanner
     for (KeyValueScanner scanner : scanners) {
       if (scanner instanceof StoreFileScanner) {
         ParallelSeekHandler seekHandler = new ParallelSeekHandler(scanner, kv,
-          MultiVersionConsistencyControl.getThreadReadPoint(), latch);
+          this.readPt, latch);
         executor.submit(seekHandler);
         handlers.add(seekHandler);
       } else {
