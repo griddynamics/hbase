@@ -11,124 +11,100 @@
  */
 package org.apache.hadoop.hbase.rest;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
 import java.io.IOException;
 
 import javax.servlet.ServletOutputStream;
 import javax.servlet.http.HttpServletResponse;
 
-import org.apache.hadoop.hbase.MediumTests;
+import org.apache.hadoop.hbase.SmallTests;
 import org.apache.hadoop.hbase.rest.filter.GZIPResponseStream;
 import org.apache.hadoop.hbase.rest.filter.GZIPResponseWrapper;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
-import static org.mockito.Mockito.*;
-import static org.junit.Assert.*;
-
-@Category(MediumTests.class)
+@Category(SmallTests.class)
 public class TestGZIPResponseWrapper {
 
+  private final HttpServletResponse response = mock(HttpServletResponse.class);
+  private final GZIPResponseWrapper wrapper = new GZIPResponseWrapper(response);
+  
   /**
-   * headers function should be called in response except header "content-length"
-   * 
-   * @throws IOException
+   * wrapper should set all headers except "content-length"
    */
   @Test
   public void testHeader() throws IOException {
-
-    HttpServletResponse response = mock(HttpServletResponse.class);
-
-    GZIPResponseWrapper test = new GZIPResponseWrapper(response);
-    test.setStatus(200);
+    wrapper.setStatus(200);
     verify(response).setStatus(200);
-    test.addHeader("header", "header value");
+    wrapper.addHeader("header", "header value");
     verify(response).addHeader("header", "header value");
-    test.addHeader("content-length", "header value2");
+    wrapper.addHeader("content-length", "header value2");
     verify(response, never()).addHeader("content-length", "header value");
 
-    test.setIntHeader("header", 5);
+    wrapper.setIntHeader("header", 5);
     verify(response).setIntHeader("header", 5);
-    test.setIntHeader("content-length", 4);
+    wrapper.setIntHeader("content-length", 4);
     verify(response, never()).setIntHeader("content-length", 4);
 
-    test.setHeader("set-header", "new value");
+    wrapper.setHeader("set-header", "new value");
     verify(response).setHeader("set-header", "new value");
-    test.setHeader("content-length", "content length value");
+    wrapper.setHeader("content-length", "content length value");
     verify(response, never()).setHeader("content-length", "content length value");
 
-    test.sendRedirect("location");
+    wrapper.sendRedirect("location");
     verify(response).sendRedirect("location");
     
-    test.flushBuffer();
+    wrapper.flushBuffer();
     verify(response).flushBuffer();
-
   }
 
   @Test
   public void testResetBuffer() throws IOException {
-    HttpServletResponse response = mock(HttpServletResponse.class);
     when(response.isCommitted()).thenReturn(false);
     ServletOutputStream out = mock(ServletOutputStream.class);
     when(response.getOutputStream()).thenReturn(out);
-    GZIPResponseWrapper test = new GZIPResponseWrapper(response);
 
-    ServletOutputStream servletOutput = test.getOutputStream();
-    assertEquals(org.apache.hadoop.hbase.rest.filter.GZIPResponseStream.class,
-        servletOutput.getClass());
-    test.resetBuffer();
+    ServletOutputStream servletOutput = wrapper.getOutputStream();
+    assertEquals(GZIPResponseStream.class, servletOutput.getClass());
+    wrapper.resetBuffer();
     verify(response).setHeader("Content-Encoding", null);
 
     when(response.isCommitted()).thenReturn(true);
-    servletOutput = test.getOutputStream();
+    servletOutput = wrapper.getOutputStream();
     assertEquals(out.getClass(), servletOutput.getClass());
-    assertNotNull(test.getWriter());
-
+    assertNotNull(wrapper.getWriter());
   }
 
   @Test
   public void testReset() throws IOException {
-    HttpServletResponse response = mock(HttpServletResponse.class);
     when(response.isCommitted()).thenReturn(false);
     ServletOutputStream out = mock(ServletOutputStream.class);
     when(response.getOutputStream()).thenReturn(out);
-    GZIPResponseWrapper test = new GZIPResponseWrapper(response);
 
-    ServletOutputStream servletOutput = test.getOutputStream();
-    assertEquals(org.apache.hadoop.hbase.rest.filter.GZIPResponseStream.class,
-        servletOutput.getClass());
-    test.reset();
+    ServletOutputStream servletOutput = wrapper.getOutputStream();
+    verify(response).addHeader("Content-Encoding", "gzip");
+    assertEquals(GZIPResponseStream.class, servletOutput.getClass());
+    wrapper.reset();
     verify(response).setHeader("Content-Encoding", null);
 
     when(response.isCommitted()).thenReturn(true);
-    servletOutput = test.getOutputStream();
+    servletOutput = wrapper.getOutputStream();
     assertEquals(out.getClass(), servletOutput.getClass());
   }
 
   @Test
   public void testSendError() throws IOException {
-    HttpServletResponse response = mock(HttpServletResponse.class);
-    GZIPResponseWrapper test = new GZIPResponseWrapper(response);
-
-    test.sendError(404);
+    wrapper.sendError(404);
     verify(response).sendError(404);
 
-    test.sendError(404, "error message");
+    wrapper.sendError(404, "error message");
     verify(response).sendError(404, "error message");
-
   }
 
-  @Test
-  public void testGZIPResponseStream() throws IOException {
-    HttpServletResponse httpResponce = mock(HttpServletResponse.class);
-    ServletOutputStream out = mock(ServletOutputStream.class);
-
-    when(httpResponce.getOutputStream()).thenReturn(out);
-    GZIPResponseStream test = new GZIPResponseStream(httpResponce);
-    verify(httpResponce).addHeader("Content-Encoding", "gzip");
-
-    test.close();
-
-    test.resetBuffer();
-    verify(httpResponce).setHeader("Content-Encoding", null);
-  }
 }
