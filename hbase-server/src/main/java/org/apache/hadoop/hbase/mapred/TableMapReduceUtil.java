@@ -20,6 +20,8 @@ package org.apache.hadoop.hbase.mapred;
 
 import java.io.IOException;
 
+import org.apache.hadoop.classification.InterfaceAudience;
+import org.apache.hadoop.classification.InterfaceStability;
 import org.apache.hadoop.hbase.HBaseConfiguration;
 import org.apache.hadoop.hbase.catalog.MetaReader;
 import org.apache.hadoop.hbase.client.Put;
@@ -39,6 +41,8 @@ import org.apache.hadoop.mapred.jobcontrol.Job;
  * Utility for {@link TableMap} and {@link TableReduce}
  */
 @Deprecated
+@InterfaceAudience.Public
+@InterfaceStability.Stable
 @SuppressWarnings("unchecked")
 public class TableMapReduceUtil {
 
@@ -258,6 +262,7 @@ public class TableMapReduceUtil {
     org.apache.hadoop.hbase.mapreduce.TableMapReduceUtil.addDependencyJars(
       job,
       org.apache.zookeeper.ZooKeeper.class,
+      org.jboss.netty.channel.ChannelFactory.class,
       com.google.common.base.Function.class,
       com.google.protobuf.Message.class,
       job.getMapOutputKeyClass(),
