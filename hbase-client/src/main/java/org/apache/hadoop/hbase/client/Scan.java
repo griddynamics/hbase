@@ -117,6 +117,26 @@ public class Scan extends OperationWithAttributes {
   private Boolean loadColumnFamiliesOnDemand = null;
 
   /**
+   * Set it true for small scan to get better performance
+   * 
+   * Small scan should use pread and big scan can use seek + read
+   * 
+   * seek + read is fast but can cause two problem (1) resource contention (2)
+   * cause too much network io
+   * 
+   * [89-fb] Using pread for non-compaction read request
+   * https://issues.apache.org/jira/browse/HBASE-7266
+   * 
+   * On the other hand, if setting it true, we would do
+   * openScanner,next,closeScanner in one RPC call. It means the better
+   * performance for small scan. [HBASE-9488].
+   * 
+   * Generally, if the scan range is within one data block(64KB), it could be
+   * considered as a small scan.
+   */
+  private boolean small = false;
+
+  /**
    * Create a Scan operation across all rows.
    */
   public Scan() {}
@@ -202,6 +222,9 @@ public class Scan extends OperationWithAttributes {
     this.tr = get.getTimeRange();
     this.familyMap = get.getFamilyMap();
     this.getScan = true;
+    for (Map.Entry<String, byte[]> attr : get.getAttributesMap().entrySet()) {
+      setAttribute(attr.getKey(), attr.getValue());
+    }
   }
 
   public boolean isGetScan() {
@@ -697,5 +720,39 @@ public class Scan extends OperationWithAttributes {
     byte[] attr = getAttribute(ISOLATION_LEVEL);
     return attr == null ? IsolationLevel.READ_COMMITTED :
                           IsolationLevel.fromBytes(attr);
+  }
+
+  /**
+   * Set whether this scan is a small scan
+   * <p>
+   * Small scan should use pread and big scan can use seek + read
+   * 
+   * seek + read is fast but can cause two problem (1) resource contention (2)
+   * cause too much network io
+   * 
+   * [89-fb] Using pread for non-compaction read request
+   * https://issues.apache.org/jira/browse/HBASE-7266
+   * 
+   * On the other hand, if setting it true, we would do
+   * openScanner,next,closeScanner in one RPC call. It means the better
+   * performance for small scan. [HBASE-9488].
+   * 
+   * Generally, if the scan range is within one data block(64KB), it could be
+   * considered as a small scan.
+   * 
+   * @param small
+   * @return this instance
+   */
+  public Scan setSmall(boolean small) {
+    this.small = small;
+    return this;
+  }
+
+  /**
+   * Get whether this scan is a small scan
+   * @return true if small scan
+   */
+  public boolean isSmall() {
+    return small;
   }
 }

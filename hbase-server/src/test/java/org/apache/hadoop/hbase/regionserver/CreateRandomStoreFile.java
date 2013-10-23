@@ -38,8 +38,9 @@ import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.io.compress.Compression;
 import org.apache.hadoop.hbase.io.hfile.CacheConfig;
-import org.apache.hadoop.hbase.io.hfile.HFile;
 import org.apache.hadoop.hbase.io.hfile.HFileBlockIndex;
+import org.apache.hadoop.hbase.io.hfile.HFileContext;
+import org.apache.hadoop.hbase.io.hfile.HFileContextBuilder;
 import org.apache.hadoop.hbase.util.BloomFilterFactory;
 import org.apache.hadoop.io.BytesWritable;
 
@@ -182,14 +183,14 @@ public class CreateRandomStoreFile {
           Integer.valueOf(cmdLine.getOptionValue(INDEX_BLOCK_SIZE_OPTION)));
     }
 
+    HFileContext meta = new HFileContextBuilder().withCompressionAlgo(compr)
+                        .withBlockSize(blockSize).build();
     StoreFile.Writer sfw = new StoreFile.WriterBuilder(conf,
-        new CacheConfig(conf), fs, blockSize)
+        new CacheConfig(conf), fs)
             .withOutputDir(outputDir)
-            .withCompression(compr)
             .withBloomType(bloomType)
             .withMaxKeyCount(numKV)
-            .withChecksumType(HFile.DEFAULT_CHECKSUM_TYPE)
-            .withBytesPerChecksum(HFile.DEFAULT_BYTES_PER_CHECKSUM)
+            .withFileContext(meta)
             .build();
 
     rand = new Random();

@@ -32,6 +32,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletionService;
 import java.util.concurrent.ConcurrentHashMap;
@@ -52,20 +53,24 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.hbase.TableName;
+import org.apache.hadoop.hbase.Cell;
+import org.apache.hadoop.hbase.CellScanner;
+import org.apache.hadoop.hbase.CellUtil;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.HRegionLocation;
 import org.apache.hadoop.hbase.KeyValue;
+import org.apache.hadoop.hbase.KeyValueUtil;
 import org.apache.hadoop.hbase.RemoteExceptionHandler;
 import org.apache.hadoop.hbase.ServerName;
+import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.TableNotFoundException;
 import org.apache.hadoop.hbase.client.ConnectionUtils;
 import org.apache.hadoop.hbase.client.Delete;
 import org.apache.hadoop.hbase.client.HConnection;
 import org.apache.hadoop.hbase.client.HConnectionManager;
+import org.apache.hadoop.hbase.client.Mutation;
 import org.apache.hadoop.hbase.client.Put;
-import org.apache.hadoop.hbase.client.Row;
 import org.apache.hadoop.hbase.exceptions.RegionOpeningException;
 import org.apache.hadoop.hbase.io.HeapSize;
 import org.apache.hadoop.hbase.master.SplitLogManager;
@@ -73,9 +78,13 @@ import org.apache.hadoop.hbase.monitoring.MonitoredTask;
 import org.apache.hadoop.hbase.monitoring.TaskMonitor;
 import org.apache.hadoop.hbase.protobuf.ProtobufUtil;
 import org.apache.hadoop.hbase.protobuf.RequestConverter;
+import org.apache.hadoop.hbase.protobuf.generated.AdminProtos.AdminService.BlockingInterface;
 import org.apache.hadoop.hbase.protobuf.generated.AdminProtos.GetRegionInfoRequest;
 import org.apache.hadoop.hbase.protobuf.generated.AdminProtos.GetRegionInfoResponse;
-import org.apache.hadoop.hbase.protobuf.generated.AdminProtos.AdminService.BlockingInterface;
+import org.apache.hadoop.hbase.protobuf.generated.AdminProtos.WALEntry;
+import org.apache.hadoop.hbase.protobuf.generated.ClientProtos.MutationProto.MutationType;
+import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos;
+import org.apache.hadoop.hbase.protobuf.generated.WALProtos.WALKey;
 import org.apache.hadoop.hbase.protobuf.generated.ZooKeeperProtos.RegionStoreSequenceIds;
 import org.apache.hadoop.hbase.protobuf.generated.ZooKeeperProtos.StoreSequenceId;
 import org.apache.hadoop.hbase.regionserver.HRegion;
@@ -166,7 +175,9 @@ public class HLogSplitter {
         conf.getInt("hbase.regionserver.hlog.splitlog.buffersize",
             128*1024*1024));
 
-    this.minBatchSize = conf.getInt("hbase.regionserver.wal.logreplay.batch.size", 512);
+    // a larger minBatchSize may slow down recovery because replay writer has to wait for
+    // enough edits before replaying them
+    this.minBatchSize = conf.getInt("hbase.regionserver.wal.logreplay.batch.size", 64);
     this.distributedLogReplay = this.conf.getBoolean(HConstants.DISTRIBUTED_LOG_REPLAY_KEY,
       HConstants.DEFAULT_DISTRIBUTED_LOG_REPLAY_CONFIG);
 
@@ -623,7 +634,7 @@ public class HLogSplitter {
    */
   protected Writer createWriter(FileSystem fs, Path logfile, Configuration conf)
       throws IOException {
-    return HLogFactory.createWriter(fs, logfile, conf);
+    return HLogFactory.createRecoveredEditsWriter(fs, logfile, conf);
   }
 
   /**
@@ -636,7 +647,6 @@ public class HLogSplitter {
 
   /**
    * Get current open writers
-   * @return
    */
   private int getNumOpenWriters() {
     int result = 0;
@@ -1316,8 +1326,8 @@ public class HLogSplitter {
      * Map key -> value layout
      * <servername>:<table name> -> Queue<Row>
      */
-    private Map<String, List<Pair<HRegionLocation, Row>>> serverToBufferQueueMap =
-        new ConcurrentHashMap<String, List<Pair<HRegionLocation, Row>>>();
+    private Map<String, List<Pair<HRegionLocation, HLog.Entry>>> serverToBufferQueueMap =
+        new ConcurrentHashMap<String, List<Pair<HRegionLocation, HLog.Entry>>>();
     private List<Throwable> thrown = new ArrayList<Throwable>();
 
     // The following sink is used in distrubitedLogReplay mode for entries of regions in a disabling
@@ -1358,10 +1368,10 @@ public class HLogSplitter {
       // process workitems
       String maxLocKey = null;
       int maxSize = 0;
-      List<Pair<HRegionLocation, Row>> maxQueue = null;
+      List<Pair<HRegionLocation, HLog.Entry>> maxQueue = null;
       synchronized (this.serverToBufferQueueMap) {
         for (String key : this.serverToBufferQueueMap.keySet()) {
-          List<Pair<HRegionLocation, Row>> curQueue = this.serverToBufferQueueMap.get(key);
+          List<Pair<HRegionLocation, HLog.Entry>> curQueue = this.serverToBufferQueueMap.get(key);
           if (curQueue.size() > maxSize) {
             maxSize = curQueue.size();
             maxQueue = curQueue;
@@ -1398,6 +1408,8 @@ public class HLogSplitter {
       for (HLog.Entry entry : entries) {
         WALEdit edit = entry.getEdit();
         TableName table = entry.getKey().getTablename();
+        // clear scopes which isn't needed for recovery
+        entry.getKey().setScopes(null);
         String encodeRegionNameStr = Bytes.toString(entry.getKey().getEncodedRegionName());
         // skip edits of non-existent tables
         if (nonExistentTables != null && nonExistentTables.contains(table)) {
@@ -1407,15 +1419,10 @@ public class HLogSplitter {
 
         Map<byte[], Long> maxStoreSequenceIds = null;
         boolean needSkip = false;
-        Put put = null;
-        Delete del = null;
-        KeyValue lastKV = null;
         HRegionLocation loc = null;
-        Row preRow = null;
-        HRegionLocation preLoc = null;
-        Row lastAddedRow = null; // it is not really needed here just be conservative
-        String preKey = null;
+        String locKey = null;
         List<KeyValue> kvs = edit.getKeyValues();
+        List<KeyValue> skippedKVs = new ArrayList<KeyValue>();
         HConnection hconn = this.getConnectionByTableName(table);
 
         for (KeyValue kv : kvs) {
@@ -1423,98 +1430,71 @@ public class HLogSplitter {
           // We don't handle HBASE-2231 because we may or may not replay a compaction event.
           // Details at https://issues.apache.org/jira/browse/HBASE-2231?focusedCommentId=13647143&
           // page=com.atlassian.jira.plugin.system.issuetabpanels:comment-tabpanel#comment-13647143
-          if (kv.matchingFamily(WALEdit.METAFAMILY)) continue;
-
-          if (lastKV == null || lastKV.getType() != kv.getType() || !lastKV.matchingRow(kv)) {
-            if (preRow != null) {
-              synchronized (serverToBufferQueueMap) {
-                List<Pair<HRegionLocation, Row>> queue = serverToBufferQueueMap.get(preKey);
-                if (queue == null) {
-                  queue = Collections.synchronizedList(new ArrayList<Pair<HRegionLocation, Row>>());
-                  serverToBufferQueueMap.put(preKey, queue);
-                }
-                queue.add(new Pair<HRegionLocation, Row>(preLoc, preRow));
-                lastAddedRow = preRow;
-              }
-              // store regions we have recovered so far
-              addToRecoveredRegions(preLoc.getRegionInfo().getEncodedName());
-            }
-
-            try {
-              loc = locateRegionAndRefreshLastFlushedSequenceId(hconn, table, kv.getRow(),
-                encodeRegionNameStr);
-            } catch (TableNotFoundException ex) {
-              // table has been deleted so skip edits of the table
-              LOG.info("Table " + table
-                  + " doesn't exist. Skip log replay for region " + encodeRegionNameStr);
-              lastFlushedSequenceIds.put(encodeRegionNameStr, Long.MAX_VALUE);
-              if (nonExistentTables == null) {
-                nonExistentTables = new TreeSet<TableName>();
-              }
-              nonExistentTables.add(table);
-              this.skippedEdits.incrementAndGet();
-              needSkip = true;
-              break;
-            }
-
-            cachedLastFlushedSequenceId =
-                lastFlushedSequenceIds.get(loc.getRegionInfo().getEncodedName());
-            if (cachedLastFlushedSequenceId != null
-                && cachedLastFlushedSequenceId >= entry.getKey().getLogSeqNum()) {
-              // skip the whole HLog entry
-              this.skippedEdits.incrementAndGet();
-              needSkip = true;
-              break;
-            } else {
-              if (maxStoreSequenceIds == null) {
-                maxStoreSequenceIds =
-                    regionMaxSeqIdInStores.get(loc.getRegionInfo().getEncodedName());
-              }
-              if (maxStoreSequenceIds != null) {
-                Long maxStoreSeqId = maxStoreSequenceIds.get(kv.getFamily());
-                if (maxStoreSeqId == null || maxStoreSeqId >= entry.getKey().getLogSeqNum()) {
-                  // skip current kv if column family doesn't exist anymore or already flushed
-                  continue;
-                }
-              }
-            }
-
-            if (kv.isDelete()) {
-              del = new Delete(kv.getRow());
-              del.setClusterIds(entry.getKey().getClusterIds());
-              preRow = del;
-            } else {
-              put = new Put(kv.getRow());
-              put.setClusterIds(entry.getKey().getClusterIds());
-              preRow = put;
-            }
-            preKey = loc.getHostnamePort() + KEY_DELIMITER + table;
-            preLoc = loc;
+          if (kv.matchingFamily(WALEdit.METAFAMILY)) {
+            skippedKVs.add(kv);
+            continue;
           }
-          if (kv.isDelete()) {
-            del.addDeleteMarker(kv);
+
+          try {
+            loc =
+                locateRegionAndRefreshLastFlushedSequenceId(hconn, table, kv.getRow(),
+                  encodeRegionNameStr);
+          } catch (TableNotFoundException ex) {
+            // table has been deleted so skip edits of the table
+            LOG.info("Table " + table + " doesn't exist. Skip log replay for region "
+                + encodeRegionNameStr);
+            lastFlushedSequenceIds.put(encodeRegionNameStr, Long.MAX_VALUE);
+            if (nonExistentTables == null) {
+              nonExistentTables = new TreeSet<TableName>();
+            }
+            nonExistentTables.add(table);
+            this.skippedEdits.incrementAndGet();
+            needSkip = true;
+            break;
+          }
+
+          cachedLastFlushedSequenceId =
+              lastFlushedSequenceIds.get(loc.getRegionInfo().getEncodedName());
+          if (cachedLastFlushedSequenceId != null
+              && cachedLastFlushedSequenceId >= entry.getKey().getLogSeqNum()) {
+            // skip the whole HLog entry
+            this.skippedEdits.incrementAndGet();
+            needSkip = true;
+            break;
           } else {
-            put.add(kv);
+            if (maxStoreSequenceIds == null) {
+              maxStoreSequenceIds =
+                  regionMaxSeqIdInStores.get(loc.getRegionInfo().getEncodedName());
+            }
+            if (maxStoreSequenceIds != null) {
+              Long maxStoreSeqId = maxStoreSequenceIds.get(kv.getFamily());
+              if (maxStoreSeqId == null || maxStoreSeqId >= entry.getKey().getLogSeqNum()) {
+                // skip current kv if column family doesn't exist anymore or already flushed
+                skippedKVs.add(kv);
+                continue;
+              }
+            }
           }
-          lastKV = kv;
         }
 
         // skip the edit
-        if(needSkip) continue;
+        if (loc == null || needSkip) continue;
 
-        // add the last row
-        if (preRow != null && lastAddedRow != preRow) {
-          synchronized (serverToBufferQueueMap) {
-            List<Pair<HRegionLocation, Row>> queue = serverToBufferQueueMap.get(preKey);
-            if (queue == null) {
-              queue = Collections.synchronizedList(new ArrayList<Pair<HRegionLocation, Row>>());
-              serverToBufferQueueMap.put(preKey, queue);
-            }
-            queue.add(new Pair<HRegionLocation, Row>(preLoc, preRow));
-          }
-          // store regions we have recovered so far
-          addToRecoveredRegions(preLoc.getRegionInfo().getEncodedName());
+        if (!skippedKVs.isEmpty()) {
+          kvs.removeAll(skippedKVs);
         }
+        synchronized (serverToBufferQueueMap) {
+          locKey = loc.getHostnamePort() + KEY_DELIMITER + table;
+          List<Pair<HRegionLocation, HLog.Entry>> queue = serverToBufferQueueMap.get(locKey);
+          if (queue == null) {
+            queue =
+                Collections.synchronizedList(new ArrayList<Pair<HRegionLocation, HLog.Entry>>());
+            serverToBufferQueueMap.put(locKey, queue);
+          }
+          queue.add(new Pair<HRegionLocation, HLog.Entry>(loc, entry));
+        }
+        // store regions we have recovered so far
+        addToRecoveredRegions(loc.getRegionInfo().getEncodedName());
       }
     }
 
@@ -1580,7 +1560,7 @@ public class HLogSplitter {
       return loc;
     }
 
-    private void processWorkItems(String key, List<Pair<HRegionLocation, Row>> actions)
+    private void processWorkItems(String key, List<Pair<HRegionLocation, HLog.Entry>> actions)
         throws IOException {
       RegionServerWriter rsw = null;
 
@@ -1663,7 +1643,7 @@ public class HLogSplitter {
     protected boolean flush() throws IOException {
       String curLoc = null;
       int curSize = 0;
-      List<Pair<HRegionLocation, Row>> curQueue = null;
+      List<Pair<HRegionLocation, HLog.Entry>> curQueue = null;
       synchronized (this.serverToBufferQueueMap) {
         for (String locationKey : this.serverToBufferQueueMap.keySet()) {
           curQueue = this.serverToBufferQueueMap.get(locationKey);
@@ -1792,8 +1772,8 @@ public class HLogSplitter {
       }
 
       TableName tableName = getTableFromLocationStr(loc);
-      if(tableName != null){
-        LOG.warn("Invalid location string:" + loc + " found.");
+      if(tableName == null){
+        throw new IOException("Invalid location string:" + loc + " found. Replay aborted.");
       }
 
       HConnection hconn = getConnectionByTableName(tableName);
@@ -1854,5 +1834,77 @@ public class HLogSplitter {
     CorruptedLogFileException(String s) {
       super(s);
     }
+  }
+
+  /**
+   * This function is used to construct mutations from a WALEntry. It also reconstructs HLogKey &
+   * WALEdit from the passed in WALEntry
+   * @param entry
+   * @param cells
+   * @param logEntry pair of HLogKey and WALEdit instance stores HLogKey and WALEdit instances
+   *          extracted from the passed in WALEntry.
+   * @return list of Pair<MutationType, Mutation> to be replayed
+   * @throws IOException
+   */
+  public static List<Pair<MutationType, Mutation>> getMutationsFromWALEntry(WALEntry entry,
+      CellScanner cells, Pair<HLogKey, WALEdit> logEntry) throws IOException {
+
+    if (entry == null) {
+      // return an empty array
+      return new ArrayList<Pair<MutationType, Mutation>>();
+    }
+
+    int count = entry.getAssociatedCellCount();
+    List<Pair<MutationType, Mutation>> mutations = new ArrayList<Pair<MutationType, Mutation>>();
+    Cell previousCell = null;
+    Mutation m = null;
+    HLogKey key = null;
+    WALEdit val = null;
+    if (logEntry != null) val = new WALEdit();
+
+    for (int i = 0; i < count; i++) {
+      // Throw index out of bounds if our cell count is off
+      if (!cells.advance()) {
+        throw new ArrayIndexOutOfBoundsException("Expected=" + count + ", index=" + i);
+      }
+      Cell cell = cells.current();
+      if (val != null) val.add(KeyValueUtil.ensureKeyValue(cell));
+
+      boolean isNewRowOrType =
+          previousCell == null || previousCell.getTypeByte() != cell.getTypeByte()
+              || !CellUtil.matchingRow(previousCell, cell);
+      if (isNewRowOrType) {
+        // Create new mutation
+        if (CellUtil.isDelete(cell)) {
+          m = new Delete(cell.getRowArray(), cell.getRowOffset(), cell.getRowLength());
+          mutations.add(new Pair<MutationType, Mutation>(MutationType.DELETE, m));
+        } else {
+          m = new Put(cell.getRowArray(), cell.getRowOffset(), cell.getRowLength());
+          mutations.add(new Pair<MutationType, Mutation>(MutationType.PUT, m));
+        }
+      }
+      if (CellUtil.isDelete(cell)) {
+        ((Delete) m).addDeleteMarker(KeyValueUtil.ensureKeyValue(cell));
+      } else {
+        ((Put) m).add(KeyValueUtil.ensureKeyValue(cell));
+      }
+      previousCell = cell;
+    }
+
+    // reconstruct HLogKey
+    if (logEntry != null) {
+      WALKey walKey = entry.getKey();
+      List<UUID> clusterIds = new ArrayList<UUID>(walKey.getClusterIdsCount());
+      for (HBaseProtos.UUID uuid : entry.getKey().getClusterIdsList()) {
+        clusterIds.add(new UUID(uuid.getMostSigBits(), uuid.getLeastSigBits()));
+      }
+      key = new HLogKey(walKey.getEncodedRegionName().toByteArray(), TableName.valueOf(walKey
+              .getTableName().toByteArray()), walKey.getLogSequenceNumber(), walKey.getWriteTime(),
+              clusterIds);
+      logEntry.setFirst(key);
+      logEntry.setSecond(val);
+    }
+
+    return mutations;
   }
 }

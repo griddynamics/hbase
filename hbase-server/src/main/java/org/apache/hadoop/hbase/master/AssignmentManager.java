@@ -68,15 +68,16 @@ import org.apache.hadoop.hbase.master.balancer.FavoredNodeLoadBalancer;
 import org.apache.hadoop.hbase.master.handler.ClosedRegionHandler;
 import org.apache.hadoop.hbase.master.handler.DisableTableHandler;
 import org.apache.hadoop.hbase.master.handler.EnableTableHandler;
-import org.apache.hadoop.hbase.master.handler.MergedRegionHandler;
 import org.apache.hadoop.hbase.master.handler.OpenedRegionHandler;
-import org.apache.hadoop.hbase.master.handler.SplitRegionHandler;
 import org.apache.hadoop.hbase.regionserver.RegionAlreadyInTransitionException;
+import org.apache.hadoop.hbase.regionserver.RegionMergeTransaction;
 import org.apache.hadoop.hbase.regionserver.RegionOpeningState;
 import org.apache.hadoop.hbase.regionserver.RegionServerStoppedException;
+import org.apache.hadoop.hbase.regionserver.SplitTransaction;
 import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
 import org.apache.hadoop.hbase.util.KeyLocker;
 import org.apache.hadoop.hbase.util.Pair;
+import org.apache.hadoop.hbase.util.PairOfSameType;
 import org.apache.hadoop.hbase.util.Threads;
 import org.apache.hadoop.hbase.util.Triple;
 import org.apache.hadoop.hbase.zookeeper.MetaRegionTracker;
@@ -113,6 +114,10 @@ public class AssignmentManager extends ZooKeeperListener {
   public static final String ASSIGNMENT_TIMEOUT_MANAGEMENT = "hbase.assignment.timeout.management";
   public static final boolean DEFAULT_ASSIGNMENT_TIMEOUT_MANAGEMENT = false;
 
+  public static final String ALREADY_IN_TRANSITION_WAITTIME
+    = "hbase.assignment.already.intransition.waittime";
+  public static final int DEFAULT_ALREADY_IN_TRANSITION_WAITTIME = 60000; // 1 minute
+
   protected final Server server;
 
   private ServerManager serverManager;
@@ -146,7 +151,13 @@ public class AssignmentManager extends ZooKeeperListener {
    * See below in {@link #assign()} and {@link #unassign()}.
    */
   private final int maximumAttempts;
-  
+
+  /**
+   * Map of two merging regions from the region to be created.
+   */
+  private final Map<String, PairOfSameType<HRegionInfo>> mergingRegions
+    = new HashMap<String, PairOfSameType<HRegionInfo>>();
+
   /**
    * The sleep time for which the assignment will wait before retrying in case of hbase:meta assignment
    * failure due to lack of availability of region plan
@@ -171,15 +182,10 @@ public class AssignmentManager extends ZooKeeperListener {
   private final ExecutorService executorService;
 
   // For unit tests, keep track of calls to ClosedRegionHandler
-  private Map<HRegionInfo, AtomicBoolean> closedRegionHandlerCalled = 
-      new HashMap<HRegionInfo, AtomicBoolean>();
+  private Map<HRegionInfo, AtomicBoolean> closedRegionHandlerCalled = null;
 
   // For unit tests, keep track of calls to OpenedRegionHandler
-  private Map<HRegionInfo, AtomicBoolean> openedRegionHandlerCalled = 
-      new HashMap<HRegionInfo, AtomicBoolean>();
-
-  // For unit tests, keep track of calls to SplitRegionHandler
-  private AtomicBoolean splitRegionHandlerCalled = new AtomicBoolean(false);
+  private Map<HRegionInfo, AtomicBoolean> openedRegionHandlerCalled = null;
 
   //Thread pool executor service for timeout monitor
   private java.util.concurrent.ExecutorService threadPoolExecutorService;
@@ -228,6 +234,12 @@ public class AssignmentManager extends ZooKeeperListener {
     failedOpenTracker = new ConcurrentHashMap<String, AtomicInteger>();
 
   /**
+   * For testing only!  Set to true to skip handling of split.
+   */
+  @edu.umd.cs.findbugs.annotations.SuppressWarnings(value="MS_SHOULD_BE_FINAL")
+  public static boolean TEST_SKIP_SPLIT_HANDLING = false;
+
+  /**
    * Constructs a new assignment manager.
    *
    * @param server
@@ -271,8 +283,9 @@ public class AssignmentManager extends ZooKeeperListener {
       this.timerUpdater = null;
     }
     this.zkTable = new ZKTable(this.watcher);
-    this.maximumAttempts =
-      this.server.getConfiguration().getInt("hbase.assignment.maximum.attempts", 10);
+    // This is the max attempts, not retries, so it should be at least 1.
+    this.maximumAttempts = Math.max(1,
+      this.server.getConfiguration().getInt("hbase.assignment.maximum.attempts", 10));
     this.sleepTimeBeforeRetryingMetaAssignment = this.server.getConfiguration().getLong(
         "hbase.meta.assignment.retry.sleeptime", 1000l);
     this.balancer = balancer;
@@ -388,6 +401,14 @@ public class AssignmentManager extends ZooKeeperListener {
    */
   public boolean isFailoverCleanupDone() {
     return failoverCleanupDone.get();
+  }
+
+  /**
+   * To avoid racing with AM, external entities may need to lock a region,
+   * for example, when SSH checks what regions to skip re-assigning.
+   */
+  public Lock acquireRegionLock(final String encodedName) {
+    return locker.acquireLock(encodedName);
   }
 
   /**
@@ -545,8 +566,17 @@ public class AssignmentManager extends ZooKeeperListener {
       }
       HRegionInfo hri = regionInfo;
       if (hri == null) {
+        // Get the region from region states map/meta. However, we
+        // may still can't get it, for example, for online region merge,
+        // the znode uses the new region to be created, which may not in meta
+        // yet if the merging is still going on during the master recovery.
         hri = regionStates.getRegionInfo(rt.getRegionName());
-        if (hri == null) return false;
+        EventType et = rt.getEventType();
+        if (hri == null && et != EventType.RS_ZK_REGION_MERGING
+            && et != EventType.RS_ZK_REQUEST_REGION_MERGE) {
+          LOG.warn("Couldn't find the region in recovering " + rt);
+          return false;
+        }
       }
       processRegionsInTransition(rt, hri, stat.getVersion());
       return true;
@@ -568,12 +598,12 @@ public class AssignmentManager extends ZooKeeperListener {
     EventType et = rt.getEventType();
     // Get ServerName.  Could not be null.
     final ServerName sn = rt.getServerName();
-    final String encodedRegionName = regionInfo.getEncodedName();
-    final String prettyPrintedRegionName = HRegionInfo.prettyPrint(encodedRegionName);
-    LOG.info("Processing " + regionInfo.getRegionNameAsString() + " in state " + et);
+    final byte[] regionName = rt.getRegionName();
+    final String encodedName = HRegionInfo.encodeRegionName(regionName);
+    final String prettyPrintedRegionName = HRegionInfo.prettyPrint(encodedName);
+    LOG.info("Processing " + prettyPrintedRegionName + " in state " + et);
 
-
-    if (regionStates.isRegionInTransition(encodedRegionName)) {
+    if (regionStates.isRegionInTransition(encodedName)) {
       // Just return
       return;
     }
@@ -588,10 +618,7 @@ public class AssignmentManager extends ZooKeeperListener {
         } else {
           // Insert into RIT & resend the query to the region server: may be the previous master
           // died before sending the query the first time.
-          regionStates.updateRegionState(rt, RegionState.State.CLOSING);
-          final RegionState rs = regionStates.getRegionState(regionInfo);
-          final ClosedRegionHandler closedRegionHandler =
-            new ClosedRegionHandler(server, this, regionInfo);
+          final RegionState rs = regionStates.updateRegionState(rt, State.CLOSING);
           this.executorService.submit(
               new EventHandler(server, EventType.M_MASTER_RECOVERY) {
                 @Override
@@ -600,7 +627,7 @@ public class AssignmentManager extends ZooKeeperListener {
                   try {
                     unassign(regionInfo, rs, expectedVersion, null, true, null);
                     if (regionStates.isRegionOffline(regionInfo)) {
-                      closedRegionHandler.process();
+                      assign(regionInfo, true);
                     }
                   } finally {
                     lock.unlock();
@@ -613,18 +640,18 @@ public class AssignmentManager extends ZooKeeperListener {
       case RS_ZK_REGION_CLOSED:
       case RS_ZK_REGION_FAILED_OPEN:
         // Region is closed, insert into RIT and handle it
-        addToRITandCallClose(regionInfo, RegionState.State.CLOSED, rt);
+        addToRITandInvokeAssign(regionInfo, State.CLOSED, rt);
         break;
 
       case M_ZK_REGION_OFFLINE:
         // If zk node of the region was updated by a live server skip this
         // region and just add it into RIT.
         if (!serverManager.isServerOnline(sn)) {
-          // Region is offline, insert into RIT and handle it like a closed
-          addToRITandCallClose(regionInfo, RegionState.State.OFFLINE, rt);
+          // Region is offline, insert into RIT and invoke assign
+          addToRITandInvokeAssign(regionInfo, State.OFFLINE, rt);
         } else {
           // Insert in RIT and resend to the regionserver
-          regionStates.updateRegionState(rt, RegionState.State.PENDING_OPEN);
+          regionStates.updateRegionState(rt, State.PENDING_OPEN);
           final RegionState rs = regionStates.getRegionState(regionInfo);
           this.executorService.submit(
               new EventHandler(server, EventType.M_MASTER_RECOVERY) {
@@ -633,7 +660,7 @@ public class AssignmentManager extends ZooKeeperListener {
                   ReentrantLock lock = locker.acquireLock(regionInfo.getEncodedName());
                   try {
                     RegionPlan plan = new RegionPlan(regionInfo, null, sn);
-                    addPlan(encodedRegionName, plan);
+                    addPlan(encodedName, plan);
                     assign(rs, false, false);
                   } finally {
                     lock.unlock();
@@ -647,7 +674,7 @@ public class AssignmentManager extends ZooKeeperListener {
         if (!serverManager.isServerOnline(sn)) {
           forceOffline(regionInfo, rt);
         } else {
-          regionStates.updateRegionState(rt, RegionState.State.OPENING);
+          regionStates.updateRegionState(rt, State.OPENING);
         }
         break;
 
@@ -658,73 +685,36 @@ public class AssignmentManager extends ZooKeeperListener {
           // Region is opened, insert into RIT and handle it
           // This could be done asynchronously, we would need then to acquire the lock in the
           //  handler.
-          regionStates.updateRegionState(rt, RegionState.State.OPEN);
+          regionStates.updateRegionState(rt, State.OPEN);
           new OpenedRegionHandler(server, this, regionInfo, sn, expectedVersion).process();
         }
         break;
+      case RS_ZK_REQUEST_REGION_SPLIT:
       case RS_ZK_REGION_SPLITTING:
-        if (!serverManager.isServerOnline(sn)) {
-          // The regionserver started the split, but died before updating the status.
-          // It means (hopefully) that the split was not finished
-          // TBD - to study. In the meantime, do nothing as in the past.
-          LOG.warn("Processed region " + prettyPrintedRegionName + " in state : " + et +
-              " on a dead regionserver: " + sn + " doing nothing");
-        } else {
-          // Splitting region should be online. We could have skipped it during
-          // user region rebuilding since we may consider the split is completed.
-          // Put it in SPLITTING state to avoid complications.
-          regionStates.regionOnline(regionInfo, sn);
-          regionStates.updateRegionState(rt, RegionState.State.SPLITTING);
-          LOG.info("Processed " + prettyPrintedRegionName + " in state : " + et);
-        }
-        break;
       case RS_ZK_REGION_SPLIT:
-        if (!serverManager.isServerOnline(sn)) {
-          // The region is already in SPLIT state, do nothing
-          LOG.warn("Processed " + prettyPrintedRegionName
-            + " in state : " + et + " on a dead regionserver: " + sn
-            + " doing nothing");
-        } else {
+        if (serverManager.isServerOnline(sn)) {
           // Splitting region should be online. We could have skipped it during
           // user region rebuilding since we may consider the split is completed.
           // Put it in SPLITTING state to avoid complications.
           regionStates.regionOnline(regionInfo, sn);
-          regionStates.updateRegionState(rt, RegionState.State.SPLITTING);
-          LOG.info("Processed " + prettyPrintedRegionName + " in state : " + et);
-          // Move the region to splitting state. The regionserver is supposed to update the znode
-          // multiple times so if it's still up we will receive an update soon.
+          regionStates.updateRegionState(rt, State.SPLITTING);
         }
+        if (!handleRegionSplitting(
+            rt, encodedName, prettyPrintedRegionName, sn)) {
+          deleteSplittingNode(encodedName);
+        }
+        LOG.info("Processed region " + prettyPrintedRegionName
+          + " in state : " + et);
         break;
+      case RS_ZK_REQUEST_REGION_MERGE:
       case RS_ZK_REGION_MERGING:
-        if (!serverManager.isServerOnline(sn)) {
-          // The regionserver started the merge, but died before updating the status.
-          // It means (hopefully) that the merge was not finished
-          // This node should be gone soon since it is ephemeral.
-          LOG.warn("Processed " + prettyPrintedRegionName + " in state : " + et +
-              " on a dead regionserver: " + sn + " doing nothing");
-        } else {
-          handleRegionMerging(rt, prettyPrintedRegionName, sn);
-          LOG.info("Processed region " + prettyPrintedRegionName
-            + " in state : " + et);
-        }
-        break;
       case RS_ZK_REGION_MERGED:
-        if (!serverManager.isServerOnline(sn)) {
-          // Do nothing, merging regions are already removed from meta,
-          // so they are not in region states map any more.
-          // The new region will be assigned by the ServerShutdownHandler
-          LOG.warn("Processed " + prettyPrintedRegionName
-            + " in state : " + et + " on a dead regionserver: " + sn
-            + " doing nothing");
-        } else {
-          // Merging regions are already removed from meta. It doesn't hurt to
-          // do nothing here, no need to set them to merging state here. We are fine
-          // to put the new region to online state during user region rebuilding.
-          LOG.info("Processed " + prettyPrintedRegionName + " in state : " +
-            et + " nothing to do.");
-          // We don't do anything. The regionserver is supposed to update the znode
-          // multiple times so if it's still up we will receive an update soon.
+        if (!handleRegionMerging(
+            rt, encodedName, prettyPrintedRegionName, sn)) {
+          deleteMergingNode(encodedName);
         }
+        LOG.info("Processed region " + prettyPrintedRegionName
+          + " in state : " + et);
         break;
       default:
         throw new IllegalStateException("Received region in state :" + et + " is not valid.");
@@ -743,24 +733,24 @@ public class AssignmentManager extends ZooKeeperListener {
   private void forceOffline(final HRegionInfo hri, final RegionTransition oldRt)
       throws KeeperException {
     // If was on dead server, its closed now.  Force to OFFLINE and then
-    // handle it like a close; this will get it reassigned if appropriate
+    // invoke assign; this will get it reassigned if appropriate
     LOG.debug("RIT " + hri.getEncodedName() + " in state=" + oldRt.getEventType() +
       " was on deadserver; forcing offline");
     ZKAssign.createOrForceNodeOffline(this.watcher, hri, oldRt.getServerName());
-    addToRITandCallClose(hri, RegionState.State.OFFLINE, oldRt);
+    addToRITandInvokeAssign(hri, State.OFFLINE, oldRt);
   }
 
   /**
-   * Add to the in-memory copy of regions in transition and then call close
-   * handler on passed region <code>hri</code>
+   * Add to the in-memory copy of regions in transition and then invoke
+   * assign on passed region <code>hri</code>
    * @param hri
    * @param state
    * @param oldData
    */
-  private void addToRITandCallClose(final HRegionInfo hri,
-      final RegionState.State state, final RegionTransition oldData) {
+  private void addToRITandInvokeAssign(final HRegionInfo hri,
+      final State state, final RegionTransition oldData) {
     regionStates.updateRegionState(oldData, state);
-    new ClosedRegionHandler(this.server, this, hri).process();
+    invokeAssign(hri);
   }
 
   /**
@@ -802,12 +792,12 @@ public class AssignmentManager extends ZooKeeperListener {
     if (!serverManager.isServerOnline(sn)
       && !ignoreStatesRSOffline.contains(rt.getEventType())) {
       LOG.warn("Attempted to handle region transition for server but " +
-        "server is not online: " + prettyPrintedRegionName);
+        "it is not online: " + prettyPrintedRegionName + ", " + rt);
       return;
     }
 
     RegionState regionState =
-      regionStates.getRegionTransitionState(encodedName);
+      regionStates.getRegionState(encodedName);
     long startTime = System.currentTimeMillis();
     if (LOG.isDebugEnabled()) {
       boolean lateEvent = createTime < (startTime - 15000);
@@ -827,7 +817,7 @@ public class AssignmentManager extends ZooKeeperListener {
     Lock lock = locker.acquireLock(encodedName);
     try {
       RegionState latestState =
-        regionStates.getRegionTransitionState(encodedName);
+        regionStates.getRegionState(encodedName);
       if ((regionState == null && latestState != null)
           || (regionState != null && latestState == null)
           || (regionState != null && latestState != null
@@ -841,119 +831,55 @@ public class AssignmentManager extends ZooKeeperListener {
       }
       regionState = latestState;
       switch (rt.getEventType()) {
-        case RS_ZK_REGION_SPLITTING:
-          if (!isInStateForSplitting(regionState)) break;
-          regionStates.updateRegionState(rt, RegionState.State.SPLITTING);
-          break;
+      case RS_ZK_REQUEST_REGION_SPLIT:
+      case RS_ZK_REGION_SPLITTING:
+      case RS_ZK_REGION_SPLIT:
+        if (!handleRegionSplitting(
+            rt, encodedName, prettyPrintedRegionName, sn)) {
+          deleteSplittingNode(encodedName);
+        }
+        break;
 
-        case RS_ZK_REGION_SPLIT:
-          // RegionState must be null, or SPLITTING or PENDING_CLOSE.
-          if (!isInStateForSplitting(regionState)) break;
-          // If null, add SPLITTING state before going to SPLIT
-          if (regionState == null) {
-            regionState = regionStates.updateRegionState(rt,
-              RegionState.State.SPLITTING);
+      case RS_ZK_REQUEST_REGION_MERGE:
+      case RS_ZK_REGION_MERGING:
+      case RS_ZK_REGION_MERGED:
+        // Merged region is a new region, we can't find it in the region states now.
+        // However, the two merging regions are not new. They should be in state for merging.
+        if (!handleRegionMerging(
+            rt, encodedName, prettyPrintedRegionName, sn)) {
+          deleteMergingNode(encodedName);
+        }
+        break;
 
-            String message = "Received SPLIT for region " + prettyPrintedRegionName +
-              " from server " + sn;
-            // If still null, it means we cannot find it and it was already processed
-            if (regionState == null) {
-              LOG.warn(message + " but it doesn't exist anymore," +
-                  " probably already processed its split");
-              break;
-            }
-            LOG.info(message +
-                " but region was not first in SPLITTING state; continuing");
-          }
-          // Check it has daughters.
-          byte [] payload = rt.getPayload();
-          List<HRegionInfo> daughters;
-          try {
-            daughters = HRegionInfo.parseDelimitedFrom(payload, 0, payload.length);
-          } catch (IOException e) {
-            LOG.error("Dropped split! Failed reading split payload for " +
-              prettyPrintedRegionName);
-            break;
-          }
-          assert daughters.size() == 2;
-          // Assert that we can get a serverinfo for this server.
-          if (!this.serverManager.isServerOnline(sn)) {
-            LOG.error("Dropped split! ServerName=" + sn + " unknown.");
-            break;
-          }
-          // Run handler to do the rest of the SPLIT handling.
-          new SplitRegionHandler(server, this, regionState.getRegion(), sn, daughters).process();
-          splitRegionHandlerCalled.set(true);
-          break;
+      case M_ZK_REGION_CLOSING:
+        // Should see CLOSING after we have asked it to CLOSE or additional
+        // times after already being in state of CLOSING
+        if (regionState == null
+            || !regionState.isPendingCloseOrClosingOnServer(sn)) {
+          LOG.warn("Received CLOSING for " + prettyPrintedRegionName
+            + " from " + sn + " but the region isn't PENDING_CLOSE/CLOSING here: "
+            + regionStates.getRegionState(encodedName));
+          return;
+        }
+        // Transition to CLOSING (or update stamp if already CLOSING)
+        regionStates.updateRegionState(rt, State.CLOSING);
+        break;
 
-        case RS_ZK_REGION_MERGING:
-          // Merged region is a new region, we can't find it in the region states now.
-          // However, the two merging regions are not new. They should be in state for merging.
-          handleRegionMerging(rt, prettyPrintedRegionName, sn);
-          break;
-
-        case RS_ZK_REGION_MERGED:
-          // Assert that we can get a serverinfo for this server.
-          if (!this.serverManager.isServerOnline(sn)) {
-            LOG.error("Dropped merge! ServerName=" + sn + " unknown.");
-            break;
-          }
-          // Get merged and merging regions.
-          byte[] payloadOfMerge = rt.getPayload();
-          List<HRegionInfo> mergeRegions;
-          try {
-            mergeRegions = HRegionInfo.parseDelimitedFrom(payloadOfMerge, 0,
-                payloadOfMerge.length);
-          } catch (IOException e) {
-            LOG.error("Dropped merge! Failed reading merge payload for " +
-              prettyPrintedRegionName);
-            break;
-          }
-          assert mergeRegions.size() == 3;
-          HRegionInfo merge_a = mergeRegions.get(1);
-          HRegionInfo merge_b = mergeRegions.get(2);
-          if (!isInStateForMerging(sn, merge_a, merge_b)) {
-            // Move on. Merge already happened (passed PONR), no point to stop now
-            LOG.warn("Got merge event, but not in state good for MERGED; rs_a="
-              + merge_a + ", rs_b=" + merge_b);
-          }
-          // Run handler to do the rest of the MERGED handling.
-          new MergedRegionHandler(server, this, sn, mergeRegions).process();
-          break;
-
-        case M_ZK_REGION_CLOSING:
-          // Should see CLOSING after we have asked it to CLOSE or additional
-          // times after already being in state of CLOSING
-          if (regionState == null
-              || !regionState.isPendingCloseOrClosingOnServer(sn)) {
-            LOG.warn("Received CLOSING for " + prettyPrintedRegionName
-              + " from " + sn + " but the region isn't PENDING_CLOSE/CLOSING here: "
-              + regionStates.getRegionState(encodedName));
-            return;
-          }
-          // Transition to CLOSING (or update stamp if already CLOSING)
-          regionStates.updateRegionState(rt, RegionState.State.CLOSING);
-          break;
-
-        case RS_ZK_REGION_CLOSED:
-          // Should see CLOSED after CLOSING but possible after PENDING_CLOSE
-          if (regionState == null
-              || !regionState.isPendingCloseOrClosingOnServer(sn)) {
-            LOG.warn("Received CLOSED for " + prettyPrintedRegionName
-              + " from " + sn + " but the region isn't PENDING_CLOSE/CLOSING here: "
-              + regionStates.getRegionState(encodedName));
-            return;
-          }
-          // Handle CLOSED by assigning elsewhere or stopping if a disable
-          // If we got here all is good.  Need to update RegionState -- else
-          // what follows will fail because not in expected state.
-          regionState = regionStates.updateRegionState(rt, RegionState.State.CLOSED);
-          if (regionState != null) {
-            removeClosedRegion(regionState.getRegion());
-            new ClosedRegionHandler(server, this, regionState.getRegion()).process();
-            closedRegionHandlerCalled.put(regionState.getRegion(), new AtomicBoolean(true));
-          }
-          break;
+      case RS_ZK_REGION_CLOSED:
+        // Should see CLOSED after CLOSING but possible after PENDING_CLOSE
+        if (regionState == null
+            || !regionState.isPendingCloseOrClosingOnServer(sn)) {
+          LOG.warn("Received CLOSED for " + prettyPrintedRegionName
+            + " from " + sn + " but the region isn't PENDING_CLOSE/CLOSING here: "
+            + regionStates.getRegionState(encodedName));
+          return;
+        }
+        // Handle CLOSED by assigning elsewhere or stopping if a disable
+        // If we got here all is good.  Need to update RegionState -- else
+        // what follows will fail because not in expected state.
+        new ClosedRegionHandler(server, this, regionState.getRegion()).process();
+        updateClosedRegionHandlerTracker(regionState.getRegion());
+        break;
 
         case RS_ZK_REGION_FAILED_OPEN:
           if (regionState == null
@@ -972,13 +898,13 @@ public class AssignmentManager extends ZooKeeperListener {
             failedOpenTracker.put(encodedName, failedOpenCount);
           }
           if (failedOpenCount.incrementAndGet() >= maximumAttempts) {
-            regionStates.updateRegionState(rt, RegionState.State.FAILED_OPEN);
+            regionStates.updateRegionState(rt, State.FAILED_OPEN);
             // remove the tracking info to save memory, also reset
             // the count for next open initiative
             failedOpenTracker.remove(encodedName);
           } else {
             // Handle this the same as if it were opened and then closed.
-            regionState = regionStates.updateRegionState(rt, RegionState.State.CLOSED);
+            regionState = regionStates.updateRegionState(rt, State.CLOSED);
             if (regionState != null) {
               // When there are more than one region server a new RS is selected as the
               // destination and the same is updated in the regionplan. (HBASE-5546)
@@ -1003,7 +929,7 @@ public class AssignmentManager extends ZooKeeperListener {
             return;
           }
           // Transition to OPENING (or update stamp if already OPENING)
-          regionStates.updateRegionState(rt, RegionState.State.OPENING);
+          regionStates.updateRegionState(rt, State.OPENING);
           break;
 
         case RS_ZK_REGION_OPENED:
@@ -1021,12 +947,12 @@ public class AssignmentManager extends ZooKeeperListener {
             return;
           }
           // Handle OPENED by removing from transition and deleted zk node
-          regionState = regionStates.updateRegionState(rt, RegionState.State.OPEN);
+          regionState = regionStates.updateRegionState(rt, State.OPEN);
           if (regionState != null) {
             failedOpenTracker.remove(encodedName); // reset the count, if any
             new OpenedRegionHandler(
               server, this, regionState.getRegion(), sn, expectedVersion).process();
-            openedRegionHandlerCalled.put(regionState.getRegion(), new AtomicBoolean(true));
+            updateOpenedRegionHandlerTracker(regionState.getRegion());
           }
           break;
 
@@ -1057,35 +983,21 @@ public class AssignmentManager extends ZooKeeperListener {
   }
 
   //For unit tests only
-  boolean wasSplitHandlerCalled() {
-    //compareAndSet to be sure that unit tests don't see stale values. Means,
-    //we will return true exactly once unless the handler code resets to true
-    //this value.
-    return splitRegionHandlerCalled.compareAndSet(true, false);
+  void initializeHandlerTrackers() {
+    closedRegionHandlerCalled = new HashMap<HRegionInfo, AtomicBoolean>();
+    openedRegionHandlerCalled = new HashMap<HRegionInfo, AtomicBoolean>();
   }
 
-  /**
-   * @return Returns true if this RegionState is splittable; i.e. the
-   * RegionState is currently in splitting state or pending_close or
-   * null (Anything else will return false). (Anything else will return false).
-   */
-  private boolean isInStateForSplitting(final RegionState rs) {
-    if (rs == null) return true;
-    if (rs.isSplitting()) return true;
-    if (convertPendingCloseToSplitting(rs)) return true;
-    LOG.warn("Dropped region split! Not in state good for SPLITTING; rs=" + rs);
-    return false;
+  void updateClosedRegionHandlerTracker(HRegionInfo hri) {
+    if (closedRegionHandlerCalled != null) { //only for unit tests this is true
+      closedRegionHandlerCalled.put(hri, new AtomicBoolean(true));
+    }
   }
 
-  /**
-   * @return Returns true if both regions are merging/open on specified server
-   */
-  private boolean isInStateForMerging(final ServerName sn,
-      final HRegionInfo a, final HRegionInfo b) {
-    RegionState rs_a = regionStates.getRegionState(a);
-    RegionState rs_b = regionStates.getRegionState(b);
-    return ((rs_a == null || rs_a.isOpenOrMergingOnServer(sn))
-      && (rs_b == null || rs_b.isOpenOrMergingOnServer(sn)));
+  void updateOpenedRegionHandlerTracker(HRegionInfo hri) {
+    if (openedRegionHandlerCalled != null) { //only for unit tests this is true
+      openedRegionHandlerCalled.put(hri, new AtomicBoolean(true));
+    }
   }
 
   // TODO: processFavoredNodes might throw an exception, for e.g., if the
@@ -1104,26 +1016,6 @@ public class AssignmentManager extends ZooKeeperListener {
           ((FavoredNodeLoadBalancer)this.balancer).getFavoredNodes(region));
     }
     FavoredNodeAssignmentHelper.updateMetaWithFavoredNodesInfo(regionToFavoredNodes, catalogTracker);
-  }
-
-  /**
-   * If the passed regionState is in PENDING_CLOSE, clean up PENDING_CLOSE
-   * state and convert it to SPLITTING instead.
-   * This can happen in case where master wants to close a region at same time
-   * a regionserver starts a split.  The split won.  Clean out old PENDING_CLOSE
-   * state.
-   * @param rs
-   * @return True if we converted from PENDING_CLOSE to SPLITTING
-   */
-  private boolean convertPendingCloseToSplitting(final RegionState rs) {
-    if (!rs.isPendingClose()) return false;
-    LOG.debug("Converting PENDING_CLOSE to SPLITTING; rs=" + rs);
-    regionStates.updateRegionState(
-      rs.getRegion(), RegionState.State.SPLITTING);
-    // Clean up existing state.  Clear from region plans seems all we
-    // have to do here by way of clean up of PENDING_CLOSE.
-    clearRegionPlan(rs.getRegion());
-    return true;
   }
 
   /**
@@ -1282,28 +1174,54 @@ public class AssignmentManager extends ZooKeeperListener {
           Lock lock = locker.acquireLock(regionName);
           try {
             RegionState rs = regionStates.getRegionTransitionState(regionName);
-            if (rs == null) return;
+            if (rs == null) {
+              rs = regionStates.getRegionState(regionName);
+              if (rs == null || !rs.isMergingNew()) {
+                // MergingNew is an offline state
+                return;
+              }
+            }
 
             HRegionInfo regionInfo = rs.getRegion();
             String regionNameStr = regionInfo.getRegionNameAsString();
             LOG.debug("Znode " + regionNameStr + " deleted, state: " + rs);
-            if (rs.isOpened()) {
-              ServerName serverName = rs.getServerName();
-              regionOnline(regionInfo, serverName);
-              boolean disabled = getZKTable().isDisablingOrDisabledTable(regionInfo.getTable());
-              if (!serverManager.isServerOnline(serverName) && !disabled) {
-                LOG.info("Opened " + regionNameStr
-                  + "but the region server is offline, reassign the region");
-                assign(regionInfo, true);
-              } else if (disabled) {
-                // if server is offline, no hurt to unassign again
-                LOG.info("Opened " + regionNameStr
-                  + "but this table is disabled, triggering close of region");
-                unassign(regionInfo);
+            boolean disabled = getZKTable().isDisablingOrDisabledTable(regionInfo.getTable());
+            ServerName serverName = rs.getServerName();
+            if (serverManager.isServerOnline(serverName)) {
+              if (rs.isOnServer(serverName)
+                  && (rs.isOpened() || rs.isSplitting())) {
+                regionOnline(regionInfo, serverName);
+                if (disabled) {
+                  // if server is offline, no hurt to unassign again
+                  LOG.info("Opened " + regionNameStr
+                    + "but this table is disabled, triggering close of region");
+                  unassign(regionInfo);
+                }
+              } else if (rs.isMergingNew()) {
+                synchronized (regionStates) {
+                  String p = regionInfo.getEncodedName();
+                  PairOfSameType<HRegionInfo> regions = mergingRegions.get(p);
+                  if (regions != null) {
+                    onlineMergingRegion(disabled, regions.getFirst(), serverName);
+                    onlineMergingRegion(disabled, regions.getSecond(), serverName);
+                  }
+                }
               }
             }
           } finally {
             lock.unlock();
+          }
+        }
+
+        private void onlineMergingRegion(boolean disabled,
+            final HRegionInfo hri, final ServerName serverName) {
+          RegionState regionState = regionStates.getRegionState(hri);
+          if (regionState != null && regionState.isMerging()
+              && regionState.isOnServer(serverName)) {
+            regionOnline(regionState.getRegion(), serverName);
+            if (disabled) {
+              unassign(hri);
+            }
           }
         }
       });
@@ -1340,23 +1258,7 @@ public class AssignmentManager extends ZooKeeperListener {
                 // on it, so no need to watch it again. So, as I know for now,
                 // this is needed to watch splitting nodes only.
                 if (!regionStates.isRegionInTransition(child)) {
-                  stat.setVersion(0);
-                  byte[] data = ZKAssign.getDataAndWatch(watcher,
-                    ZKUtil.joinZNode(watcher.assignmentZNode, child), stat);
-                  if (data != null && stat.getVersion() > 0) {
-                    try {
-                      RegionTransition rt = RegionTransition.parseFrom(data);
-
-                      //See HBASE-7551, handle splitting too, in case we miss the node change event
-                      EventType type = rt.getEventType();
-                      if (type == EventType.RS_ZK_REGION_SPLITTING
-                          || type == EventType.RS_ZK_REGION_MERGING) {
-                        handleRegion(rt, stat.getVersion());
-                      }
-                    } catch (DeserializationException de) {
-                      LOG.error("error getting data for " + child, de);
-                    }
-                  }
+                  ZKAssign.getDataAndWatch(watcher, child, stat);
                 }
               }
             }
@@ -1377,10 +1279,6 @@ public class AssignmentManager extends ZooKeeperListener {
    * @param sn
    */
   void regionOnline(HRegionInfo regionInfo, ServerName sn) {
-    if (!serverManager.isServerOnline(sn)) {
-      LOG.warn("A region was opened on a dead server, ServerName=" +
-        sn + ", region=" + regionInfo.getEncodedName());
-    }
     numRegionsOpened.incrementAndGet();
     regionStates.regionOnline(regionInfo, sn);
 
@@ -1533,7 +1431,7 @@ public class AssignmentManager extends ZooKeeperListener {
    */
   public void assign(HRegionInfo region,
       boolean setOfflineInZK, boolean forceNewPlan) {
-    if (!setOfflineInZK && isDisabledorDisablingRegionInRIT(region)) {
+    if (isDisabledorDisablingRegionInRIT(region)) {
       return;
     }
     if (this.serverManager.isClusterShutdown()) {
@@ -1546,6 +1444,12 @@ public class AssignmentManager extends ZooKeeperListener {
     try {
       RegionState state = forceRegionStateToOffline(region, forceNewPlan);
       if (state != null) {
+        if (regionStates.wasRegionOnDeadServer(encodedName)) {
+          LOG.info("Skip assigning " + region.getRegionNameAsString()
+            + ", it's host " + regionStates.getLastRegionServerOfRegion(encodedName)
+            + " is dead but not processed yet");
+          return;
+        }
         assign(state, setOfflineInZK, forceNewPlan);
       }
     } finally {
@@ -1582,19 +1486,34 @@ public class AssignmentManager extends ZooKeeperListener {
         Map<String, RegionPlan> plans = new HashMap<String, RegionPlan>(regions.size());
         List<RegionState> states = new ArrayList<RegionState>(regions.size());
         for (HRegionInfo region : regions) {
-          String encodedRegionName = region.getEncodedName();
-          RegionState state = forceRegionStateToOffline(region, true);
-          if (state != null && asyncSetOfflineInZooKeeper(state, cb, destination)) {
-            RegionPlan plan = new RegionPlan(region, state.getServerName(), destination);
-            plans.put(encodedRegionName, plan);
-            states.add(state);
-          } else {
-            LOG.warn("failed to force region state to offline or "
-              + "failed to set it offline in ZK, will reassign later: " + region);
-            failedToOpenRegions.add(region); // assign individually later
-            Lock lock = locks.remove(encodedRegionName);
-            lock.unlock();
+          String encodedName = region.getEncodedName();
+          if (!isDisabledorDisablingRegionInRIT(region)) {
+            RegionState state = forceRegionStateToOffline(region, false);
+            boolean onDeadServer = false;
+            if (state != null) {
+              if (regionStates.wasRegionOnDeadServer(encodedName)) {
+                LOG.info("Skip assigning " + region.getRegionNameAsString()
+                  + ", it's host " + regionStates.getLastRegionServerOfRegion(encodedName)
+                  + " is dead but not processed yet");
+                onDeadServer = true;
+              } else if (asyncSetOfflineInZooKeeper(state, cb, destination)) {
+                RegionPlan plan = new RegionPlan(region, state.getServerName(), destination);
+                plans.put(encodedName, plan);
+                states.add(state);
+                continue;
+              }
+            }
+            // Reassign if the region wasn't on a dead server
+            if (!onDeadServer) {
+              LOG.info("failed to force region state to offline or "
+                + "failed to set it offline in ZK, will reassign later: " + region);
+              failedToOpenRegions.add(region); // assign individually later
+            }
           }
+          // Release the lock, this region is excluded from bulk assign because
+          // we can't update its state, or set its znode to offline.
+          Lock lock = locks.remove(encodedName);
+          lock.unlock();
         }
 
         // Wait until all unassigned nodes have been put up and watchers set.
@@ -1630,8 +1549,8 @@ public class AssignmentManager extends ZooKeeperListener {
             Lock lock = locks.remove(encodedRegionName);
             lock.unlock();
           } else {
-            regionStates.updateRegionState(region,
-              RegionState.State.PENDING_OPEN, destination);
+            regionStates.updateRegionState(
+              region, State.PENDING_OPEN, destination);
             List<ServerName> favoredNodes = ServerName.EMPTY_SERVER_LIST;
             if (this.shouldAssignRegionsWithFavoredNodes) {
               favoredNodes = ((FavoredNodeLoadBalancer)this.balancer).getFavoredNodes(region);
@@ -1643,8 +1562,8 @@ public class AssignmentManager extends ZooKeeperListener {
 
         // Move on to open regions.
         try {
-          // Send OPEN RPC. If it fails on a IOE or RemoteException, the
-          // TimeoutMonitor will pick up the pieces.
+          // Send OPEN RPC. If it fails on a IOE or RemoteException,
+          // regions will be assigned individually.
           long maxWaitTime = System.currentTimeMillis() +
             this.server.getConfiguration().
               getLong("hbase.regionserver.rpc.startup.waittime", 60000);
@@ -1707,8 +1626,8 @@ public class AssignmentManager extends ZooKeeperListener {
           }
         } catch (IOException e) {
           // Can be a socket timeout, EOF, NoRouteToHost, etc
-          LOG.info("Unable to communicate with the region server in order" +
-            " to assign regions", e);
+          LOG.info("Unable to communicate with " + destination
+            + " in order to assign regions, ", e);
           return false;
         } catch (InterruptedException e) {
           throw new RuntimeException(e);
@@ -1721,10 +1640,12 @@ public class AssignmentManager extends ZooKeeperListener {
 
       if (!failedToOpenRegions.isEmpty()) {
         for (HRegionInfo region : failedToOpenRegions) {
-          invokeAssign(region);
+          if (!regionStates.isRegionOnline(region)) {
+            invokeAssign(region);
+          }
         }
       }
-      LOG.debug("Bulk assigning done for " + destination.toString());
+      LOG.debug("Bulk assigning done for " + destination);
       return true;
     } finally {
       metricsAssignmentManager.updateBulkAssignTime(EnvironmentEdgeManager.currentTimeMillis() - startTime);
@@ -1749,7 +1670,12 @@ public class AssignmentManager extends ZooKeeperListener {
     if (state != null) {
       server = state.getServerName();
     }
+    long maxWaitTime = -1;
     for (int i = 1; i <= this.maximumAttempts; i++) {
+      if (this.server.isStopped() || this.server.isAborted()) {
+        LOG.debug("Server stopped/aborted; skipping unassign of " + region);
+        return;
+      }
       // ClosedRegionhandler can remove the server from this.regions
       if (!serverManager.isServerOnline(server)) {
         if (transitionInZK) {
@@ -1767,6 +1693,12 @@ public class AssignmentManager extends ZooKeeperListener {
           versionOfClosingNode, dest, transitionInZK)) {
           LOG.debug("Sent CLOSE to " + server + " for region " +
             region.getRegionNameAsString());
+          if (!transitionInZK && state != null) {
+            // Retry to make sure the region is
+            // closed so as to avoid double assignment.
+            unassign(region, state, versionOfClosingNode,
+              dest, transitionInZK,src);
+          }
           return;
         }
         // This never happens. Currently regionserver close always return true.
@@ -1791,16 +1723,39 @@ public class AssignmentManager extends ZooKeeperListener {
           // RS is already processing this region, only need to update the timestamp
           LOG.debug("update " + state + " the timestamp.");
           state.updateTimestampToNow();
+          if (maxWaitTime < 0) {
+            maxWaitTime = EnvironmentEdgeManager.currentTimeMillis()
+              + this.server.getConfiguration().getLong(ALREADY_IN_TRANSITION_WAITTIME,
+                DEFAULT_ALREADY_IN_TRANSITION_WAITTIME);
+          }
+          try {
+            long now = EnvironmentEdgeManager.currentTimeMillis();
+            if (now < maxWaitTime) {
+              LOG.debug("Region is already in transition; "
+                + "waiting up to " + (maxWaitTime - now) + "ms", t);
+              Thread.sleep(100);
+              i--; // reset the try count
+            }
+          } catch (InterruptedException ie) {
+            LOG.warn("Failed to unassign "
+              + region.getRegionNameAsString() + " since interrupted", ie);
+            Thread.currentThread().interrupt();
+            if (!tomActivated) {
+              regionStates.updateRegionState(region, State.FAILED_CLOSE);
+            }
+            return;
+          }
+        } else {
+          LOG.info("Server " + server + " returned " + t + " for "
+            + region.getRegionNameAsString() + ", try=" + i
+            + " of " + this.maximumAttempts, t);
+          // Presume retry or server will expire.
         }
-        LOG.info("Server " + server + " returned " + t + " for "
-          + region.getRegionNameAsString() + ", try=" + i
-          + " of " + this.maximumAttempts, t);
-        // Presume retry or server will expire.
       }
     }
     // Run out of attempts
     if (!tomActivated && state != null) {
-      regionStates.updateRegionState(region, RegionState.State.FAILED_CLOSE);
+      regionStates.updateRegionState(region, State.FAILED_CLOSE);
     }
   }
 
@@ -1815,34 +1770,75 @@ public class AssignmentManager extends ZooKeeperListener {
       state = regionStates.createRegionState(region);
     }
 
+    if (forceNewPlan && LOG.isDebugEnabled()) {
+      LOG.debug("Force region state offline " + state);
+    }
+
     switch (state.getState()) {
     case OPEN:
     case OPENING:
     case PENDING_OPEN:
-      if (!forceNewPlan) {
-        LOG.debug("Attempting to assign region " +
-          region + " but it is already in transition: " + state);
-        return null;
-      }
     case CLOSING:
     case PENDING_CLOSE:
+      if (!forceNewPlan) {
+        LOG.debug("Skip assigning " +
+          region + ", it is already " + state);
+        return null;
+      }
     case FAILED_CLOSE:
     case FAILED_OPEN:
       unassign(region, state, -1, null, false, null);
+      RegionState oldState = state;
       state = regionStates.getRegionState(region);
-      if (state.isOffline()) break;
+      if (state.isFailedClose()) {
+        LOG.info("Skip assigning " +
+          region + ", we couldn't close it: " + state);
+        return null;
+      }
+      // In these cases, we need to confirm with meta
+      // the region was not on a dead server if it's open/pending.
+      if ((oldState.isOpened() || oldState.isPendingOpenOrOpening())
+          && wasRegionOnDeadServerByMeta(region, oldState.getServerName())) {
+        LOG.info("Skip assigning " + region.getRegionNameAsString()
+          + ", it is on a dead but not processed yet server");
+        return null;
+      }
     case CLOSED:
-      LOG.debug("Forcing OFFLINE; was=" + state);
-      state = regionStates.updateRegionState(
-        region, RegionState.State.OFFLINE);
     case OFFLINE:
       break;
     default:
       LOG.error("Trying to assign region " + region
-        + ", which is in state " + state);
+        + ", which is " + state);
       return null;
     }
     return state;
+  }
+
+  private boolean wasRegionOnDeadServerByMeta(
+      final HRegionInfo region, final ServerName sn) {
+    try {
+      if (region.isMetaRegion()) {
+        ServerName server = catalogTracker.getMetaLocation();
+        return regionStates.isServerDeadAndNotProcessed(server);
+      }
+      while (!server.isStopped()) {
+        try {
+          catalogTracker.waitForMeta();
+          Pair<HRegionInfo, ServerName> r =
+            MetaReader.getRegion(catalogTracker, region.getRegionName());
+          ServerName server = r == null ? null : r.getSecond();
+          return regionStates.isServerDeadAndNotProcessed(server);
+        } catch (IOException ioe) {
+          LOG.info("Received exception accessing hbase:meta during force assign "
+            + region.getRegionNameAsString() + ", retrying", ioe);
+        }
+      }
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      LOG.info("Interrupted accessing hbase:meta", e);
+    }
+    // Call is interrupted or server is stopped.
+    return regionStates.isServerDeadAndNotProcessed(sn);
   }
 
   /**
@@ -1855,214 +1851,220 @@ public class AssignmentManager extends ZooKeeperListener {
       final boolean setOfflineInZK, final boolean forceNewPlan) {
     long startTime = EnvironmentEdgeManager.currentTimeMillis();
     try {
-    RegionState currentState = state;
-    int versionOfOfflineNode = -1;
-    RegionPlan plan = null;
-    long maxRegionServerStartupWaitTime = -1;
-    HRegionInfo region = state.getRegion();
-    RegionOpeningState regionOpenState;
-    for (int i = 1; i <= maximumAttempts && !server.isStopped(); i++) {
-      if (plan == null) { // Get a server for the region at first
-        try {
-          plan = getRegionPlan(region, forceNewPlan);
-        } catch (HBaseIOException e) {
-          LOG.warn("Failed to get region plan", e);
-        }
-      }
-      if (plan == null) {
-        LOG.warn("Unable to determine a plan to assign " + region);
-        if (tomActivated){
-          this.timeoutMonitor.setAllRegionServersOffline(true);
-        } else {
-          if (region.isMetaRegion()) {
-            try {
-              if (i != maximumAttempts) {
-                Thread.sleep(this.sleepTimeBeforeRetryingMetaAssignment);
-                continue;
-              }
-              // TODO : Ensure HBCK fixes this
-              LOG.error("Unable to determine a plan to assign hbase:meta even after repeated attempts. Run HBCK to fix this");
-            } catch (InterruptedException e) {
-              LOG.error("Got exception while waiting for hbase:meta assignment");
-              Thread.currentThread().interrupt();
-            }
-          }
-          regionStates.updateRegionState(region, RegionState.State.FAILED_OPEN);
-        }
-        return;
-      }
-      if (setOfflineInZK && versionOfOfflineNode == -1) {
-        // get the version of the znode after setting it to OFFLINE.
-        // versionOfOfflineNode will be -1 if the znode was not set to OFFLINE
-        versionOfOfflineNode = setOfflineInZooKeeper(currentState, plan.getDestination());
-        if (versionOfOfflineNode != -1) {
-          if (isDisabledorDisablingRegionInRIT(region)) {
-            return;
-          }
-          // In case of assignment from EnableTableHandler table state is ENABLING. Any how
-          // EnableTableHandler will set ENABLED after assigning all the table regions. If we
-          // try to set to ENABLED directly then client API may think table is enabled.
-          // When we have a case such as all the regions are added directly into hbase:meta and we call
-          // assignRegion then we need to make the table ENABLED. Hence in such case the table
-          // will not be in ENABLING or ENABLED state.
-          TableName tableName = region.getTable();
-          if (!zkTable.isEnablingTable(tableName) && !zkTable.isEnabledTable(tableName)) {
-            LOG.debug("Setting table " + tableName + " to ENABLED state.");
-            setEnabledTable(tableName);
-          }
-        }
-      }
-      if (setOfflineInZK && versionOfOfflineNode == -1) {
-        LOG.info("Unable to set offline in ZooKeeper to assign " + region);
-        // Setting offline in ZK must have been failed due to ZK racing or some
-        // exception which may make the server to abort. If it is ZK racing,
-        // we should retry since we already reset the region state,
-        // existing (re)assignment will fail anyway.
-        if (!server.isAborted()) {
-          continue;
-        }
-      }
-      if (this.server.isStopped() || this.server.isAborted()) {
-        LOG.debug("Server stopped/aborted; skipping assign of " + region);
-        return;
-      }
-      LOG.info("Assigning " + region.getRegionNameAsString() +
-          " to " + plan.getDestination().toString());
-      // Transition RegionState to PENDING_OPEN
-      currentState = regionStates.updateRegionState(region,
-          RegionState.State.PENDING_OPEN, plan.getDestination());
-
-      boolean needNewPlan;
-      final String assignMsg = "Failed assignment of " + region.getRegionNameAsString() +
-          " to " + plan.getDestination();
-      try {
-        List<ServerName> favoredNodes = ServerName.EMPTY_SERVER_LIST;
-        if (this.shouldAssignRegionsWithFavoredNodes) {
-          favoredNodes = ((FavoredNodeLoadBalancer)this.balancer).getFavoredNodes(region);
-        }
-        regionOpenState = serverManager.sendRegionOpen(
-            plan.getDestination(), region, versionOfOfflineNode, favoredNodes);
-
-        if (regionOpenState == RegionOpeningState.FAILED_OPENING) {
-          // Failed opening this region, looping again on a new server.
-          needNewPlan = true;
-          LOG.warn(assignMsg + ", regionserver says 'FAILED_OPENING', " +
-              " trying to assign elsewhere instead; " +
-              "try=" + i + " of " + this.maximumAttempts);
-        } else {
-          // we're done
-          if (regionOpenState == RegionOpeningState.ALREADY_OPENED) {
-            processAlreadyOpenedRegion(region, plan.getDestination());
-          }
+      RegionState currentState = state;
+      int versionOfOfflineNode = -1;
+      RegionPlan plan = null;
+      long maxWaitTime = -1;
+      HRegionInfo region = state.getRegion();
+      RegionOpeningState regionOpenState;
+      for (int i = 1; i <= maximumAttempts; i++) {
+        if (server.isStopped() || server.isAborted()) {
+          LOG.info("Skip assigning " + region.getRegionNameAsString()
+            + ", the server is stopped/aborted");
           return;
         }
-
-      } catch (Throwable t) {
-        if (t instanceof RemoteException) {
-          t = ((RemoteException) t).unwrapRemoteException();
-        }
-
-        // Should we wait a little before retrying? If the server is starting it's yes.
-        // If the region is already in transition, it's yes as well: we want to be sure that
-        //  the region will get opened but we don't want a double assignment.
-        boolean hold = (t instanceof RegionAlreadyInTransitionException ||
-            t instanceof ServerNotRunningYetException);
-
-        // In case socket is timed out and the region server is still online,
-        // the openRegion RPC could have been accepted by the server and
-        // just the response didn't go through.  So we will retry to
-        // open the region on the same server to avoid possible
-        // double assignment.
-        boolean retry = !hold && (t instanceof java.net.SocketTimeoutException
-            && this.serverManager.isServerOnline(plan.getDestination()));
-
-
-        if (hold) {
-          LOG.warn(assignMsg + ", waiting a little before trying on the same region server " +
-              "try=" + i + " of " + this.maximumAttempts, t);
-
-          if (maxRegionServerStartupWaitTime < 0) {
-            maxRegionServerStartupWaitTime = EnvironmentEdgeManager.currentTimeMillis() +
-                this.server.getConfiguration().
-                    getLong("hbase.regionserver.rpc.startup.waittime", 60000);
-          }
+        if (plan == null) { // Get a server for the region at first
           try {
-            long now = EnvironmentEdgeManager.currentTimeMillis();
-            if (now < maxRegionServerStartupWaitTime) {
-              LOG.debug("Server is not yet up; waiting up to " +
-                  (maxRegionServerStartupWaitTime - now) + "ms", t);
-              Thread.sleep(100);
-              i--; // reset the try count
-              needNewPlan = false;
-            } else {
-              LOG.debug("Server is not up for a while; try a new one", t);
-              needNewPlan = true;
-            }
-          } catch (InterruptedException ie) {
-            LOG.warn("Failed to assign "
-                + region.getRegionNameAsString() + " since interrupted", ie);
-            Thread.currentThread().interrupt();
-            if (!tomActivated) {
-              regionStates.updateRegionState(region, RegionState.State.FAILED_OPEN);
-            }
-            return;
+            plan = getRegionPlan(region, forceNewPlan);
+          } catch (HBaseIOException e) {
+            LOG.warn("Failed to get region plan", e);
           }
-        } else if (retry) {
-          needNewPlan = false;
-          LOG.warn(assignMsg + ", trying to assign to the same region server " +
-              "try=" + i + " of " + this.maximumAttempts, t);
-        } else {
-          needNewPlan = true;
-          LOG.warn(assignMsg + ", trying to assign elsewhere instead;" +
-              " try=" + i + " of " + this.maximumAttempts, t);
         }
-      }
-
-      if (i == this.maximumAttempts) {
-        // Don't reset the region state or get a new plan any more.
-        // This is the last try.
-        continue;
-      }
-
-      // If region opened on destination of present plan, reassigning to new
-      // RS may cause double assignments. In case of RegionAlreadyInTransitionException
-      // reassigning to same RS.
-      if (needNewPlan) {
-        // Force a new plan and reassign. Will return null if no servers.
-        // The new plan could be the same as the existing plan since we don't
-        // exclude the server of the original plan, which should not be
-        // excluded since it could be the only server up now.
-        RegionPlan newPlan = null;
-        try {
-          newPlan = getRegionPlan(region, true);
-        } catch (HBaseIOException e) {
-          LOG.warn("Failed to get region plan", e);
-        }
-        if (newPlan == null) {
-          if (tomActivated) {
+        if (plan == null) {
+          LOG.warn("Unable to determine a plan to assign " + region);
+          if (tomActivated){
             this.timeoutMonitor.setAllRegionServersOffline(true);
           } else {
-            regionStates.updateRegionState(region, RegionState.State.FAILED_OPEN);
+            if (region.isMetaRegion()) {
+              try {
+                if (i != maximumAttempts) {
+                  Thread.sleep(this.sleepTimeBeforeRetryingMetaAssignment);
+                  continue;
+                }
+                // TODO : Ensure HBCK fixes this
+                LOG.error("Unable to determine a plan to assign hbase:meta even after repeated attempts. Run HBCK to fix this");
+              } catch (InterruptedException e) {
+                LOG.error("Got exception while waiting for hbase:meta assignment");
+                Thread.currentThread().interrupt();
+              }
+            }
+            regionStates.updateRegionState(region, State.FAILED_OPEN);
           }
-          LOG.warn("Unable to find a viable location to assign region " +
-              region.getRegionNameAsString());
           return;
         }
+        if (setOfflineInZK && versionOfOfflineNode == -1) {
+          // get the version of the znode after setting it to OFFLINE.
+          // versionOfOfflineNode will be -1 if the znode was not set to OFFLINE
+          versionOfOfflineNode = setOfflineInZooKeeper(currentState, plan.getDestination());
+          if (versionOfOfflineNode != -1) {
+            if (isDisabledorDisablingRegionInRIT(region)) {
+              return;
+            }
+            // In case of assignment from EnableTableHandler table state is ENABLING. Any how
+            // EnableTableHandler will set ENABLED after assigning all the table regions. If we
+            // try to set to ENABLED directly then client API may think table is enabled.
+            // When we have a case such as all the regions are added directly into hbase:meta and we call
+            // assignRegion then we need to make the table ENABLED. Hence in such case the table
+            // will not be in ENABLING or ENABLED state.
+            TableName tableName = region.getTable();
+            if (!zkTable.isEnablingTable(tableName) && !zkTable.isEnabledTable(tableName)) {
+              LOG.debug("Setting table " + tableName + " to ENABLED state.");
+              setEnabledTable(tableName);
+            }
+          }
+        }
+        if (setOfflineInZK && versionOfOfflineNode == -1) {
+          LOG.info("Unable to set offline in ZooKeeper to assign " + region);
+          // Setting offline in ZK must have been failed due to ZK racing or some
+          // exception which may make the server to abort. If it is ZK racing,
+          // we should retry since we already reset the region state,
+          // existing (re)assignment will fail anyway.
+          if (!server.isAborted()) {
+            continue;
+          }
+        }
+        LOG.info("Assigning " + region.getRegionNameAsString() +
+            " to " + plan.getDestination().toString());
+        // Transition RegionState to PENDING_OPEN
+        currentState = regionStates.updateRegionState(region,
+          State.PENDING_OPEN, plan.getDestination());
 
-        if (plan != newPlan && !plan.getDestination().equals(newPlan.getDestination())) {
-          // Clean out plan we failed execute and one that doesn't look like it'll
-          // succeed anyways; we need a new plan!
-          // Transition back to OFFLINE
-          currentState = regionStates.updateRegionState(region, RegionState.State.OFFLINE);
-          versionOfOfflineNode = -1;
-          plan = newPlan;
+        boolean needNewPlan;
+        final String assignMsg = "Failed assignment of " + region.getRegionNameAsString() +
+            " to " + plan.getDestination();
+        try {
+          List<ServerName> favoredNodes = ServerName.EMPTY_SERVER_LIST;
+          if (this.shouldAssignRegionsWithFavoredNodes) {
+            favoredNodes = ((FavoredNodeLoadBalancer)this.balancer).getFavoredNodes(region);
+          }
+          regionOpenState = serverManager.sendRegionOpen(
+              plan.getDestination(), region, versionOfOfflineNode, favoredNodes);
+
+          if (regionOpenState == RegionOpeningState.FAILED_OPENING) {
+            // Failed opening this region, looping again on a new server.
+            needNewPlan = true;
+            LOG.warn(assignMsg + ", regionserver says 'FAILED_OPENING', " +
+                " trying to assign elsewhere instead; " +
+                "try=" + i + " of " + this.maximumAttempts);
+          } else {
+            // we're done
+            if (regionOpenState == RegionOpeningState.ALREADY_OPENED) {
+              processAlreadyOpenedRegion(region, plan.getDestination());
+            }
+            return;
+          }
+
+        } catch (Throwable t) {
+          if (t instanceof RemoteException) {
+            t = ((RemoteException) t).unwrapRemoteException();
+          }
+
+          // Should we wait a little before retrying? If the server is starting it's yes.
+          // If the region is already in transition, it's yes as well: we want to be sure that
+          //  the region will get opened but we don't want a double assignment.
+          boolean hold = (t instanceof RegionAlreadyInTransitionException ||
+              t instanceof ServerNotRunningYetException);
+
+          // In case socket is timed out and the region server is still online,
+          // the openRegion RPC could have been accepted by the server and
+          // just the response didn't go through.  So we will retry to
+          // open the region on the same server to avoid possible
+          // double assignment.
+          boolean retry = !hold && (t instanceof java.net.SocketTimeoutException
+              && this.serverManager.isServerOnline(plan.getDestination()));
+
+
+          if (hold) {
+            LOG.warn(assignMsg + ", waiting a little before trying on the same region server " +
+              "try=" + i + " of " + this.maximumAttempts, t);
+
+            if (maxWaitTime < 0) {
+              if (t instanceof RegionAlreadyInTransitionException) {
+                maxWaitTime = EnvironmentEdgeManager.currentTimeMillis()
+                  + this.server.getConfiguration().getLong(ALREADY_IN_TRANSITION_WAITTIME,
+                    DEFAULT_ALREADY_IN_TRANSITION_WAITTIME);
+              } else {
+                maxWaitTime = this.server.getConfiguration().
+                  getLong("hbase.regionserver.rpc.startup.waittime", 60000);
+              }
+            }
+            try {
+              needNewPlan = false;
+              long now = EnvironmentEdgeManager.currentTimeMillis();
+              if (now < maxWaitTime) {
+                LOG.debug("Server is not yet up or region is already in transition; "
+                  + "waiting up to " + (maxWaitTime - now) + "ms", t);
+                Thread.sleep(100);
+                i--; // reset the try count
+              } else if (!(t instanceof RegionAlreadyInTransitionException)) {
+                LOG.debug("Server is not up for a while; try a new one", t);
+                needNewPlan = true;
+              }
+            } catch (InterruptedException ie) {
+              LOG.warn("Failed to assign "
+                  + region.getRegionNameAsString() + " since interrupted", ie);
+              Thread.currentThread().interrupt();
+              if (!tomActivated) {
+                regionStates.updateRegionState(region, State.FAILED_OPEN);
+              }
+              return;
+            }
+          } else if (retry) {
+            needNewPlan = false;
+            LOG.warn(assignMsg + ", trying to assign to the same region server " +
+                "try=" + i + " of " + this.maximumAttempts, t);
+          } else {
+            needNewPlan = true;
+            LOG.warn(assignMsg + ", trying to assign elsewhere instead;" +
+                " try=" + i + " of " + this.maximumAttempts, t);
+          }
+        }
+
+        if (i == this.maximumAttempts) {
+          // Don't reset the region state or get a new plan any more.
+          // This is the last try.
+          continue;
+        }
+
+        // If region opened on destination of present plan, reassigning to new
+        // RS may cause double assignments. In case of RegionAlreadyInTransitionException
+        // reassigning to same RS.
+        if (needNewPlan) {
+          // Force a new plan and reassign. Will return null if no servers.
+          // The new plan could be the same as the existing plan since we don't
+          // exclude the server of the original plan, which should not be
+          // excluded since it could be the only server up now.
+          RegionPlan newPlan = null;
+          try {
+            newPlan = getRegionPlan(region, true);
+          } catch (HBaseIOException e) {
+            LOG.warn("Failed to get region plan", e);
+          }
+          if (newPlan == null) {
+            if (tomActivated) {
+              this.timeoutMonitor.setAllRegionServersOffline(true);
+            } else {
+              regionStates.updateRegionState(region, State.FAILED_OPEN);
+            }
+            LOG.warn("Unable to find a viable location to assign region " +
+                region.getRegionNameAsString());
+            return;
+          }
+
+          if (plan != newPlan && !plan.getDestination().equals(newPlan.getDestination())) {
+            // Clean out plan we failed execute and one that doesn't look like it'll
+            // succeed anyways; we need a new plan!
+            // Transition back to OFFLINE
+            currentState = regionStates.updateRegionState(region, State.OFFLINE);
+            versionOfOfflineNode = -1;
+            plan = newPlan;
+          }
         }
       }
-    }
-    // Run out of attempts
-    if (!tomActivated) {
-      regionStates.updateRegionState(region, RegionState.State.FAILED_OPEN);
-    }
+      // Run out of attempts
+      if (!tomActivated) {
+        regionStates.updateRegionState(region, State.FAILED_OPEN);
+      }
     } finally {
       metricsAssignmentManager.updateAssignmentTime(EnvironmentEdgeManager.currentTimeMillis() - startTime);
     }
@@ -2116,8 +2118,7 @@ public class AssignmentManager extends ZooKeeperListener {
       this.server.abort(msg, new IllegalStateException(msg));
       return -1;
     }
-    regionStates.updateRegionState(state.getRegion(),
-      RegionState.State.OFFLINE);
+    regionStates.updateRegionState(state.getRegion(), State.OFFLINE);
     int versionOfOfflineNode;
     try {
       // get the version after setting the znode to OFFLINE
@@ -2284,7 +2285,8 @@ public class AssignmentManager extends ZooKeeperListener {
    */
   public void unassign(HRegionInfo region, boolean force, ServerName dest) {
     // TODO: Method needs refactoring.  Ugly buried returns throughout.  Beware!
-    LOG.debug("Starting unassign of " + region.getRegionNameAsString() + " (offlining)");
+    LOG.debug("Starting unassign of " + region.getRegionNameAsString()
+      + " (offlining), current state: " + regionStates.getRegionState(region));
 
     String encodedName = region.getEncodedName();
     // Grab the state of this region and synchronize on it
@@ -2293,23 +2295,34 @@ public class AssignmentManager extends ZooKeeperListener {
     //  creation
     ReentrantLock lock = locker.acquireLock(encodedName);
     RegionState state = regionStates.getRegionTransitionState(encodedName);
+    boolean reassign = true;
     try {
       if (state == null) {
+        // Region is not in transition.
+        // We can unassign it only if it's not SPLIT/MERGED.
+        state = regionStates.getRegionState(encodedName);
+        if (state != null && state.isNotUnassignableNotInTransition()) {
+          LOG.info("Attempting to unassign " + state + ", ignored");
+          // Offline region will be reassigned below
+          return;
+        }
         // Create the znode in CLOSING state
         try {
-          state = regionStates.getRegionState(region);
           if (state == null || state.getServerName() == null) {
             // We don't know where the region is, offline it.
             // No need to send CLOSE RPC
+            LOG.warn("Attempting to unassign a region not in RegionStates"
+              + region.getRegionNameAsString() + ", offlined");
             regionOffline(region);
             return;
           }
           versionOfClosingNode = ZKAssign.createNodeClosing(
             watcher, region, state.getServerName());
           if (versionOfClosingNode == -1) {
-            LOG.debug("Attempting to unassign " +
-                region.getRegionNameAsString() + " but ZK closing node "
-                + "can't be created.");
+            LOG.info("Attempting to unassign " +
+              region.getRegionNameAsString() + " but ZK closing node "
+              + "can't be created.");
+            reassign = false; // not unassigned at all
             return;
           }
         } catch (KeeperException e) {
@@ -2324,6 +2337,7 @@ public class AssignmentManager extends ZooKeeperListener {
               if (isSplitOrSplittingOrMergedOrMerging(path)) {
                 LOG.debug(path + " is SPLIT or SPLITTING or MERGED or MERGING; " +
                   "skipping unassign because region no longer exists -- its split or merge");
+                reassign = false; // no need to reassign for split/merged region
                 return;
               }
             } catch (KeeperException.NoNodeException ke) {
@@ -2339,9 +2353,10 @@ public class AssignmentManager extends ZooKeeperListener {
           }
           // If we get here, don't understand whats going on -- abort.
           server.abort("Unexpected ZK exception creating node CLOSING", e);
+          reassign = false; // heading out already
           return;
         }
-        state = regionStates.updateRegionState(region, RegionState.State.PENDING_CLOSE);
+        state = regionStates.updateRegionState(region, State.PENDING_CLOSE);
       } else if (state.isFailedOpen()) {
         // The region is not open yet
         regionOffline(region);
@@ -2351,7 +2366,7 @@ public class AssignmentManager extends ZooKeeperListener {
           " which is already " + state.getState()  +
           " but forcing to send a CLOSE RPC again ");
         if (state.isFailedClose()) {
-          state = regionStates.updateRegionState(region, RegionState.State.PENDING_CLOSE);
+          state = regionStates.updateRegionState(region, State.PENDING_CLOSE);
         }
         state.updateTimestampToNow();
       } else {
@@ -2362,11 +2377,13 @@ public class AssignmentManager extends ZooKeeperListener {
       }
 
       unassign(region, state, versionOfClosingNode, dest, true, null);
-      if (regionStates.isRegionOffline(region)) {
-        new ClosedRegionHandler(server, this, region).process();
-      }
     } finally {
       lock.unlock();
+
+      // Region is expected to be reassigned afterwards
+      if (reassign && regionStates.isRegionOffline(region)) {
+        assign(region, true);
+      }
     }
   }
 
@@ -2378,27 +2395,9 @@ public class AssignmentManager extends ZooKeeperListener {
    * @param region regioninfo of znode to be deleted.
    */
   public void deleteClosingOrClosedNode(HRegionInfo region) {
-    String encodedName = region.getEncodedName();
-    try {
-      if (!ZKAssign.deleteNode(watcher, encodedName,
-          EventType.M_ZK_REGION_CLOSING)) {
-        boolean deleteNode = ZKAssign.deleteNode(watcher,
-          encodedName, EventType.RS_ZK_REGION_CLOSED);
-        // TODO : We don't abort if the delete node returns false. Is there any
-        // such corner case?
-        if (!deleteNode) {
-          LOG.error("The deletion of the CLOSED node for "
-            + encodedName + " returned " + deleteNode);
-        }
-      }
-    } catch (NoNodeException e) {
-      LOG.debug("CLOSING/CLOSED node for " + encodedName
-        + " already deleted");
-    } catch (KeeperException ke) {
-      server.abort(
-        "Unexpected ZK exception deleting node CLOSING/CLOSED for the region "
-          + encodedName, ke);
-    }
+    String regionName = region.getEncodedName();
+    deleteNodeInStates(regionName, "closing", EventType.M_ZK_REGION_CLOSING,
+      EventType.RS_ZK_REGION_CLOSED);
   }
 
   /**
@@ -2413,16 +2412,22 @@ public class AssignmentManager extends ZooKeeperListener {
     // This may fail if the SPLIT or SPLITTING or MERGED or MERGING znode gets
     // cleaned up before we can get data from it.
     byte [] data = ZKAssign.getData(watcher, path);
-    if (data == null) return false;
+    if (data == null) {
+      LOG.info("Node " + path + " is gone");
+      return false;
+    }
     RegionTransition rt = RegionTransition.parseFrom(data);
     switch (rt.getEventType()) {
+    case RS_ZK_REQUEST_REGION_SPLIT:
     case RS_ZK_REGION_SPLIT:
     case RS_ZK_REGION_SPLITTING:
+    case RS_ZK_REQUEST_REGION_MERGE:
     case RS_ZK_REGION_MERGED:
     case RS_ZK_REGION_MERGING:
       result = true;
       break;
     default:
+      LOG.info("Node " + path + " is in " + rt.getEventType());
       break;
     }
     return result;
@@ -2447,7 +2452,7 @@ public class AssignmentManager extends ZooKeeperListener {
    */
   public boolean waitForAssignment(HRegionInfo regionInfo)
       throws InterruptedException {
-    while (!regionStates.isRegionAssigned(regionInfo)) {
+    while (!regionStates.isRegionOnline(regionInfo)) {
       if (regionStates.isRegionInState(regionInfo, State.FAILED_OPEN)
           || this.server.isStopped()) {
         return false;
@@ -2545,7 +2550,13 @@ public class AssignmentManager extends ZooKeeperListener {
           " region(s) to " + servers + " server(s)");
       }
       for (Map.Entry<ServerName, List<HRegionInfo>> plan: bulkPlan.entrySet()) {
-        assign(plan.getKey(), plan.getValue());
+        if (!assign(plan.getKey(), plan.getValue())) {
+          for (HRegionInfo region: plan.getValue()) {
+            if (!regionStates.isRegionOnline(region)) {
+              invokeAssign(region);
+            }
+          }
+        }
       }
     } else {
       LOG.info("Bulk assigning " + regions + " region(s) across "
@@ -2706,6 +2717,7 @@ public class AssignmentManager extends ZooKeeperListener {
         // Region is being served and on an active server
         // add only if region not in disabled or enabling table
         if (!disabledOrEnablingTables.contains(tableName)) {
+          regionStates.updateRegionState(regionInfo, State.OPEN, regionLocation);
           regionStates.regionOnline(regionInfo, regionLocation);
         }
         // need to enable the table if not disabled or disabling or enabling
@@ -2788,6 +2800,8 @@ public class AssignmentManager extends ZooKeeperListener {
     if (deadServers != null) {
       for (Map.Entry<ServerName, List<HRegionInfo>> server: deadServers.entrySet()) {
         ServerName serverName = server.getKey();
+        // We need to keep such info even if the server is known dead
+        regionStates.setLastRegionServerOfRegions(serverName, server.getValue());
         if (!serverManager.isServerDead(serverName)) {
           serverManager.expireServer(serverName); // Let SSH do region re-assign
         }
@@ -3148,9 +3162,10 @@ public class AssignmentManager extends ZooKeeperListener {
         RegionState regionState =
           regionStates.getRegionTransitionState(encodedName);
         if (regionState == null
-            || !regionState.isPendingOpenOrOpeningOnServer(sn)) {
-          LOG.info("Skip " + hri
-            + " since it is not opening on the dead server any more: " + sn);
+            || (regionState.getServerName() != null && !regionState.isOnServer(sn))
+            || !(regionState.isFailedClose() || regionState.isPendingOpenOrOpening())) {
+          LOG.info("Skip " + regionState + " since it is not opening/failed_close"
+            + " on the dead server any more: " + sn);
           it.remove();
         } else {
           try {
@@ -3160,12 +3175,13 @@ public class AssignmentManager extends ZooKeeperListener {
             server.abort("Unexpected ZK exception deleting node " + hri, ke);
           }
           if (zkTable.isDisablingOrDisabledTable(hri.getTable())) {
-            it.remove();
+            regionStates.updateRegionState(hri, State.OFFLINE);
             regionStates.regionOffline(hri);
+            it.remove();
             continue;
           }
-          // Mark the region closed and assign it again by SSH
-          regionStates.updateRegionState(hri, RegionState.State.CLOSED);
+          // Mark the region offline and assign it again by SSH
+          regionStates.updateRegionState(hri, State.OFFLINE);
         }
       } finally {
         lock.unlock();
@@ -3175,58 +3191,20 @@ public class AssignmentManager extends ZooKeeperListener {
   }
 
   /**
-   * Update inmemory structures.
-   * @param sn Server that reported the split
-   * @param parent Parent region that was split
-   * @param a Daughter region A
-   * @param b Daughter region B
-   */
-  public void handleSplitReport(final ServerName sn, final HRegionInfo parent,
-      final HRegionInfo a, final HRegionInfo b) {
-    regionOffline(parent, State.SPLIT);
-    regionOnline(a, sn);
-    regionOnline(b, sn);
-
-    // There's a possibility that the region was splitting while a user asked
-    // the master to disable, we need to make sure we close those regions in
-    // that case. This is not racing with the region server itself since RS
-    // report is done after the split transaction completed.
-    if (this.zkTable.isDisablingOrDisabledTable(parent.getTable())) {
-      unassign(a);
-      unassign(b);
-    }
-  }
-
-  /**
-   * Update inmemory structures.
-   * @param sn Server that reported the merge
-   * @param merged regioninfo of merged
-   * @param a region a
-   * @param b region b
-   */
-  public void handleRegionsMergeReport(final ServerName sn,
-      final HRegionInfo merged, final HRegionInfo a, final HRegionInfo b) {
-    regionOffline(a, State.MERGED);
-    regionOffline(b, State.MERGED);
-    regionOnline(merged, sn);
-
-    // There's a possibility that the region was merging while a user asked
-    // the master to disable, we need to make sure we close those regions in
-    // that case. This is not racing with the region server itself since RS
-    // report is done after the regions merge transaction completed.
-    if (this.zkTable.isDisablingOrDisabledTable(merged.getTable())) {
-      unassign(merged);
-    }
-  }
-
-  /**
    * @param plan Plan to execute.
    */
   public void balance(final RegionPlan plan) {
     synchronized (this.regionPlans) {
       this.regionPlans.put(plan.getRegionName(), plan);
     }
-    unassign(plan.getRegionInfo(), false, plan.getDestination());
+    HRegionInfo hri = plan.getRegionInfo();
+    TableName tableName = hri.getTable();
+    if (zkTable.isDisablingOrDisabledTable(tableName)) {
+      LOG.info("Ignored moving region of disabling/disabled table "
+        + tableName);
+      return;
+    }
+    unassign(hri, false, plan.getDestination());
   }
 
   public void stop() {
@@ -3273,8 +3251,7 @@ public class AssignmentManager extends ZooKeeperListener {
         new IllegalStateException());
       return false;
     }
-    regionStates.updateRegionState(
-      state.getRegion(), RegionState.State.OFFLINE);
+    regionStates.updateRegionState(state.getRegion(), State.OFFLINE);
     try {
       ZKAssign.asyncCreateNodeOffline(watcher, state.getRegion(),
         destination, cb, state);
@@ -3289,33 +3266,283 @@ public class AssignmentManager extends ZooKeeperListener {
     return true;
   }
 
+  private boolean deleteNodeInStates(
+      String regionName, String desc, EventType... types) {
+    try {
+      for (EventType et: types) {
+        if (ZKAssign.deleteNode(watcher, regionName, et)) {
+          return true;
+        }
+      }
+      LOG.info("Failed to delete the " + desc + " node for "
+        + regionName + ". The node type may not match");
+    } catch (NoNodeException e) {
+      LOG.debug("The " + desc + " node for " + regionName + " already deleted");
+    } catch (KeeperException ke) {
+      server.abort("Unexpected ZK exception deleting " + desc
+        + " node for the region " + regionName, ke);
+    }
+    return false;
+  }
+
+  private void deleteMergingNode(String encodedName) {
+    deleteNodeInStates(encodedName, "merging", EventType.RS_ZK_REGION_MERGING,
+      EventType.RS_ZK_REQUEST_REGION_MERGE, EventType.RS_ZK_REGION_MERGED);
+  }
+
+  private void deleteSplittingNode(String encodedName) {
+    deleteNodeInStates(encodedName, "splitting", EventType.RS_ZK_REGION_SPLITTING,
+      EventType.RS_ZK_REQUEST_REGION_SPLIT, EventType.RS_ZK_REGION_SPLIT);
+  }
+
   /**
    * A helper to handle region merging transition event.
    * It transitions merging regions to MERGING state.
    */
-  private boolean handleRegionMerging(final RegionTransition rt,
+  private boolean handleRegionMerging(final RegionTransition rt, final String encodedName,
       final String prettyPrintedRegionName, final ServerName sn) {
+    if (!serverManager.isServerOnline(sn)) {
+      LOG.warn("Dropped merging! ServerName=" + sn + " unknown.");
+      return false;
+    }
     byte [] payloadOfMerging = rt.getPayload();
     List<HRegionInfo> mergingRegions;
     try {
       mergingRegions = HRegionInfo.parseDelimitedFrom(
         payloadOfMerging, 0, payloadOfMerging.length);
     } catch (IOException e) {
-      LOG.error("Dropped merging! Failed reading merging payload for "
-        + prettyPrintedRegionName);
+      LOG.error("Dropped merging! Failed reading "  + rt.getEventType()
+        + " payload for " + prettyPrintedRegionName);
       return false;
     }
-    assert mergingRegions.size() == 2;
-    HRegionInfo merging_a = mergingRegions.get(0);
-    HRegionInfo merging_b = mergingRegions.get(1);
+    assert mergingRegions.size() == 3;
+    HRegionInfo p = mergingRegions.get(0);
+    HRegionInfo hri_a = mergingRegions.get(1);
+    HRegionInfo hri_b = mergingRegions.get(2);
 
-    if (!isInStateForMerging(sn, merging_a, merging_b)) {
-      LOG.warn("Dropped merging! Not in state good for MERGING; rs_a="
-        + merging_a + ", rs_b=" + merging_b);
+    RegionState rs_p = regionStates.getRegionState(p);
+    RegionState rs_a = regionStates.getRegionState(hri_a);
+    RegionState rs_b = regionStates.getRegionState(hri_b);
+
+    if (!((rs_a == null || rs_a.isOpenOrMergingOnServer(sn))
+        && (rs_b == null || rs_b.isOpenOrMergingOnServer(sn))
+        && (rs_p == null || rs_p.isOpenOrMergingNewOnServer(sn)))) {
+      LOG.warn("Dropped merging! Not in state good for MERGING; rs_p="
+        + rs_p + ", rs_a=" + rs_a + ", rs_b=" + rs_b);
       return false;
     }
-    regionStates.updateRegionState(merging_a, RegionState.State.MERGING);
-    regionStates.updateRegionState(merging_b, RegionState.State.MERGING);
+
+    EventType et = rt.getEventType();
+    if (et == EventType.RS_ZK_REQUEST_REGION_MERGE) {
+      try {
+        if (RegionMergeTransaction.transitionMergingNode(watcher, p,
+            hri_a, hri_b, sn, -1, EventType.RS_ZK_REQUEST_REGION_MERGE,
+            EventType.RS_ZK_REGION_MERGING) == -1) {
+          byte[] data = ZKAssign.getData(watcher, encodedName);
+          EventType currentType = null;
+          if (data != null) {
+            RegionTransition newRt = RegionTransition.parseFrom(data);
+            currentType = newRt.getEventType();
+          }
+          if (currentType == null || (currentType != EventType.RS_ZK_REGION_MERGED
+              && currentType != EventType.RS_ZK_REGION_MERGING)) {
+            LOG.warn("Failed to transition pending_merge node "
+              + encodedName + " to merging, it's now " + currentType);
+            return false;
+          }
+        }
+      } catch (Exception e) {
+        LOG.warn("Failed to transition pending_merge node "
+          + encodedName + " to merging", e);
+        return false;
+      }
+    }
+
+    synchronized (regionStates) {
+      if (regionStates.getRegionState(p) == null) {
+        regionStates.createRegionState(p);
+      }
+      regionStates.updateRegionState(hri_a, State.MERGING);
+      regionStates.updateRegionState(hri_b, State.MERGING);
+
+      if (et != EventType.RS_ZK_REGION_MERGED) {
+        regionStates.updateRegionState(p, State.MERGING_NEW, sn);;
+        regionStates.regionOffline(p, State.MERGING_NEW);
+        this.mergingRegions.put(encodedName,
+          new PairOfSameType<HRegionInfo>(hri_a, hri_b));
+      } else {
+        this.mergingRegions.remove(encodedName);
+        regionStates.updateRegionState(hri_a, State.MERGED);
+        regionStates.updateRegionState(hri_b, State.MERGED);
+        regionOffline(hri_a, State.MERGED);
+        regionOffline(hri_b, State.MERGED);
+        regionOnline(p, sn);
+      }
+    }
+
+    if (et == EventType.RS_ZK_REGION_MERGED) {
+      LOG.debug("Handling MERGED event for " + encodedName + "; deleting node");
+      // Remove region from ZK
+      try {
+        boolean successful = false;
+        while (!successful) {
+          // It's possible that the RS tickles in between the reading of the
+          // znode and the deleting, so it's safe to retry.
+          successful = ZKAssign.deleteNode(
+            watcher, encodedName, EventType.RS_ZK_REGION_MERGED);
+        }
+      } catch (KeeperException e) {
+        if (e instanceof NoNodeException) {
+          String znodePath = ZKUtil.joinZNode(watcher.splitLogZNode, encodedName);
+          LOG.debug("The znode " + znodePath + " does not exist.  May be deleted already.");
+        } else {
+          server.abort("Error deleting MERGED node " + encodedName, e);
+        }
+      }
+      LOG.info("Handled MERGED event; merged=" + p.getRegionNameAsString()
+        + ", region_a=" + hri_a.getRegionNameAsString() + ", region_b="
+        + hri_b.getRegionNameAsString() + ", on " + sn);
+
+      // User could disable the table before master knows the new region.
+      if (zkTable.isDisablingOrDisabledTable(p.getTable())) {
+        unassign(p);
+      }
+    }
+    return true;
+  }
+
+  /**
+   * A helper to handle region splitting transition event.
+   */
+  private boolean handleRegionSplitting(final RegionTransition rt, final String encodedName,
+      final String prettyPrintedRegionName, final ServerName sn) {
+    if (!serverManager.isServerOnline(sn)) {
+      LOG.warn("Dropped splitting! ServerName=" + sn + " unknown.");
+      return false;
+    }
+    byte [] payloadOfSplitting = rt.getPayload();
+    List<HRegionInfo> splittingRegions;
+    try {
+      splittingRegions = HRegionInfo.parseDelimitedFrom(
+        payloadOfSplitting, 0, payloadOfSplitting.length);
+    } catch (IOException e) {
+      LOG.error("Dropped splitting! Failed reading " + rt.getEventType()
+        + " payload for " + prettyPrintedRegionName);
+      return false;
+    }
+    assert splittingRegions.size() == 2;
+    HRegionInfo hri_a = splittingRegions.get(0);
+    HRegionInfo hri_b = splittingRegions.get(1);
+
+    RegionState rs_p = regionStates.getRegionState(encodedName);
+    RegionState rs_a = regionStates.getRegionState(hri_a);
+    RegionState rs_b = regionStates.getRegionState(hri_b);
+
+    if (!((rs_p == null || rs_p.isOpenOrSplittingOnServer(sn))
+        && (rs_a == null || rs_a.isOpenOrSplittingNewOnServer(sn))
+        && (rs_b == null || rs_b.isOpenOrSplittingNewOnServer(sn)))) {
+      LOG.warn("Dropped splitting! Not in state good for SPLITTING; rs_p="
+        + rs_p + ", rs_a=" + rs_a + ", rs_b=" + rs_b);
+      return false;
+    }
+
+    if (rs_p == null) {
+      // Splitting region should be online
+      rs_p = regionStates.updateRegionState(rt, State.OPEN);
+      if (rs_p == null) {
+        LOG.warn("Received splitting for region " + prettyPrintedRegionName
+          + " from server " + sn + " but it doesn't exist anymore,"
+          + " probably already processed its split");
+        return false;
+      }
+      regionStates.regionOnline(rs_p.getRegion(), sn);
+    }
+
+    HRegionInfo p = rs_p.getRegion();
+    EventType et = rt.getEventType();
+    if (et == EventType.RS_ZK_REQUEST_REGION_SPLIT) {
+      try {
+        if (SplitTransaction.transitionSplittingNode(watcher, p,
+            hri_a, hri_b, sn, -1, EventType.RS_ZK_REQUEST_REGION_SPLIT,
+            EventType.RS_ZK_REGION_SPLITTING) == -1) {
+          byte[] data = ZKAssign.getData(watcher, encodedName);
+          EventType currentType = null;
+          if (data != null) {
+            RegionTransition newRt = RegionTransition.parseFrom(data);
+            currentType = newRt.getEventType();
+          }
+          if (currentType == null || (currentType != EventType.RS_ZK_REGION_SPLIT
+              && currentType != EventType.RS_ZK_REGION_SPLITTING)) {
+            LOG.warn("Failed to transition pending_split node "
+              + encodedName + " to splitting, it's now " + currentType);
+            return false;
+          }
+        }
+      } catch (Exception e) {
+        LOG.warn("Failed to transition pending_split node "
+          + encodedName + " to splitting", e);
+        return false;
+      }
+    }
+
+    synchronized (regionStates) {
+      if (regionStates.getRegionState(hri_a) == null) {
+        regionStates.createRegionState(hri_a);
+      }
+      if (regionStates.getRegionState(hri_b) == null) {
+        regionStates.createRegionState(hri_b);
+      }
+
+      regionStates.updateRegionState(hri_a, State.SPLITTING_NEW, sn);
+      regionStates.updateRegionState(hri_b, State.SPLITTING_NEW, sn);
+      regionStates.regionOffline(hri_a, State.SPLITTING_NEW);
+      regionStates.regionOffline(hri_b, State.SPLITTING_NEW);
+      regionStates.updateRegionState(rt, State.SPLITTING);
+
+      // The below is for testing ONLY!  We can't do fault injection easily, so
+      // resort to this kinda uglyness -- St.Ack 02/25/2011.
+      if (TEST_SKIP_SPLIT_HANDLING) {
+        LOG.warn("Skipping split message, TEST_SKIP_SPLIT_HANDLING is set");
+        return true; // return true so that the splitting node stays
+      }
+
+      if (et == EventType.RS_ZK_REGION_SPLIT) {
+        regionStates.updateRegionState(p, State.SPLIT);
+        regionOffline(p, State.SPLIT);
+        regionOnline(hri_a, sn);
+        regionOnline(hri_b, sn);
+      }
+    }
+
+    if (et == EventType.RS_ZK_REGION_SPLIT) {
+      LOG.debug("Handling SPLIT event for " + encodedName + "; deleting node");
+      // Remove region from ZK
+      try {
+        boolean successful = false;
+        while (!successful) {
+          // It's possible that the RS tickles in between the reading of the
+          // znode and the deleting, so it's safe to retry.
+          successful = ZKAssign.deleteNode(
+            watcher, encodedName, EventType.RS_ZK_REGION_SPLIT);
+        }
+      } catch (KeeperException e) {
+        if (e instanceof NoNodeException) {
+          String znodePath = ZKUtil.joinZNode(watcher.splitLogZNode, encodedName);
+          LOG.debug("The znode " + znodePath + " does not exist.  May be deleted already.");
+        } else {
+          server.abort("Error deleting SPLIT node " + encodedName, e);
+        }
+      }
+      LOG.info("Handled SPLIT event; parent=" + p.getRegionNameAsString()
+        + ", daughter a=" + hri_a.getRegionNameAsString() + ", daughter b="
+        + hri_b.getRegionNameAsString() + ", on " + sn);
+
+      // User could disable the table before master knows the new region.
+      if (zkTable.isDisablingOrDisabledTable(p.getTable())) {
+        unassign(hri_a);
+        unassign(hri_b);
+      }
+    }
     return true;
   }
 

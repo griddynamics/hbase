@@ -30,6 +30,8 @@ import java.util.Set;
 import java.util.SortedSet;
 import java.util.TreeSet;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -39,14 +41,17 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.Coprocessor;
 import org.apache.hadoop.hbase.CoprocessorEnvironment;
-import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.DoNotRetryIOException;
+import org.apache.hadoop.hbase.HBaseInterfaceAudience;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.Server;
+import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.Append;
+import org.apache.hadoop.hbase.client.CoprocessorHConnection;
 import org.apache.hadoop.hbase.client.Delete;
 import org.apache.hadoop.hbase.client.Durability;
 import org.apache.hadoop.hbase.client.Get;
+import org.apache.hadoop.hbase.client.HConnection;
 import org.apache.hadoop.hbase.client.HTable;
 import org.apache.hadoop.hbase.client.HTableInterface;
 import org.apache.hadoop.hbase.client.Increment;
@@ -62,6 +67,7 @@ import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.CoprocessorClassLoader;
 import org.apache.hadoop.hbase.util.SortedCopyOnWriteSet;
 import org.apache.hadoop.hbase.util.VersionInfo;
+import org.apache.hadoop.io.MultipleIOException;
 
 import com.google.protobuf.Service;
 import com.google.protobuf.ServiceException;
@@ -72,7 +78,7 @@ import com.google.protobuf.ServiceException;
  * @param <E> the specific environment extension that a concrete implementation
  * provides
  */
-@InterfaceAudience.Public
+@InterfaceAudience.LimitedPrivate(HBaseInterfaceAudience.COPROC)
 @InterfaceStability.Evolving
 public abstract class CoprocessorHost<E extends CoprocessorEnvironment> {
   public static final String REGION_COPROCESSOR_CONF_KEY =
@@ -93,7 +99,7 @@ public abstract class CoprocessorHost<E extends CoprocessorEnvironment> {
   protected Configuration conf;
   // unique file prefix to use for local copies of jars when classloading
   protected String pathPrefix;
-  protected volatile int loadSequence;
+  protected AtomicInteger loadSequence = new AtomicInteger();
 
   public CoprocessorHost() {
     pathPrefix = UUID.randomUUID().toString();
@@ -249,7 +255,7 @@ public abstract class CoprocessorHost<E extends CoprocessorEnvironment> {
       throw new IOException(e);
     }
     // create the environment
-    E env = createEnvironment(implClass, impl, priority, ++loadSequence, conf);
+    E env = createEnvironment(implClass, impl, priority, loadSequence.incrementAndGet(), conf);
     if (env instanceof Environment) {
       ((Environment)env).startup();
     }
@@ -369,15 +375,34 @@ public abstract class CoprocessorHost<E extends CoprocessorEnvironment> {
 
       private TableName tableName;
       private HTable table;
+      private HConnection connection;
 
-      public HTableWrapper(TableName tableName) throws IOException {
+      public HTableWrapper(TableName tableName, HConnection connection, ExecutorService pool)
+          throws IOException {
         this.tableName = tableName;
-        this.table = new HTable(conf, tableName);
+        this.table = new HTable(tableName, connection, pool);
+        this.connection = connection;
         openTables.add(this);
       }
 
       void internalClose() throws IOException {
+        List<IOException> exceptions = new ArrayList<IOException>(2);
+        try {
         table.close();
+        } catch (IOException e) {
+          exceptions.add(e);
+        }
+        try {
+          // have to self-manage our connection, as per the HTable contract
+          if (this.connection != null) {
+            this.connection.close();
+          }
+        } catch (IOException e) {
+          exceptions.add(e);
+        }
+        if (!exceptions.isEmpty()) {
+          throw MultipleIOException.createIOException(exceptions);
+        }
       }
 
       public Configuration getConfiguration() {
@@ -547,12 +572,17 @@ public abstract class CoprocessorHost<E extends CoprocessorEnvironment> {
 
       @Override
       public void setAutoFlush(boolean autoFlush) {
-        table.setAutoFlush(autoFlush);
+        table.setAutoFlush(autoFlush, autoFlush);
       }
 
       @Override
       public void setAutoFlush(boolean autoFlush, boolean clearBufferOnFail) {
         table.setAutoFlush(autoFlush, clearBufferOnFail);
+      }
+
+      @Override
+      public void setAutoFlushTo(boolean autoFlush) {
+        table.setAutoFlushTo(autoFlush);
       }
 
       @Override
@@ -681,7 +711,19 @@ public abstract class CoprocessorHost<E extends CoprocessorEnvironment> {
      */
     @Override
     public HTableInterface getTable(TableName tableName) throws IOException {
-      return new HTableWrapper(tableName);
+      return this.getTable(tableName, HTable.getDefaultExecutor(getConfiguration()));
+    }
+
+    /**
+     * Open a table from within the Coprocessor environment
+     * @param tableName the table name
+     * @return an interface for manipulating the table
+     * @exception java.io.IOException Exception
+     */
+    @Override
+    public HTableInterface getTable(TableName tableName, ExecutorService pool) throws IOException {
+      return new HTableWrapper(tableName, CoprocessorHConnection.getConnectionForEnvironment(this),
+          pool);
     }
   }
 

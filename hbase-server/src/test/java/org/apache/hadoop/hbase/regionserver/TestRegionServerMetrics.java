@@ -141,9 +141,12 @@ public class TestRegionServerMetrics {
           .getMetrics()
           .getSource()
           .getAggregateSource();
-      String prefix = "table."+tableNameString + ".region." + i.getEncodedName();
-      metricsHelper.assertCounter(prefix + ".getNumOps", 10, agg);
-      metricsHelper.assertCounter(prefix + ".mutateCount", 30, agg);
+      String prefix = "namespace_"+NamespaceDescriptor.DEFAULT_NAMESPACE_NAME_STR+
+          "_table_"+tableNameString +
+          "_region_" + i.getEncodedName()+
+          "_metric";
+      metricsHelper.assertCounter(prefix + "_getNumOps", 10, agg);
+      metricsHelper.assertCounter(prefix + "_mutateCount", 30, agg);
     }
 
 
@@ -324,7 +327,7 @@ public class TestRegionServerMetrics {
 
     TEST_UTIL.createTable(tableName, cf);
     HTable t = new HTable(conf, tableName);
-    t.setAutoFlush(false);
+    t.setAutoFlush(false, true);
     for (int insertCount =0; insertCount < 100; insertCount++) {
       Put p = new Put(Bytes.toBytes("" + insertCount + "row"));
       p.add(cf, qualifier, val);
@@ -347,8 +350,11 @@ public class TestRegionServerMetrics {
           .getMetrics()
           .getSource()
           .getAggregateSource();
-      String prefix = "table."+tableNameString + ".region." + i.getEncodedName();
-      metricsHelper.assertCounter(prefix + ".scanNextNumOps", 30, agg);
+      String prefix = "namespace_"+NamespaceDescriptor.DEFAULT_NAMESPACE_NAME_STR+
+          "_table_"+tableNameString +
+          "_region_" + i.getEncodedName()+
+          "_metric";
+      metricsHelper.assertCounter(prefix + "_scanNextNumOps", 30, agg);
     }
   }
 }

@@ -27,8 +27,7 @@ import org.apache.hadoop.conf.Configurable;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.protobuf.generated.AdminProtos.AdminService;
 import org.apache.hadoop.hbase.protobuf.generated.ClientProtos.ClientService;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.MasterAdminService;
-import org.apache.hadoop.hbase.protobuf.generated.MasterMonitorProtos.MasterMonitorService;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.MasterService;
 import org.apache.hadoop.hbase.util.Threads;
 
 /**
@@ -98,13 +97,7 @@ public abstract class HBaseCluster implements Closeable, Configurable {
   /**
    * Returns an {@link MasterAdminService.BlockingInterface} to the active master
    */
-  public abstract MasterAdminService.BlockingInterface getMasterAdmin()
-      throws IOException;
-
-  /**
-   * Returns an {@link MasterMonitorService.BlockingInterface} to the active master
-   */
-  public abstract MasterMonitorService.BlockingInterface getMasterMonitor()
+  public abstract MasterService.BlockingInterface getMaster()
   throws IOException;
 
   /**
@@ -233,16 +226,23 @@ public abstract class HBaseCluster implements Closeable, Configurable {
   /**
    * Restores the cluster to it's initial state if this is a real cluster,
    * otherwise does nothing.
+   * This is a best effort restore. If the servers are not reachable, or insufficient
+   * permissions, etc. restoration might be partial.
+   * @return whether restoration is complete
    */
-  public void restoreInitialStatus() throws IOException {
-    restoreClusterStatus(getInitialClusterStatus());
+  public boolean restoreInitialStatus() throws IOException {
+    return restoreClusterStatus(getInitialClusterStatus());
   }
 
   /**
    * Restores the cluster to given state if this is a real cluster,
    * otherwise does nothing.
+   * This is a best effort restore. If the servers are not reachable, or insufficient
+   * permissions, etc. restoration might be partial.
+   * @return whether restoration is complete
    */
-  public void restoreClusterStatus(ClusterStatus desiredStatus) throws IOException {
+  public boolean restoreClusterStatus(ClusterStatus desiredStatus) throws IOException {
+    return true;
   }
 
   /**

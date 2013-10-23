@@ -93,11 +93,14 @@ public class TestHFileWriterV2 {
   private void writeDataAndReadFromHFile(Path hfilePath,
       Algorithm compressAlgo, int entryCount, boolean findMidKey) throws IOException {
 
+    HFileContext context = new HFileContextBuilder()
+                           .withBlockSize(4096)
+                           .withCompressionAlgo(compressAlgo)
+                           .build();
     HFileWriterV2 writer = (HFileWriterV2)
         new HFileWriterV2.WriterFactoryV2(conf, new CacheConfig(conf))
             .withPath(fs, hfilePath)
-            .withBlockSize(4096)
-            .withCompression(compressAlgo)
+            .withFileContext(context)
             .create();
 
     Random rand = new Random(9713312); // Just a fixed seed.
@@ -134,8 +137,14 @@ public class TestHFileWriterV2 {
     assertEquals(2, trailer.getMajorVersion());
     assertEquals(entryCount, trailer.getEntryCount());
 
-    HFileBlock.FSReader blockReader =
-        new HFileBlock.FSReaderV2(fsdis, compressAlgo, fileSize);
+    HFileContext meta = new HFileContextBuilder()
+                        .withHBaseCheckSum(true)
+                        .withIncludesMvcc(false)
+                        .withIncludesTags(false)
+                        .withCompressionAlgo(compressAlgo)
+                        .build();
+    
+    HFileBlock.FSReader blockReader = new HFileBlock.FSReaderV2(fsdis, fileSize, meta);
     // Comparator class name is stored in the trailer in version 2.
     KVComparator comparator = trailer.createComparator();
     HFileBlockIndex.BlockIndexReader dataBlockIndexReader =

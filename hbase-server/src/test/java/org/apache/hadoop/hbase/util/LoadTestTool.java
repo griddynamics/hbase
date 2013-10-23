@@ -21,18 +21,19 @@ import java.io.InterruptedIOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Random;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.HBaseConfiguration;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.PerformanceEvaluation;
+import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.HBaseAdmin;
 import org.apache.hadoop.hbase.io.compress.Compression;
 import org.apache.hadoop.hbase.io.encoding.DataBlockEncoding;
@@ -60,6 +61,9 @@ public class LoadTestTool extends AbstractHBaseTool {
 
   /** Column families used by the test */
   protected static final byte[][] COLUMN_FAMILIES = { COLUMN_FAMILY };
+
+  /** The default data size if not specified */
+  protected static final int DEFAULT_DATA_SIZE = 64;
 
   /** The number of reader/writer threads if not specified */
   protected static final int DEFAULT_NUM_THREADS = 20;
@@ -97,10 +101,17 @@ public class LoadTestTool extends AbstractHBaseTool {
   public static final String OPT_ENCODE_IN_CACHE_ONLY_USAGE =
       "If this is specified, data blocks will only be encoded in block " +
       "cache but not on disk";
-  
+
   public static final String OPT_INMEMORY = "in_memory";
   public static final String OPT_USAGE_IN_MEMORY = "Tries to keep the HFiles of the CF " +
   		"inmemory as far as possible.  Not guaranteed that reads are always served from inmemory";
+  public static final String OPT_USETAGS = "usetags";
+  public static final String OPT_USAGE_USETAG = "Adds tags with every KV.  This option would be used" +
+  		" only if the HFileV3 version is used";
+
+  public static final String OPT_NUM_TAGS = "num_tags";
+  public static final String OPT_USAGE_NUM_TAGS = "Specifies the minimum and number of tags to be"
+      +      " added per KV";
 
   protected static final String OPT_KEY_WINDOW = "key_window";
   protected static final String OPT_WRITE = "write";
@@ -136,10 +147,13 @@ public class LoadTestTool extends AbstractHBaseTool {
   protected Compression.Algorithm compressAlgo;
   protected BloomType bloomType;
   private boolean inMemoryCF;
+  private boolean useTags;
+  private int minNumTags = 1;
+  private int maxNumTags = 1;
   // Writer options
   protected int numWriterThreads = DEFAULT_NUM_THREADS;
   protected int minColsPerKey, maxColsPerKey;
-  protected int minColDataSize, maxColDataSize;
+  protected int minColDataSize = DEFAULT_DATA_SIZE, maxColDataSize = DEFAULT_DATA_SIZE;
   protected boolean isMultiPut;
 
   // Updater options
@@ -152,7 +166,7 @@ public class LoadTestTool extends AbstractHBaseTool {
   private int keyWindow = MultiThreadedReader.DEFAULT_KEY_WINDOW;
   private int maxReadErrors = MultiThreadedReader.DEFAULT_MAX_ERRORS;
   private int verifyPercent;
- 
+
   private int numTables = 1;
 
   // TODO: refactor LoadTestToolImpl somewhere to make the usage from tests less bad,
@@ -241,6 +255,8 @@ public class LoadTestTool extends AbstractHBaseTool {
         "separate updates for every column in a row");
     addOptNoArg(OPT_ENCODE_IN_CACHE_ONLY, OPT_ENCODE_IN_CACHE_ONLY_USAGE);
     addOptNoArg(OPT_INMEMORY, OPT_USAGE_IN_MEMORY);
+    addOptNoArg(OPT_USETAGS, OPT_USAGE_USETAG);
+    addOptWithArg(OPT_NUM_TAGS,  OPT_USAGE_NUM_TAGS + " The default is 1:1");
 
     addOptWithArg(OPT_NUM_KEYS, "The number of keys to read/write");
     addOptWithArg(OPT_START_KEY, "The first key to read/write " +
@@ -248,7 +264,7 @@ public class LoadTestTool extends AbstractHBaseTool {
         DEFAULT_START_KEY + ".");
     addOptNoArg(OPT_SKIP_INIT, "Skip the initialization; assume test table "
         + "already exists");
-    
+
     addOptWithArg(NUM_TABLES,
       "A positive integer number. When a number n is speicfied, load test "
           + "tool  will load n table parallely. -tn parameter value becomes "
@@ -354,7 +370,7 @@ public class LoadTestTool extends AbstractHBaseTool {
       System.out.println("Percent of keys to verify: " + verifyPercent);
       System.out.println("Reader threads: " + numReaderThreads);
     }
-    
+
     numTables = 1;
     if(cmd.hasOption(NUM_TABLES)) {
       numTables = parseInt(cmd.getOptionValue(NUM_TABLES), 1, Short.MAX_VALUE);
@@ -377,9 +393,22 @@ public class LoadTestTool extends AbstractHBaseTool {
     String bloomStr = cmd.getOptionValue(OPT_BLOOM);
     bloomType = bloomStr == null ? null :
         BloomType.valueOf(bloomStr);
-    
+
     inMemoryCF = cmd.hasOption(OPT_INMEMORY);
-    
+    useTags = cmd.hasOption(OPT_USETAGS);
+    if (useTags) {
+      if (cmd.hasOption(OPT_NUM_TAGS)) {
+        String[] readOpts = splitColonSeparated(OPT_NUM_TAGS, 1, 2);
+        int colIndex = 0;
+        minNumTags = parseInt(readOpts[colIndex++], 1, 100);
+        if (colIndex < readOpts.length) {
+          maxNumTags = parseInt(readOpts[colIndex++], 1, 100);
+        }
+      }
+      System.out.println("Using tags, number of tags per KV: min=" + minNumTags + ", max="
+          + maxNumTags);
+    }
+
   }
 
   public void initTestTable() throws IOException {
@@ -445,17 +474,20 @@ public class LoadTestTool extends AbstractHBaseTool {
 
     if (isWrite) {
       System.out.println("Starting to write data...");
-      writerThreads.start(startKey, endKey, numWriterThreads);
+      writerThreads.start(startKey, endKey, numWriterThreads, useTags, minNumTags, maxNumTags);
     }
 
     if (isUpdate) {
+      LOG.info("Starting to mutate data...");
       System.out.println("Starting to mutate data...");
-      updaterThreads.start(startKey, endKey, numUpdaterThreads);
+      // TODO : currently append and increment operations not tested with tags
+      // Will update this aftet it is done
+      updaterThreads.start(startKey, endKey, numUpdaterThreads, true, minNumTags, maxNumTags);
     }
 
     if (isRead) {
       System.out.println("Starting to read data...");
-      readerThreads.start(startKey, endKey, numReaderThreads);
+      readerThreads.start(startKey, endKey, numReaderThreads, useTags, 0, 0);
     }
 
     if (isWrite) {
@@ -484,19 +516,40 @@ public class LoadTestTool extends AbstractHBaseTool {
     return success ? EXIT_SUCCESS : EXIT_FAILURE;
   }
 
+  static byte[] generateData(final Random r, int length) {
+    byte [] b = new byte [length];
+    int i = 0;
+
+    for(i = 0; i < (length-8); i += 8) {
+      b[i] = (byte) (65 + r.nextInt(26));
+      b[i+1] = b[i];
+      b[i+2] = b[i];
+      b[i+3] = b[i];
+      b[i+4] = b[i];
+      b[i+5] = b[i];
+      b[i+6] = b[i];
+      b[i+7] = b[i];
+    }
+
+    byte a = (byte) (65 + r.nextInt(26));
+    for(; i < length; i++) {
+      b[i] = a;
+    }
+    return b;
+  }
   public static void main(String[] args) {
     new LoadTestTool().doStaticMain(args);
   }
 
   /**
-   * When NUM_TABLES is specified, the function starts multiple worker threads 
-   * which individually start a LoadTestTool instance to load a table. Each 
+   * When NUM_TABLES is specified, the function starts multiple worker threads
+   * which individually start a LoadTestTool instance to load a table. Each
    * table name is in format <tn>_<index>. For example, "-tn test -num_tables 2"
    * , table names will be "test_1", "test_2"
-   * 
+   *
    * @throws IOException
    */
-  private int parallelLoadTables() 
+  private int parallelLoadTables()
       throws IOException {
     // create new command args
     String tableName = cmd.getOptionValue(OPT_TABLE_NAME, DEFAULT_TABLE_NAME);
@@ -504,6 +557,7 @@ public class LoadTestTool extends AbstractHBaseTool {
     if (!cmd.hasOption(LoadTestTool.OPT_TABLE_NAME)) {
       newArgs = new String[cmdLineArgs.length + 2];
       newArgs[0] = "-" + LoadTestTool.OPT_TABLE_NAME;
+      newArgs[1] = LoadTestTool.DEFAULT_TABLE_NAME;
       for (int i = 0; i < cmdLineArgs.length; i++) {
         newArgs[i + 2] = cmdLineArgs[i];
       }
@@ -517,7 +571,7 @@ public class LoadTestTool extends AbstractHBaseTool {
         tableNameValueIndex = j + 1;
       } else if (newArgs[j].endsWith(NUM_TABLES)) {
         // change NUM_TABLES to 1 so that each worker loads one table
-        newArgs[j + 1] = "1"; 
+        newArgs[j + 1] = "1";
       }
     }
 
@@ -544,7 +598,7 @@ public class LoadTestTool extends AbstractHBaseTool {
       }
       checkForErrors();
     }
-    
+
     return EXIT_SUCCESS;
   }
 
@@ -577,6 +631,7 @@ public class LoadTestTool extends AbstractHBaseTool {
       workerArgs = args;
     }
 
+    @Override
     public void run() {
       try {
         int ret = ToolRunner.run(HBaseConfiguration.create(), new LoadTestTool(), workerArgs);

@@ -198,10 +198,7 @@ public class IntegrationTestLazyCfLoading {
   private void deleteTable() throws Exception {
     if (util.getHBaseAdmin().tableExists(TABLE_NAME)) {
       LOG.info("Deleting table");
-      if (!util.getHBaseAdmin().isTableDisabled(TABLE_NAME)) {
-        util.getHBaseAdmin().disableTable(TABLE_NAME);
-      }
-      util.getHBaseAdmin().deleteTable(TABLE_NAME);
+      util.deleteTable(TABLE_NAME);
       LOG.info("Deleted table");
     }
   }
@@ -230,7 +227,8 @@ public class IntegrationTestLazyCfLoading {
     writer.setMultiPut(true);
 
     LOG.info("Starting writer; the number of keys to write is " + keysToWrite);
-    writer.start(1, keysToWrite, WRITER_THREADS);
+    // TODO : Need to see if tag support has to be given here in the integration test suite
+    writer.start(1, keysToWrite, WRITER_THREADS, false, 0, 0);
 
     // Now, do scans.
     long now = EnvironmentEdgeManager.currentTimeMillis();
