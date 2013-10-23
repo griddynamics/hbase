@@ -24,6 +24,7 @@ import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -41,7 +42,9 @@ import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.DoNotRetryIOException;
 import org.apache.hadoop.hbase.HConstants;
+import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.HRegionLocation;
+import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
 import org.apache.hadoop.hbase.util.Pair;
@@ -85,6 +88,7 @@ import org.cloudera.htrace.Trace;
  */
 class AsyncProcess<CResult> {
   private static final Log LOG = LogFactory.getLog(AsyncProcess.class);
+  private final static int START_LOG_ERRORS_CNT = 4;
   protected final HConnection hConnection;
   protected final TableName tableName;
   protected final ExecutorService pool;
@@ -96,8 +100,26 @@ class AsyncProcess<CResult> {
   protected final AtomicLong tasksDone = new AtomicLong(0);
   protected final ConcurrentMap<String, AtomicInteger> taskCounterPerRegion =
       new ConcurrentHashMap<String, AtomicInteger>();
+  protected final ConcurrentMap<ServerName, AtomicInteger> taskCounterPerServer =
+      new ConcurrentHashMap<ServerName, AtomicInteger>();
+
+  /**
+   * The number of tasks simultaneously executed on the cluster.
+   */
   protected final int maxTotalConcurrentTasks;
+
+  /**
+   * The number of tasks we run in parallel on a single region.
+   * With 1 (the default) , we ensure that the ordering of the queries is respected: we don't start
+   * a set of operations on a region before the previous one is done. As well, this limits
+   * the pressure we put on the region server.
+   */
   protected final int maxConcurrentTasksPerRegion;
+
+  /**
+   * The number of task simultaneously executed on a single region server.
+   */
+  protected final int maxConcurrentTasksPerServer;
   protected final long pause;
   protected int numTries;
   protected final boolean useServerTrackerForRetries;
@@ -189,12 +211,21 @@ class AsyncProcess<CResult> {
     this.numTries = conf.getInt(HConstants.HBASE_CLIENT_RETRIES_NUMBER,
         HConstants.DEFAULT_HBASE_CLIENT_RETRIES_NUMBER);
 
-    this.maxTotalConcurrentTasks = conf.getInt("hbase.client.max.total.tasks", 200);
-
-    // With one, we ensure that the ordering of the queries is respected: we don't start
-    //  a set of operations on a region before the previous one is done. As well, this limits
-    //  the pressure we put on the region server.
+    this.maxTotalConcurrentTasks = conf.getInt("hbase.client.max.total.tasks", 100);
+    this.maxConcurrentTasksPerServer = conf.getInt("hbase.client.max.perserver.tasks", 5);
     this.maxConcurrentTasksPerRegion = conf.getInt("hbase.client.max.perregion.tasks", 1);
+
+    if (this.maxTotalConcurrentTasks <= 0) {
+      throw new IllegalArgumentException("maxTotalConcurrentTasks=" + maxTotalConcurrentTasks);
+    }
+    if (this.maxConcurrentTasksPerServer <= 0) {
+      throw new IllegalArgumentException("maxConcurrentTasksPerServer=" +
+          maxConcurrentTasksPerServer);
+    }
+    if (this.maxConcurrentTasksPerRegion <= 0) {
+      throw new IllegalArgumentException("maxConcurrentTasksPerRegion=" +
+          maxConcurrentTasksPerRegion);
+    }
 
     this.useServerTrackerForRetries =
         conf.getBoolean(HConnectionManager.RETRIES_BY_SERVER_KEY, true);
@@ -224,33 +255,50 @@ class AsyncProcess<CResult> {
    * @param atLeastOne true if we should submit at least a subset.
    */
   public void submit(List<? extends Row> rows, boolean atLeastOne) throws InterruptedIOException {
-    if (rows.isEmpty()){
+    if (rows.isEmpty()) {
       return;
     }
 
+    // This looks like we are keying by region but HRegionLocation has a comparator that compares
+    // on the server portion only (hostname + port) so this Map collects regions by server.
     Map<HRegionLocation, MultiAction<Row>> actionsByServer =
-        new HashMap<HRegionLocation, MultiAction<Row>>();
+      new HashMap<HRegionLocation, MultiAction<Row>>();
     List<Action<Row>> retainedActions = new ArrayList<Action<Row>>(rows.size());
 
+    long currentTaskCnt = tasksDone.get();
+    boolean alreadyLooped = false;
+
     do {
+      if (alreadyLooped){
+        // if, for whatever reason, we looped, we want to be sure that something has changed.
+        waitForNextTaskDone(currentTaskCnt);
+        currentTaskCnt = tasksDone.get();
+      } else {
+        alreadyLooped = true;
+      }
+
+      // Wait until there is at least one slot for a new task.
+      waitForMaximumCurrentTasks(maxTotalConcurrentTasks - 1);
+
+      // Remember the previous decisions about regions or region servers we put in the
+      //  final multi.
       Map<String, Boolean> regionIncluded = new HashMap<String, Boolean>();
-      long currentTaskNumber = waitForMaximumCurrentTasks(maxTotalConcurrentTasks);
+      Map<ServerName, Boolean> serverIncluded = new HashMap<ServerName, Boolean>();
+
       int posInList = -1;
       Iterator<? extends Row> it = rows.iterator();
       while (it.hasNext()) {
         Row r = it.next();
-        HRegionLocation loc = findDestLocation(r, 1, posInList, false, regionIncluded);
+        HRegionLocation loc = findDestLocation(r, 1, posInList);
 
-        if (loc != null) {   // loc is null if the dest is too busy or there is an error
+        if (loc == null) { // loc is null if there is an error such as meta not available.
+          it.remove();
+        } else if (canTakeOperation(loc, regionIncluded, serverIncluded)) {
           Action<Row> action = new Action<Row>(r, ++posInList);
           retainedActions.add(action);
           addAction(loc, action, actionsByServer);
           it.remove();
         }
-      }
-
-      if (retainedActions.isEmpty() && atLeastOne && !hasError()) {
-        waitForNextTaskDone(currentTaskNumber);
       }
 
     } while (retainedActions.isEmpty() && atLeastOne && !hasError());
@@ -279,22 +327,15 @@ class AsyncProcess<CResult> {
   }
 
   /**
-   * Find the destination, if this destination is not considered as busy.
+   * Find the destination.
    *
    * @param row          the row
    * @param numAttempt   the num attempt
    * @param posInList    the position in the list
-   * @param force        if we must submit whatever the server load
-   * @param regionStatus the
-   * @return null if we should not submit, the destination otherwise.
+   * @return the destination. Null if we couldn't find it.
    */
-  private HRegionLocation findDestLocation(Row row, int numAttempt,
-                                           int posInList, boolean force,
-                                           Map<String, Boolean> regionStatus) {
-    if (row == null){
-      throw new IllegalArgumentException("row cannot be null");
-    }
-
+  private HRegionLocation findDestLocation(Row row, int numAttempt, int posInList) {
+    if (row == null) throw new IllegalArgumentException("row cannot be null");
     HRegionLocation loc = null;
     IOException locationException = null;
     try {
@@ -314,30 +355,75 @@ class AsyncProcess<CResult> {
       return null;
     }
 
-    if (force) {
-      return loc;
-    }
-
-    String regionName = loc.getRegionInfo().getEncodedName();
-    Boolean addIt = regionStatus.get(regionName);
-    if (addIt == null) {
-      addIt = canTakeNewOperations(regionName);
-      regionStatus.put(regionName, addIt);
-    }
-
-    return addIt ? loc : null;
+    return loc;
   }
 
-
   /**
-   * Check if we should send new operations to this region.
+   * Check if we should send new operations to this region or region server.
+   * We're taking into account the past decision; if we have already accepted
+   * operation on a given region, we accept all operations for this region.
    *
-   * @param encodedRegionName region name
+   *
+   * @param loc; the region and the server name we want to use.
    * @return true if this region is considered as busy.
    */
-  protected boolean canTakeNewOperations(String encodedRegionName) {
-    AtomicInteger ct = taskCounterPerRegion.get(encodedRegionName);
-    return ct == null || ct.get() < maxConcurrentTasksPerRegion;
+  protected boolean canTakeOperation(HRegionLocation loc,
+                                     Map<String, Boolean> regionsIncluded,
+                                     Map<ServerName, Boolean> serversIncluded) {
+    String encodedRegionName = loc.getRegionInfo().getEncodedName();
+    Boolean regionPrevious = regionsIncluded.get(encodedRegionName);
+
+    if (regionPrevious != null) {
+      // We already know what to do with this region.
+      return regionPrevious;
+    }
+
+    Boolean serverPrevious = serversIncluded.get(loc.getServerName());
+    if (Boolean.FALSE.equals(serverPrevious)) {
+      // It's a new region, on a region server that we have already excluded.
+      regionsIncluded.put(encodedRegionName, Boolean.FALSE);
+      return false;
+    }
+
+    AtomicInteger regionCnt = taskCounterPerRegion.get(encodedRegionName);
+    if (regionCnt != null && regionCnt.get() >= maxConcurrentTasksPerRegion) {
+      // Too many tasks on this region already.
+      regionsIncluded.put(encodedRegionName, Boolean.FALSE);
+      return false;
+    }
+
+    if (serverPrevious == null) {
+      // The region is ok, but we need to decide for this region server.
+      int newServers = 0; // number of servers we're going to contact so far
+      for (Map.Entry<ServerName, Boolean> kv : serversIncluded.entrySet()) {
+        if (kv.getValue()) {
+          newServers++;
+        }
+      }
+
+      // Do we have too many total tasks already?
+      boolean ok = (newServers + getCurrentTasksCount()) < maxTotalConcurrentTasks;
+
+      if (ok) {
+        // If the total is fine, is it ok for this individual server?
+        AtomicInteger serverCnt = taskCounterPerServer.get(loc.getServerName());
+        ok = (serverCnt == null || serverCnt.get() < maxConcurrentTasksPerServer);
+      }
+
+      if (!ok) {
+        regionsIncluded.put(encodedRegionName, Boolean.FALSE);
+        serversIncluded.put(loc.getServerName(), Boolean.FALSE);
+        return false;
+      }
+
+      serversIncluded.put(loc.getServerName(), Boolean.TRUE);
+    } else {
+      assert serverPrevious.equals(Boolean.TRUE);
+    }
+
+    regionsIncluded.put(encodedRegionName, Boolean.TRUE);
+
+    return true;
   }
 
   /**
@@ -357,35 +443,27 @@ class AsyncProcess<CResult> {
       actions.add(action);
     }
     HConnectionManager.ServerErrorTracker errorsByServer = createServerErrorTracker();
-    submit(actions, actions, 1, true, errorsByServer);
+    submit(actions, actions, 1, errorsByServer);
   }
 
 
   /**
    * Group a list of actions per region servers, and send them. The created MultiActions are
-   * added to the inProgress list.
+   * added to the inProgress list. Does not take into account the region/server load.
    *
    * @param initialActions - the full list of the actions in progress
    * @param currentActions - the list of row to submit
    * @param numAttempt - the current numAttempt (first attempt is 1)
-   * @param force - true if we submit the rowList without taking into account the server load
    */
   private void submit(List<Action<Row>> initialActions,
-                      List<Action<Row>> currentActions, int numAttempt, boolean force,
+                      List<Action<Row>> currentActions, int numAttempt,
                       final HConnectionManager.ServerErrorTracker errorsByServer) {
     // group per location => regions server
     final Map<HRegionLocation, MultiAction<Row>> actionsByServer =
         new HashMap<HRegionLocation, MultiAction<Row>>();
 
-    // We have the same policy for a single region per call to submit: we don't want
-    //  to send half of the actions because the status changed in the middle. So we keep the
-    //  status
-    Map<String, Boolean> regionIncluded = new HashMap<String, Boolean>();
-
     for (Action<Row> action : currentActions) {
-      HRegionLocation loc = findDestLocation(
-          action.getAction(), 1, action.getOriginalIndex(), force, regionIncluded);
-
+      HRegionLocation loc = findDestLocation(action.getAction(), 1, action.getOriginalIndex());
       if (loc != null) {
         addAction(loc, action, actionsByServer);
       }
@@ -408,32 +486,30 @@ class AsyncProcess<CResult> {
                               Map<HRegionLocation, MultiAction<Row>> actionsByServer,
                               final int numAttempt,
                               final HConnectionManager.ServerErrorTracker errorsByServer) {
-
     // Send the queries and add them to the inProgress list
+    // This iteration is by server (the HRegionLocation comparator is by server portion only).
     for (Map.Entry<HRegionLocation, MultiAction<Row>> e : actionsByServer.entrySet()) {
       final HRegionLocation loc = e.getKey();
-      final MultiAction<Row> multi = e.getValue();
-      final String regionName = loc.getRegionInfo().getEncodedName();
-
-      incTaskCounters(regionName);
-
+      final MultiAction<Row> multiAction = e.getValue();
+      incTaskCounters(multiAction.getRegions(), loc.getServerName());
       Runnable runnable = Trace.wrap("AsyncProcess.sendMultiAction", new Runnable() {
         @Override
         public void run() {
           MultiResponse res;
           try {
-            MultiServerCallable<Row> callable = createCallable(loc, multi);
+            MultiServerCallable<Row> callable = createCallable(loc, multiAction);
             try {
               res = createCaller(callable).callWithoutRetries(callable);
             } catch (IOException e) {
-              LOG.warn("The call to the RS failed, we don't know where we stand, " + loc, e);
-              resubmitAll(initialActions, multi, loc, numAttempt + 1, e, errorsByServer);
+              LOG.warn("Call to " + loc.getServerName() + " failed numAttempt=" + numAttempt +
+                ", resubmitting all since not sure where we are at", e);
+              resubmitAll(initialActions, multiAction, loc, numAttempt + 1, e, errorsByServer);
               return;
             }
 
-            receiveMultiAction(initialActions, multi, loc, res, numAttempt, errorsByServer);
+            receiveMultiAction(initialActions, multiAction, loc, res, numAttempt, errorsByServer);
           } finally {
-            decTaskCounters(regionName);
+            decTaskCounters(multiAction.getRegions(), loc.getServerName());
           }
         }
       });
@@ -443,11 +519,12 @@ class AsyncProcess<CResult> {
       } catch (RejectedExecutionException ree) {
         // This should never happen. But as the pool is provided by the end user, let's secure
         //  this a little.
-        decTaskCounters(regionName);
-        LOG.warn("The task was rejected by the pool. This is unexpected. " + loc, ree);
+        decTaskCounters(multiAction.getRegions(), loc.getServerName());
+        LOG.warn("The task was rejected by the pool. This is unexpected." +
+            " Server is " + loc.getServerName(), ree);
         // We're likely to fail again, but this will increment the attempt counter, so it will
         //  finish.
-        resubmitAll(initialActions, multi, loc, numAttempt + 1, ree, errorsByServer);
+        resubmitAll(initialActions, multiAction, loc, numAttempt + 1, ree, errorsByServer);
       }
     }
   }
@@ -462,11 +539,10 @@ class AsyncProcess<CResult> {
 
   /**
    * For tests.
-   * @param callable
+   * @param callable: used in tests.
    * @return Returns a caller.
    */
   protected RpcRetryingCaller<MultiResponse> createCaller(MultiServerCallable<Row> callable) {
-    // callable is unused.
     return rpcCallerFactory.<MultiResponse> newCaller();
   }
 
@@ -525,12 +601,11 @@ class AsyncProcess<CResult> {
     // Do not use the exception for updating cache because it might be coming from
     // any of the regions in the MultiAction.
     hConnection.updateCachedLocations(tableName,
-        rsActions.actions.values().iterator().next().get(0).getAction().getRow(), null, location);
+      rsActions.actions.values().iterator().next().get(0).getAction().getRow(), null, location);
     errorsByServer.reportServerError(location);
-
-    List<Action<Row>> toReplay = new ArrayList<Action<Row>>();
-    for (List<Action<Row>> actions : rsActions.actions.values()) {
-      for (Action<Row> action : actions) {
+    List<Action<Row>> toReplay = new ArrayList<Action<Row>>(initialActions.size());
+    for (Map.Entry<byte[], List<Action<Row>>> e : rsActions.actions.entrySet()) {
+      for (Action<Row> action : e.getValue()) {
         if (manageError(numAttempt, action.getOriginalIndex(), action.getAction(),
             true, t, location)) {
           toReplay.add(action);
@@ -540,9 +615,9 @@ class AsyncProcess<CResult> {
 
     if (toReplay.isEmpty()) {
       LOG.warn("Attempt #" + numAttempt + "/" + numTries + " failed for all " +
-        initialActions.size() + "ops, NOT resubmitting, " + location);
+        initialActions.size() + " ops, NOT resubmitting, " + location.getServerName());
     } else {
-      submit(initialActions, toReplay, numAttempt, true, errorsByServer);
+      submit(initialActions, toReplay, numAttempt, errorsByServer);
     }
   }
 
@@ -581,6 +656,7 @@ class AsyncProcess<CResult> {
     for (Map.Entry<byte[], List<Pair<Integer, Object>>> resultsForRS :
         responses.getResults().entrySet()) {
 
+      boolean regionFailureRegistered = false;
       for (Pair<Integer, Object> regionResult : resultsForRS.getValue()) {
         Object result = regionResult.getSecond();
 
@@ -589,8 +665,9 @@ class AsyncProcess<CResult> {
           throwable = (Throwable) result;
           Action<Row> correspondingAction = initialActions.get(regionResult.getFirst());
           Row row = correspondingAction.getAction();
-
-          if (failureCount++ == 0) { // We're doing this once per location.
+          failureCount++;
+          if (!regionFailureRegistered) { // We're doing this once per location.
+            regionFailureRegistered= true;
             hConnection.updateCachedLocations(this.tableName, row.getRow(), result, location);
             if (errorsByServer != null) {
               errorsByServer.reportServerError(location);
@@ -604,11 +681,11 @@ class AsyncProcess<CResult> {
           }
         } else { // success
           if (callback != null) {
-            Action<Row> correspondingAction = initialActions.get(regionResult.getFirst());
+            int index = regionResult.getFirst();
+            Action<Row> correspondingAction = initialActions.get(index);
             Row row = correspondingAction.getAction();
             //noinspection unchecked
-            this.callback.success(correspondingAction.getOriginalIndex(),
-                resultsForRS.getKey(), row, (CResult) result);
+            this.callback.success(index, resultsForRS.getKey(), row, (CResult) result);
           }
         }
       }
@@ -618,7 +695,7 @@ class AsyncProcess<CResult> {
       long backOffTime = (errorsByServer != null ?
           errorsByServer.calculateBackoffTime(location, pause) :
           ConnectionUtils.getPauseTime(pause, numAttempt));
-      if (numAttempt > 3 && LOG.isDebugEnabled()) {
+      if (numAttempt > START_LOG_ERRORS_CNT && LOG.isDebugEnabled()) {
         // We use this value to have some logs when we have multiple failures, but not too many
         //  logs, as errors are to be expected when a region moves, splits and so on
         LOG.debug("Attempt #" + numAttempt + "/" + numTries + " failed " + failureCount +
@@ -629,16 +706,22 @@ class AsyncProcess<CResult> {
       try {
         Thread.sleep(backOffTime);
       } catch (InterruptedException e) {
-        LOG.warn("Not sent: " + toReplay.size() +
-            " operations, " + location, e);
+        LOG.warn("Not sent: " + toReplay.size() + " operations, " + location, e);
         Thread.interrupted();
         return;
       }
 
-      submit(initialActions, toReplay, numAttempt + 1, true, errorsByServer);
-    } else if (failureCount != 0) {
-      LOG.warn("Attempt #" + numAttempt + "/" + numTries + " failed for " + failureCount +
-          " ops on " + location.getServerName() + " NOT resubmitting." + location);
+      submit(initialActions, toReplay, numAttempt + 1, errorsByServer);
+    } else {
+      if (failureCount != 0) {
+        // We have a failure but nothing to retry. We're done, it's a final failure..
+        LOG.warn("Attempt #" + numAttempt + "/" + numTries + " failed for " + failureCount +
+            " ops on " + location.getServerName() + " NOT resubmitting. " + location);
+      } else if (numAttempt > START_LOG_ERRORS_CNT + 1 && LOG.isDebugEnabled()) {
+        // The operation was successful, but needed several attempts. Let's log this.
+        LOG.debug("Attempt #" + numAttempt + "/" + numTries + " finally suceeded, size=" +
+          toReplay.size());
+      }
     }
   }
 
@@ -663,7 +746,7 @@ class AsyncProcess<CResult> {
   /**
    * Wait until the async does not have more than max tasks in progress.
    */
-  private long waitForMaximumCurrentTasks(int max) throws InterruptedIOException {
+  private void waitForMaximumCurrentTasks(int max) throws InterruptedIOException {
     long lastLog = EnvironmentEdgeManager.currentTimeMillis();
     long currentTasksDone = this.tasksDone.get();
 
@@ -678,8 +761,10 @@ class AsyncProcess<CResult> {
       waitForNextTaskDone(currentTasksDone);
       currentTasksDone = this.tasksDone.get();
     }
+  }
 
-    return currentTasksDone;
+  private long getCurrentTasksCount(){
+    return  tasksSent.get() - tasksDone.get();
   }
 
   /**
@@ -712,25 +797,40 @@ class AsyncProcess<CResult> {
   }
 
   /**
-   * incrementer the tasks counters for a given region. MT safe.
+   * increment the tasks counters for a given set of regions. MT safe.
    */
-  protected void incTaskCounters(String encodedRegionName) {
+  protected void incTaskCounters(Collection<byte[]> regions, ServerName sn) {
     tasksSent.incrementAndGet();
 
-    AtomicInteger counterPerServer = taskCounterPerRegion.get(encodedRegionName);
-    if (counterPerServer == null) {
-      taskCounterPerRegion.putIfAbsent(encodedRegionName, new AtomicInteger());
-      counterPerServer = taskCounterPerRegion.get(encodedRegionName);
+    AtomicInteger serverCnt = taskCounterPerServer.get(sn);
+    if (serverCnt == null) {
+      taskCounterPerServer.putIfAbsent(sn, new AtomicInteger());
+      serverCnt = taskCounterPerServer.get(sn);
     }
-    counterPerServer.incrementAndGet();
+    serverCnt.incrementAndGet();
+
+    for (byte[] regBytes : regions) {
+      String encodedRegionName = HRegionInfo.encodeRegionName(regBytes);
+      AtomicInteger regionCnt = taskCounterPerRegion.get(encodedRegionName);
+      if (regionCnt == null) {
+        taskCounterPerRegion.putIfAbsent(encodedRegionName, new AtomicInteger());
+        regionCnt = taskCounterPerRegion.get(encodedRegionName);
+      }
+      regionCnt.incrementAndGet();
+    }
   }
 
   /**
-   * Decrements the counters for a given region
+   * Decrements the counters for a given region and the region server. MT Safe.
    */
-  protected void decTaskCounters(String encodedRegionName) {
-    AtomicInteger counterPerServer = taskCounterPerRegion.get(encodedRegionName);
-    counterPerServer.decrementAndGet();
+  protected void decTaskCounters(Collection<byte[]> regions, ServerName sn) {
+    for (byte[] regBytes : regions) {
+      String encodedRegionName = HRegionInfo.encodeRegionName(regBytes);
+      AtomicInteger regionCnt = taskCounterPerRegion.get(encodedRegionName);
+      regionCnt.decrementAndGet();
+    }
+
+    taskCounterPerServer.get(sn).decrementAndGet();
 
     tasksDone.incrementAndGet();
     synchronized (tasksDone) {

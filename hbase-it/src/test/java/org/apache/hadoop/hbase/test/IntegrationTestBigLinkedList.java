@@ -23,12 +23,13 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Random;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 
-import com.google.common.collect.Sets;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.GnuParser;
 import org.apache.commons.cli.HelpFormatter;
@@ -41,13 +42,17 @@ import org.apache.hadoop.conf.Configured;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.HBaseConfiguration;
 import org.apache.hadoop.hbase.HColumnDescriptor;
+import org.apache.hadoop.hbase.HRegionLocation;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.IntegrationTestBase;
 import org.apache.hadoop.hbase.IntegrationTestingUtility;
 import org.apache.hadoop.hbase.IntegrationTests;
 import org.apache.hadoop.hbase.TableName;
+import org.apache.hadoop.hbase.chaos.monkies.CalmChaosMonkey;
 import org.apache.hadoop.hbase.client.Get;
 import org.apache.hadoop.hbase.client.HBaseAdmin;
+import org.apache.hadoop.hbase.client.HConnection;
+import org.apache.hadoop.hbase.client.HConnectionManager;
 import org.apache.hadoop.hbase.client.HTable;
 import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.client.Result;
@@ -60,11 +65,13 @@ import org.apache.hadoop.hbase.mapreduce.TableMapper;
 import org.apache.hadoop.hbase.mapreduce.TableRecordReaderImpl;
 import org.apache.hadoop.hbase.util.AbstractHBaseTool;
 import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.hbase.util.HBaseFsck;
 import org.apache.hadoop.io.BytesWritable;
 import org.apache.hadoop.io.NullWritable;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.mapreduce.Counter;
+import org.apache.hadoop.mapreduce.CounterGroup;
 import org.apache.hadoop.mapreduce.Counters;
 import org.apache.hadoop.mapreduce.InputFormat;
 import org.apache.hadoop.mapreduce.InputSplit;
@@ -86,6 +93,8 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
+
+import com.google.common.collect.Sets;
 
 /**
  * This is an integration test borrowed from goraci, written by Keith Turner,
@@ -183,6 +192,8 @@ public class IntegrationTestBigLinkedList extends IntegrationTestBase {
     = "IntegrationTestBigLinkedList.generator.wrap";
 
   protected int NUM_SLAVES_BASE = 3; // number of slaves for the cluster
+
+  private static final int MISSING_ROWS_TO_LOG = 50;
 
   private static final int WIDTH_DEFAULT = 1000000;
   private static final int WRAP_DEFAULT = 25;
@@ -331,11 +342,12 @@ public class IntegrationTestBigLinkedList extends IntegrationTestBase {
       long wrap;
       int width;
 
+      @Override
       protected void setup(Context context) throws IOException, InterruptedException {
-        id = Bytes.toBytes(UUID.randomUUID().toString());
+        id = Bytes.toBytes("Job: "+context.getJobID() + " Task: " + context.getTaskAttemptID());
         Configuration conf = context.getConfiguration();
         table = new HTable(conf, getTableName(conf));
-        table.setAutoFlush(false);
+        table.setAutoFlush(false, true);
         table.setWriteBufferSize(4 * 1024 * 1024);
         this.width = context.getConfiguration().getInt(GENERATOR_WIDTH_KEY, WIDTH_DEFAULT);
         current = new byte[this.width][];
@@ -348,6 +360,7 @@ public class IntegrationTestBigLinkedList extends IntegrationTestBase {
         }
       }
 
+      @Override
       protected void cleanup(Context context) throws IOException ,InterruptedException {
         table.close();
       }
@@ -547,6 +560,9 @@ public class IntegrationTestBigLinkedList extends IntegrationTestBase {
     public static class VerifyReducer extends Reducer<BytesWritable,BytesWritable,Text,Text> {
       private ArrayList<byte[]> refs = new ArrayList<byte[]>();
 
+      private AtomicInteger rows = new AtomicInteger(0);
+
+      @Override
       public void reduce(BytesWritable key, Iterable<BytesWritable> values, Context context)
           throws IOException, InterruptedException {
 
@@ -585,10 +601,16 @@ public class IntegrationTestBigLinkedList extends IntegrationTestBase {
           // lost, emit some info about this node for debugging purposes.
           context.write(new Text(keyString), new Text(refsSb.toString()));
           context.getCounter(Counts.UNDEFINED).increment(1);
+          if (rows.addAndGet(1) < MISSING_ROWS_TO_LOG) {
+            context.getCounter("undef", keyString).increment(1);
+          }
         } else if (defCount > 0 && refs.size() == 0) {
           // node is defined but not referenced
           context.write(new Text(keyString), new Text("none"));
           context.getCounter(Counts.UNREFERENCED).increment(1);
+          if (rows.addAndGet(1) < MISSING_ROWS_TO_LOG) {
+            context.getCounter("unref", keyString).increment(1);
+          }
         } else {
           if (refs.size() > 1) {
             if (refsSb != null) {
@@ -652,6 +674,7 @@ public class IntegrationTestBigLinkedList extends IntegrationTestBase {
       return success ? 0 : 1;
     }
 
+    @SuppressWarnings("deprecation")
     public boolean verify(long expectedReferenced) throws Exception {
       if (job == null) {
         throw new IllegalStateException("You should call run() first");
@@ -684,6 +707,27 @@ public class IntegrationTestBigLinkedList extends IntegrationTestBase {
         success = false;
       }
 
+      if (!success) {
+        Configuration conf = job.getConfiguration();
+        HConnection conn = HConnectionManager.getConnection(conf);
+        TableName tableName = getTableName(conf);
+        CounterGroup g = counters.getGroup("undef");
+        Iterator<Counter> it = g.iterator();
+        while (it.hasNext()) {
+          String keyString = it.next().getName();
+          byte[] key = Bytes.toBytes(keyString);
+          HRegionLocation loc = conn.relocateRegion(tableName, key);
+          LOG.error("undefined row " + keyString + " region " + loc);
+        }
+        g = counters.getGroup("unref");
+        it = g.iterator();
+        while (it.hasNext()) {
+          String keyString = it.next().getName();
+          byte[] key = Bytes.toBytes(keyString);
+          HRegionLocation loc = conn.relocateRegion(tableName, key);
+          LOG.error("unreferred row " + keyString + " region " + loc);
+        }
+      }
       return success;
     }
   }
@@ -695,6 +739,8 @@ public class IntegrationTestBigLinkedList extends IntegrationTestBase {
   static class Loop extends Configured implements Tool {
 
     private static final Log LOG = LogFactory.getLog(Loop.class);
+
+    IntegrationTestBigLinkedList it;
 
     protected void runGenerator(int numMappers, long numNodes,
         String outputDir, Integer width, Integer wrapMuplitplier) throws Exception {
@@ -710,7 +756,8 @@ public class IntegrationTestBigLinkedList extends IntegrationTestBase {
       }
     }
 
-    protected void runVerify(String outputDir, int numReducers, long expectedNumNodes) throws Exception {
+    protected boolean runVerify(String outputDir,
+        int numReducers, long expectedNumNodes) throws Exception {
       Path outputPath = new Path(outputDir);
       UUID uuid = UUID.randomUUID(); //create a random UUID.
       Path iterationOutput = new Path(outputPath, uuid.toString());
@@ -722,12 +769,20 @@ public class IntegrationTestBigLinkedList extends IntegrationTestBase {
         throw new RuntimeException("Verify.run failed with return code: " + retCode);
       }
 
-      boolean verifySuccess = verify.verify(expectedNumNodes);
-      if (!verifySuccess) {
-        throw new RuntimeException("Verify.verify failed");
+      if (!verify.verify(expectedNumNodes)) {
+        try {
+          HBaseFsck fsck = new HBaseFsck(getConf());
+          HBaseFsck.setDisplayFullReport();
+          fsck.connect();
+          fsck.onlineHbck();
+        } catch (Throwable t) {
+          LOG.error("Failed to run hbck", t);
+        }
+        return false;
       }
 
       LOG.info("Verify finished with succees. Total nodes=" + expectedNumNodes);
+      return true;
     }
 
     @Override
@@ -757,7 +812,17 @@ public class IntegrationTestBigLinkedList extends IntegrationTestBase {
         runGenerator(numMappers, numNodes, outputDir, width, wrapMuplitplier);
         expectedNumNodes += numMappers * numNodes;
 
-        runVerify(outputDir, numReducers, expectedNumNodes);
+        if (!runVerify(outputDir, numReducers, expectedNumNodes)) {
+          if (it.monkey != null && !(it.monkey instanceof CalmChaosMonkey)) {
+            LOG.info("Verify.verify failed, let's stop CM and verify again");
+            it.cleanUpMonkey("Stop monkey before verify again after verify failed");
+            if (!runVerify(outputDir, numReducers, expectedNumNodes)) {
+              LOG.info("Verify.verify failed even without CM, verify one more");
+              runVerify(outputDir, numReducers, expectedNumNodes);
+            }
+          }
+          throw new RuntimeException("Verify.verify failed");
+        }
       }
 
       return 0;
@@ -768,6 +833,7 @@ public class IntegrationTestBigLinkedList extends IntegrationTestBase {
    * A stand alone program that prints out portions of a list created by {@link Generator}
    */
   private static class Print extends Configured implements Tool {
+    @Override
     public int run(String[] args) throws Exception {
       Options options = new Options();
       options.addOption("s", "start", true, "start key");
@@ -828,6 +894,7 @@ public class IntegrationTestBigLinkedList extends IntegrationTestBase {
    * A stand alone program that deletes a single node.
    */
   private static class Delete extends Configured implements Tool {
+    @Override
     public int run(String[] args) throws Exception {
       if (args.length != 1) {
         System.out.println("Usage : " + Delete.class.getSimpleName() + " <node to delete>");
@@ -853,6 +920,7 @@ public class IntegrationTestBigLinkedList extends IntegrationTestBase {
    * A stand alone program that follows a linked list created by {@link Generator} and prints timing info.
    */
   private static class Walker extends Configured implements Tool {
+    @Override
     public int run(String[] args) throws IOException {
       Options options = new Options();
       options.addOption("n", "num", true, "number of queries");
@@ -980,7 +1048,7 @@ public class IntegrationTestBigLinkedList extends IntegrationTestBase {
   @Override
   public void setUp() throws Exception {
     util = getTestingUtil(getConf());
-    util.initializeCluster(this.NUM_SLAVES_BASE);
+    util.initializeCluster(util.isDistributedCluster() ? 1 : this.NUM_SLAVES_BASE);
     this.setConf(util.getConfiguration());
   }
 
@@ -1044,7 +1112,9 @@ public class IntegrationTestBigLinkedList extends IntegrationTestBase {
     } else if (toRun.equals("Verify")) {
       tool = new Verify();
     } else if (toRun.equals("Loop")) {
-      tool = new Loop();
+      Loop loop = new Loop();
+      loop.it = this;
+      tool = loop;
     } else if (toRun.equals("Walker")) {
       tool = new Walker();
     } else if (toRun.equals("Print")) {

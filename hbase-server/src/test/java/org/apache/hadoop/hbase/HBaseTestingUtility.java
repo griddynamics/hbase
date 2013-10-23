@@ -60,6 +60,7 @@ import org.apache.hadoop.hbase.client.Get;
 import org.apache.hadoop.hbase.client.HBaseAdmin;
 import org.apache.hadoop.hbase.client.HConnection;
 import org.apache.hadoop.hbase.client.HTable;
+import org.apache.hadoop.hbase.client.IsolationLevel;
 import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.ResultScanner;
@@ -82,6 +83,7 @@ import org.apache.hadoop.hbase.regionserver.HStore;
 import org.apache.hadoop.hbase.regionserver.InternalScanner;
 import org.apache.hadoop.hbase.regionserver.MultiVersionConsistencyControl;
 import org.apache.hadoop.hbase.regionserver.RegionServerServices;
+import org.apache.hadoop.hbase.regionserver.wal.HLog;
 import org.apache.hadoop.hbase.security.User;
 import org.apache.hadoop.hbase.tool.Canary;
 import org.apache.hadoop.hbase.util.Bytes;
@@ -125,7 +127,7 @@ import org.apache.zookeeper.ZooKeeper.States;
 @InterfaceAudience.Public
 @InterfaceStability.Evolving
 public class HBaseTestingUtility extends HBaseCommonTestingUtility {
-   private Configuration conf;
+   protected Configuration conf;
    private MiniZooKeeperCluster zkCluster = null;
 
   /**
@@ -178,13 +180,15 @@ public class HBaseTestingUtility extends HBaseCommonTestingUtility {
       { Compression.Algorithm.GZ }
     });
 
-  /** This is for unit tests parameterized with a single boolean. */
+  /** This is for unit tests parameterized with a two booleans. */
   public static final List<Object[]> BOOLEAN_PARAMETERIZED =
       Arrays.asList(new Object[][] {
           { new Boolean(false) },
           { new Boolean(true) }
       });
-
+  
+  /** This is for unit tests parameterized with a single boolean. */
+  public static final List<Object[]> MEMSTORETS_TAGS_PARAMETRIZED = memStoreTSAndTagsCombination()  ;
   /** Compression algorithms to use in testing */
   public static final Compression.Algorithm[] COMPRESSION_ALGORITHMS ={
       Compression.Algorithm.NONE, Compression.Algorithm.GZ
@@ -202,6 +206,18 @@ public class HBaseTestingUtility extends HBaseCommonTestingUtility {
         configurations.add(new Object[] { comprAlgo, bloomType });
       }
     }
+    return Collections.unmodifiableList(configurations);
+  }
+
+  /**
+   * Create combination of memstoreTS and tags
+   */
+  private static List<Object[]> memStoreTSAndTagsCombination() {
+    List<Object[]> configurations = new ArrayList<Object[]>();
+    configurations.add(new Object[] { false, false });
+    configurations.add(new Object[] { false, true });
+    configurations.add(new Object[] { true, false });
+    configurations.add(new Object[] { true, true });
     return Collections.unmodifiableList(configurations);
   }
 
@@ -953,7 +969,7 @@ public class HBaseTestingUtility extends HBaseCommonTestingUtility {
    */
   public void shutdownMiniHBaseCluster() throws IOException {
     if (hbaseAdmin != null) {
-      hbaseAdmin.close();
+      hbaseAdmin.close0();
       hbaseAdmin = null;
     }
 
@@ -1153,6 +1169,30 @@ public class HBaseTestingUtility extends HBaseCommonTestingUtility {
 
   /**
    * Create a table.
+   * @param htd
+   * @param families
+   * @param c Configuration to use
+   * @return An HTable instance for the created table.
+   * @throws IOException
+   */
+  public HTable createTable(HTableDescriptor htd, byte[][] families, Configuration c)
+  throws IOException {
+    for(byte[] family : families) {
+      HColumnDescriptor hcd = new HColumnDescriptor(family);
+      // Disable blooms (they are on by default as of 0.95) but we disable them here because
+      // tests have hard coded counts of what to expect in block cache, etc., and blooms being
+      // on is interfering.
+      hcd.setBloomFilterType(BloomType.NONE);
+      htd.addFamily(hcd);
+    }
+    getHBaseAdmin().createTable(htd);
+    // HBaseAdmin only waits for regions to appear in hbase:meta we should wait until they are assigned
+    waitUntilAllRegionsAssigned(htd.getTableName());
+    return new HTable(c, htd.getTableName());
+  }
+
+  /**
+   * Create a table.
    * @param tableName
    * @param families
    * @param c Configuration to use
@@ -1162,19 +1202,7 @@ public class HBaseTestingUtility extends HBaseCommonTestingUtility {
   public HTable createTable(TableName tableName, byte[][] families,
       final Configuration c)
   throws IOException {
-    HTableDescriptor desc = new HTableDescriptor(tableName);
-    for(byte[] family : families) {
-      HColumnDescriptor hcd = new HColumnDescriptor(family);
-      // Disable blooms (they are on by default as of 0.95) but we disable them here because
-      // tests have hard coded counts of what to expect in block cache, etc., and blooms being
-      // on is interfering.
-      hcd.setBloomFilterType(BloomType.NONE);
-      desc.addFamily(hcd);
-    }
-    getHBaseAdmin().createTable(desc);
-    // HBaseAdmin only waits for regions to appear in hbase:meta we should wait until they are assigned
-    waitUntilAllRegionsAssigned(tableName);
-    return new HTable(c, tableName);
+    return createTable(new HTableDescriptor(tableName), families, c);
   }
 
   /**
@@ -1477,9 +1505,10 @@ public class HBaseTestingUtility extends HBaseCommonTestingUtility {
   public static final byte[][] COLUMNS = {fam1, fam2, fam3};
   private static final int MAXVERSIONS = 3;
   
-  private static final char FIRST_CHAR = 'a';
+  public static final char FIRST_CHAR = 'a';
+  public static final char LAST_CHAR = 'z';
   public static final byte [] START_KEY_BYTES = {FIRST_CHAR, FIRST_CHAR, FIRST_CHAR};
-
+  public static final String START_KEY = new String(START_KEY_BYTES, HConstants.UTF8_CHARSET);
 
   /**
    * Create a table of name <code>name</code> with {@link COLUMNS} for
@@ -1539,7 +1568,47 @@ public class HBaseTestingUtility extends HBaseCommonTestingUtility {
   public HRegion createLocalHRegion(HRegionInfo info, HTableDescriptor desc) throws IOException {
     return HRegion.createHRegion(info, getDataTestDir(), getConfiguration(), desc);
   }
+
+  /**
+   * Create an HRegion that writes to the local tmp dirs with specified hlog
+   * @param info regioninfo
+   * @param desc table descriptor
+   * @param hlog hlog for this region.
+   * @return created hregion
+   * @throws IOException
+   */
+  public HRegion createLocalHRegion(HRegionInfo info, HTableDescriptor desc, HLog hlog) throws IOException {
+    return HRegion.createHRegion(info, getDataTestDir(), getConfiguration(), desc, hlog);
+  }
+
   
+  /**
+   * @param tableName
+   * @param startKey
+   * @param stopKey
+   * @param callingMethod
+   * @param conf
+   * @param isReadOnly
+   * @param families
+   * @throws IOException
+   * @return A region on which you must call
+   *         {@link HRegion#closeHRegion(HRegion)} when done.
+   */
+  public HRegion createLocalHRegion(byte[] tableName, byte[] startKey, byte[] stopKey,
+      String callingMethod, Configuration conf, boolean isReadOnly, Durability durability,
+      HLog hlog, byte[]... families) throws IOException {
+    HTableDescriptor htd = new HTableDescriptor(TableName.valueOf(tableName));
+    htd.setReadOnly(isReadOnly);
+    for (byte[] family : families) {
+      HColumnDescriptor hcd = new HColumnDescriptor(family);
+      // Set default to be three versions.
+      hcd.setMaxVersions(Integer.MAX_VALUE);
+      htd.addFamily(hcd);
+    }
+    htd.setDurability(durability);
+    HRegionInfo info = new HRegionInfo(htd.getTableName(), startKey, stopKey, false);
+    return createLocalHRegion(info, htd, hlog);
+  }
   //
   // ==========================================================================
 
@@ -1580,7 +1649,7 @@ public class HBaseTestingUtility extends HBaseCommonTestingUtility {
    * @throws IOException
    */
   public int loadTable(final HTable t, final byte[] f) throws IOException {
-    t.setAutoFlush(false);
+    t.setAutoFlush(false, true);
     byte[] k = new byte[3];
     int rowCount = 0;
     for (byte b1 = 'a'; b1 <= 'z'; b1++) {
@@ -1608,7 +1677,7 @@ public class HBaseTestingUtility extends HBaseCommonTestingUtility {
    * @throws IOException
    */
   public int loadTable(final HTable t, final byte[][] f) throws IOException {
-    t.setAutoFlush(false);
+    t.setAutoFlush(false, true);
     byte[] k = new byte[3];
     int rowCount = 0;
     for (byte b1 = 'a'; b1 <= 'z'; b1++) {
@@ -1655,8 +1724,19 @@ public class HBaseTestingUtility extends HBaseCommonTestingUtility {
           Put put = new Put(k);
           put.add(f, null, k);
           if (r.getLog() == null) put.setDurability(Durability.SKIP_WAL);
-          r.put(put);
-          rowCount++;
+
+          int preRowCount = rowCount;
+          int pause = 10;
+          int maxPause = 1000;
+          while (rowCount == preRowCount) {
+            try {
+              r.put(put);
+              rowCount++;
+            } catch (RegionTooBusyException e) {
+              pause = (pause * 2 >= maxPause) ? maxPause : pause * 2;
+              Threads.sleep(pause);
+            }
+          }
         }
       }
       if (flush) {
@@ -2263,7 +2343,7 @@ public class HBaseTestingUtility extends HBaseCommonTestingUtility {
   /**
    * Returns a HBaseAdmin instance.
    * This instance is shared between HBaseTestingUtility instance users.
-   * Don't close it, it will be closed automatically when the
+   * Closing it has no effect, it will be closed automatically when the
    * cluster shutdowns
    *
    * @return The HBaseAdmin instance.
@@ -2272,11 +2352,27 @@ public class HBaseTestingUtility extends HBaseCommonTestingUtility {
   public synchronized HBaseAdmin getHBaseAdmin()
   throws IOException {
     if (hbaseAdmin == null){
-      hbaseAdmin = new HBaseAdmin(getConfiguration());
+      hbaseAdmin = new HBaseAdminForTests(getConfiguration());
     }
     return hbaseAdmin;
   }
-  private HBaseAdmin hbaseAdmin = null;
+
+  private HBaseAdminForTests hbaseAdmin = null;
+  private static class HBaseAdminForTests extends HBaseAdmin {
+    public HBaseAdminForTests(Configuration c) throws MasterNotRunningException,
+        ZooKeeperConnectionException, IOException {
+      super(c);
+    }
+
+    @Override
+    public synchronized void close() throws IOException {
+      LOG.warn("close() called on HBaseAdmin instance returned from HBaseTestingUtility.getHBaseAdmin()");
+    }
+
+    private synchronized void close0() throws IOException {
+      super.close();
+    }
+  }
 
   /**
    * Returns a ZooKeeperWatcher instance.
@@ -2677,10 +2773,12 @@ public class HBaseTestingUtility extends HBaseCommonTestingUtility {
    */
   public static List<Cell> getFromStoreFile(HStore store,
                                                 Get get) throws IOException {
-    MultiVersionConsistencyControl.resetThreadReadPoint();
     Scan scan = new Scan(get);
     InternalScanner scanner = (InternalScanner) store.getScanner(scan,
-        scan.getFamilyMap().get(store.getFamily().getName()));
+        scan.getFamilyMap().get(store.getFamily().getName()),
+        // originally MultiVersionConsistencyControl.resetThreadReadPoint() was called to set
+        // readpoint 0.
+        0);
 
     List<Cell> result = new ArrayList<Cell>();
     scanner.next(result);
@@ -3017,7 +3115,6 @@ public class HBaseTestingUtility extends HBaseCommonTestingUtility {
           totalNumberOfRegions);
 
       admin.createTable(desc, splits);
-      admin.close();
     } catch (MasterNotRunningException e) {
       LOG.error("Master not running", e);
       throw new IOException(e);

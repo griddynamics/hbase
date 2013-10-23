@@ -18,48 +18,11 @@
  */
 package org.apache.hadoop.hbase.client;
 
-import com.google.protobuf.Service;
-import com.google.protobuf.ServiceException;
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
-import org.apache.hadoop.classification.InterfaceAudience;
-import org.apache.hadoop.classification.InterfaceStability;
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hbase.Cell;
-import org.apache.hadoop.hbase.TableName;
-import org.apache.hadoop.hbase.HBaseConfiguration;
-import org.apache.hadoop.hbase.HConstants;
-import org.apache.hadoop.hbase.HRegionInfo;
-import org.apache.hadoop.hbase.HRegionLocation;
-import org.apache.hadoop.hbase.HTableDescriptor;
-import org.apache.hadoop.hbase.KeyValue;
-import org.apache.hadoop.hbase.KeyValueUtil;
-import org.apache.hadoop.hbase.ServerName;
-import org.apache.hadoop.hbase.client.coprocessor.Batch;
-import org.apache.hadoop.hbase.filter.BinaryComparator;
-import org.apache.hadoop.hbase.ipc.CoprocessorRpcChannel;
-import org.apache.hadoop.hbase.ipc.PayloadCarryingRpcController;
-import org.apache.hadoop.hbase.ipc.RegionCoprocessorRpcChannel;
-import org.apache.hadoop.hbase.protobuf.ProtobufUtil;
-import org.apache.hadoop.hbase.protobuf.RequestConverter;
-import org.apache.hadoop.hbase.protobuf.generated.ClientProtos.GetRequest;
-import org.apache.hadoop.hbase.protobuf.generated.ClientProtos.GetResponse;
-import org.apache.hadoop.hbase.protobuf.generated.ClientProtos.MultiGetRequest;
-import org.apache.hadoop.hbase.protobuf.generated.ClientProtos.MultiGetResponse;
-import org.apache.hadoop.hbase.protobuf.generated.ClientProtos.MultiRequest;
-import org.apache.hadoop.hbase.protobuf.generated.ClientProtos.MutateRequest;
-import org.apache.hadoop.hbase.protobuf.generated.ClientProtos.MutateResponse;
-import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.CompareType;
-import org.apache.hadoop.hbase.util.Bytes;
-import org.apache.hadoop.hbase.util.Pair;
-import org.apache.hadoop.hbase.util.Threads;
-
 import java.io.Closeable;
 import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -73,6 +36,40 @@ import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.classification.InterfaceAudience;
+import org.apache.hadoop.classification.InterfaceStability;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hbase.Cell;
+import org.apache.hadoop.hbase.HBaseConfiguration;
+import org.apache.hadoop.hbase.HConstants;
+import org.apache.hadoop.hbase.HRegionInfo;
+import org.apache.hadoop.hbase.HRegionLocation;
+import org.apache.hadoop.hbase.HTableDescriptor;
+import org.apache.hadoop.hbase.KeyValue;
+import org.apache.hadoop.hbase.KeyValueUtil;
+import org.apache.hadoop.hbase.ServerName;
+import org.apache.hadoop.hbase.TableName;
+import org.apache.hadoop.hbase.client.coprocessor.Batch;
+import org.apache.hadoop.hbase.filter.BinaryComparator;
+import org.apache.hadoop.hbase.ipc.CoprocessorRpcChannel;
+import org.apache.hadoop.hbase.ipc.PayloadCarryingRpcController;
+import org.apache.hadoop.hbase.ipc.RegionCoprocessorRpcChannel;
+import org.apache.hadoop.hbase.protobuf.ProtobufUtil;
+import org.apache.hadoop.hbase.protobuf.RequestConverter;
+import org.apache.hadoop.hbase.protobuf.generated.ClientProtos.MultiRequest;
+import org.apache.hadoop.hbase.protobuf.generated.ClientProtos.MutateRequest;
+import org.apache.hadoop.hbase.protobuf.generated.ClientProtos.MutateResponse;
+import org.apache.hadoop.hbase.protobuf.generated.ClientProtos.RegionAction;
+import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.CompareType;
+import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.hbase.util.Pair;
+import org.apache.hadoop.hbase.util.Threads;
+
+import com.google.protobuf.Service;
+import com.google.protobuf.ServiceException;
+
 /**
  * <p>Used to communicate with a single HBase table.
  *
@@ -83,9 +80,6 @@ import java.util.concurrent.TimeUnit;
  *
  * <p>In case of reads, some fields used by a Scan are shared among all threads.
  * The HTable implementation can either not contract to be safe in case of a Get
- *
- * <p>To access a table in a multi threaded environment, please consider
- * using the {@link HTablePool} class to create your HTable instances.
  *
  * <p>Instances of HTable passed the same {@link Configuration} instance will
  * share connections to servers out on the cluster and to the zookeeper ensemble
@@ -191,6 +185,30 @@ public class HTable implements HTableInterface {
     this.connection = HConnectionManager.getConnection(conf);
     this.configuration = conf;
 
+    this.pool = getDefaultExecutor(conf);
+    this.finishSetup();
+  }
+
+  /**
+   * Creates an object to access a HBase table. Shares zookeeper connection and other resources with
+   * other HTable instances created with the same <code>connection</code> instance. Use this
+   * constructor when the HConnection instance is externally managed.
+   * @param tableName Name of the table.
+   * @param connection HConnection to be used.
+   * @throws IOException if a remote or network exception occurs
+   */
+  public HTable(TableName tableName, HConnection connection) throws IOException {
+    this.tableName = tableName;
+    this.cleanupPoolOnClose = true;
+    this.cleanupConnectionOnClose = false;
+    this.connection = connection;
+    this.configuration = connection.getConfiguration();
+
+    this.pool = getDefaultExecutor(this.configuration);
+    this.finishSetup();
+  }
+   
+  public static ThreadPoolExecutor getDefaultExecutor(Configuration conf) {
     int maxThreads = conf.getInt("hbase.htable.threads.max", Integer.MAX_VALUE);
     if (maxThreads == 0) {
       maxThreads = 1; // is there a better default?
@@ -201,11 +219,10 @@ public class HTable implements HTableInterface {
     // if it is necessary and will grow unbounded. This could be bad but in HCM
     // we only create as many Runnables as there are region servers. It means
     // it also scales when new region servers are added.
-    this.pool = new ThreadPoolExecutor(1, maxThreads, keepAliveTime, TimeUnit.SECONDS,
+    ThreadPoolExecutor pool = new ThreadPoolExecutor(1, maxThreads, keepAliveTime, TimeUnit.SECONDS,
         new SynchronousQueue<Runnable>(), Threads.newDaemonThreadFactory("htable"));
-    ((ThreadPoolExecutor) this.pool).allowCoreThreadTimeOut(true);
-
-    this.finishSetup();
+    ((ThreadPoolExecutor) pool).allowCoreThreadTimeOut(true);
+    return pool;
   }
 
   /**
@@ -693,6 +710,10 @@ public class HTable implements HTableInterface {
     if (scan.getCaching() <= 0) {
       scan.setCaching(getScannerCaching());
     }
+    if (scan.isSmall()) {
+      return new ClientSmallScanner(getConfiguration(), scan, getName(),
+          this.connection);
+    }
     return new ClientScanner(getConfiguration(), scan,
         getName(), this.connection);
   }
@@ -866,6 +887,7 @@ public class HTable implements HTableInterface {
    */
   private void doPut(Put put) throws InterruptedIOException, RetriesExhaustedWithDetailsException {
     if (ap.hasError()){
+      writeAsyncBuffer.add(put);
       backgroundFlushCommits(true);
     }
 
@@ -884,25 +906,29 @@ public class HTable implements HTableInterface {
    * Send the operations in the buffer to the servers. Does not wait for the server's answer.
    * If the is an error (max retried reach from a previous flush or bad operation), it tries to
    * send all operations in the buffer and sends an exception.
+   * @param synchronous - if true, sends all the writes and wait for all of them to finish before
+   *                     returning.
    */
   private void backgroundFlushCommits(boolean synchronous) throws
       InterruptedIOException, RetriesExhaustedWithDetailsException {
 
     try {
-      // If there is an error on the operations in progress, we don't add new operations.
-      if (writeAsyncBuffer.size() > 0 && !ap.hasError()) {
+      do {
         ap.submit(writeAsyncBuffer, true);
-      }
+      } while (synchronous && !writeAsyncBuffer.isEmpty());
 
-      if (synchronous || ap.hasError()) {
-        if (ap.hasError() && LOG.isDebugEnabled()) {
-          LOG.debug(tableName + ": One or more of the operations have failed -" +
-              " waiting for all operation in progress to finish (successfully or not)");
-        }
+      if (synchronous) {
         ap.waitUntilDone();
       }
 
       if (ap.hasError()) {
+        LOG.debug(tableName + ": One or more of the operations have failed -" +
+            " waiting for all operation in progress to finish (successfully or not)");
+        while (!writeAsyncBuffer.isEmpty()) {
+          ap.submit(writeAsyncBuffer, true);
+        }
+        ap.waitUntilDone();
+
         if (!clearBufferOnFail) {
           // if clearBufferOnFailed is not set, we're supposed to keep the failed operation in the
           //  write buffer. This is a questionable feature kept here for backward compatibility
@@ -931,8 +957,13 @@ public class HTable implements HTableInterface {
         new RegionServerCallable<Void>(connection, getName(), rm.getRow()) {
       public Void call() throws IOException {
         try {
-          MultiRequest request = RequestConverter.buildMultiRequest(
+          RegionAction.Builder regionMutationBuilder = RequestConverter.buildRegionAction(
             getLocation().getRegionInfo().getRegionName(), rm);
+          regionMutationBuilder.setAtomic(true);
+          MultiRequest request =
+            MultiRequest.newBuilder().addRegionAction(regionMutationBuilder.build()).build();
+          PayloadCarryingRpcController pcrc = new PayloadCarryingRpcController();
+          pcrc.setPriority(tableName);
           getStub().multi(null, request);
         } catch (ServiceException se) {
           throw ProtobufUtil.getRemoteException(se);
@@ -959,6 +990,7 @@ public class HTable implements HTableInterface {
             MutateRequest request = RequestConverter.buildMutateRequest(
               getLocation().getRegionInfo().getRegionName(), append);
             PayloadCarryingRpcController rpcController = new PayloadCarryingRpcController();
+            rpcController.setPriority(getTableName());
             MutateResponse response = getStub().mutate(rpcController, request);
             if (!response.hasResult()) return null;
             return ProtobufUtil.toResult(response.getResult(), rpcController.cellScanner());
@@ -985,9 +1017,10 @@ public class HTable implements HTableInterface {
         try {
           MutateRequest request = RequestConverter.buildMutateRequest(
             getLocation().getRegionInfo().getRegionName(), increment);
-            PayloadCarryingRpcController rpcContoller = new PayloadCarryingRpcController();
-            MutateResponse response = getStub().mutate(rpcContoller, request);
-            return ProtobufUtil.toResult(response.getResult(), rpcContoller.cellScanner());
+            PayloadCarryingRpcController rpcController = new PayloadCarryingRpcController();
+            rpcController.setPriority(getTableName());
+            MutateResponse response = getStub().mutate(rpcController, request);
+            return ProtobufUtil.toResult(response.getResult(), rpcController.cellScanner());
           } catch (ServiceException se) {
             throw ProtobufUtil.getRemoteException(se);
           }
@@ -1046,6 +1079,7 @@ public class HTable implements HTableInterface {
               getLocation().getRegionInfo().getRegionName(), row, family,
               qualifier, amount, durability);
             PayloadCarryingRpcController rpcController = new PayloadCarryingRpcController();
+            rpcController.setPriority(getTableName());
             MutateResponse response = getStub().mutate(rpcController, request);
             Result result =
               ProtobufUtil.toResult(response.getResult(), rpcController.cellScanner());
@@ -1114,61 +1148,10 @@ public class HTable implements HTableInterface {
    */
   @Override
   public boolean exists(final Get get) throws IOException {
-    RegionServerCallable<Boolean> callable =
-        new RegionServerCallable<Boolean>(connection, getName(), get.getRow()) {
-      public Boolean call() throws IOException {
-        try {
-          GetRequest request = RequestConverter.buildGetRequest(
-            getLocation().getRegionInfo().getRegionName(), get, true);
-          GetResponse response = getStub().get(null, request);
-          return response.getExists();
-        } catch (ServiceException se) {
-          throw ProtobufUtil.getRemoteException(se);
-        }
-      }
-    };
-    return rpcCallerFactory.<Boolean> newCaller().callWithRetries(callable, this.operationTimeout);
-  }
-
-  /**
-   * Goal of this inner class is to keep track of the initial position of a get in a list before
-   * sorting it. This is used to send back results in the same orders we got the Gets before we sort
-   * them.
-   */
-  private static class SortedGet implements Comparable<SortedGet> {
-    protected int initialIndex = -1; // Used to store the get initial index in a list.
-    protected Get get; // Encapsulated Get instance.
-
-    public SortedGet (Get get, int initialIndex) {
-      this.get = get;
-      this.initialIndex = initialIndex;
-    }
-
-    public int getInitialIndex() {
-      return initialIndex;
-    }
-
-    @Override
-    public int compareTo(SortedGet o) {
-      return get.compareTo(o.get);
-    }
-
-    public Get getGet() {
-      return get;
-    }
-
-    @Override
-    public int hashCode() {
-      return get.hashCode();
-    }
-
-    @Override
-    public boolean equals(Object obj) {
-      if (obj instanceof SortedGet)
-        return get.equals(((SortedGet)obj).get);
-      else
-        return false;
-    }
+    get.setCheckExistenceOnly(true);
+    Result r = get(get);
+    assert r.getExists() != null;
+    return r.getExists();
   }
 
   /**
@@ -1176,100 +1159,26 @@ public class HTable implements HTableInterface {
    */
   @Override
   public Boolean[] exists(final List<Get> gets) throws IOException {
-    // Prepare the sorted list of gets. Take the list of gets received, and encapsulate them into
-    // a list of SortedGet instances. Simple list parsing, so complexity here is O(n)
-    // The list is later used to recreate the response order based on the order the Gets
-    // got received.
-    ArrayList<SortedGet> sortedGetsList = new ArrayList<HTable.SortedGet>();
-    for (int indexGet = 0; indexGet < gets.size(); indexGet++) {
-      sortedGetsList.add(new SortedGet (gets.get(indexGet), indexGet));
+    if (gets.isEmpty()) return new Boolean[]{};
+    if (gets.size() == 1) return new Boolean[]{exists(gets.get(0))};
+
+    for (Get g: gets){
+      g.setCheckExistenceOnly(true);
     }
 
-    // Sorting the list to get the Gets ordered based on the key.
-    Collections.sort(sortedGetsList); // O(n log n)
-
-    // step 1: sort the requests by regions to send them bundled.
-    // Map key is startKey index. Map value is the list of Gets related to the region starting
-    // with the startKey.
-    Map<Integer, List<Get>> getsByRegion = new HashMap<Integer, List<Get>>();
-
-    // Reference map to quickly find back in which region a get belongs.
-    Map<Get, Integer> getToRegionIndexMap = new HashMap<Get, Integer>();
-    Pair<byte[][], byte[][]> startEndKeys = getStartEndKeys();
-
-    int regionIndex = 0;
-    for (final SortedGet get : sortedGetsList) {
-      // Progress on the regions until we find the one the current get resides in.
-      while ((regionIndex < startEndKeys.getSecond().length) && ((Bytes.compareTo(startEndKeys.getSecond()[regionIndex], get.getGet().getRow()) <= 0))) {
-        regionIndex++;
-      }
-      List<Get> regionGets = getsByRegion.get(regionIndex);
-      if (regionGets == null) {
-        regionGets = new ArrayList<Get>();
-        getsByRegion.put(regionIndex, regionGets);
-      }
-      regionGets.add(get.getGet());
-      getToRegionIndexMap.put(get.getGet(), regionIndex);
+    Object[] r1;
+    try {
+      r1 = batch(gets);
+    } catch (InterruptedException e) {
+      throw new IOException(e);
     }
 
-    // step 2: make the requests
-    Map<Integer, Future<List<Boolean>>> futures =
-        new HashMap<Integer, Future<List<Boolean>>>(sortedGetsList.size());
-    for (final Map.Entry<Integer, List<Get>> getsByRegionEntry : getsByRegion.entrySet()) {
-      Callable<List<Boolean>> callable = new Callable<List<Boolean>>() {
-        public List<Boolean> call() throws Exception {
-          RegionServerCallable<List<Boolean>> callable =
-            new RegionServerCallable<List<Boolean>>(connection, getName(),
-              getsByRegionEntry.getValue().get(0).getRow()) {
-            public List<Boolean> call() throws IOException {
-              try {
-                MultiGetRequest requests = RequestConverter.buildMultiGetRequest(
-                  getLocation().getRegionInfo().getRegionName(), getsByRegionEntry.getValue(),
-                  true, false);
-                MultiGetResponse responses = getStub().multiGet(null, requests);
-                return responses.getExistsList();
-              } catch (ServiceException se) {
-                throw ProtobufUtil.getRemoteException(se);
-              }
-            }
-          };
-          return rpcCallerFactory.<List<Boolean>> newCaller().callWithRetries(callable,
-              operationTimeout);
-        }
-      };
-      futures.put(getsByRegionEntry.getKey(), pool.submit(callable));
-    }
-
-    // step 3: collect the failures and successes
-    Map<Integer, List<Boolean>> responses = new HashMap<Integer, List<Boolean>>();
-    for (final Map.Entry<Integer, List<Get>> sortedGetEntry : getsByRegion.entrySet()) {
-      try {
-        Future<List<Boolean>> future = futures.get(sortedGetEntry.getKey());
-        List<Boolean> resp = future.get();
-
-        if (resp == null) {
-          LOG.warn("Failed for gets on region: " + sortedGetEntry.getKey());
-        }
-        responses.put(sortedGetEntry.getKey(), resp);
-      } catch (ExecutionException e) {
-        LOG.warn("Failed for gets on region: " + sortedGetEntry.getKey());
-      } catch (InterruptedException e) {
-        LOG.warn("Failed for gets on region: " + sortedGetEntry.getKey());
-        Thread.currentThread().interrupt();
-      }
-    }
-    Boolean[] results = new Boolean[sortedGetsList.size()];
-
-    // step 4: build the response.
-    Map<Integer, Integer> indexes = new HashMap<Integer, Integer>();
-    for (int i = 0; i < sortedGetsList.size(); i++) {
-      Integer regionInfoIndex = getToRegionIndexMap.get(sortedGetsList.get(i).getGet());
-      Integer index = indexes.get(regionInfoIndex);
-      if (index == null) {
-        index = 0;
-      }
-      results[sortedGetsList.get(i).getInitialIndex()] = responses.get(regionInfoIndex).get(index);
-      indexes.put(regionInfoIndex, index + 1);
+    // translate.
+    Boolean[] results = new Boolean[r1.length];
+    int i = 0;
+    for (Object o : r1) {
+      // batch ensures if there is a failure we get an exception instead
+      results[i++] = ((Result)o).getExists();
     }
 
     return results;
@@ -1280,12 +1189,9 @@ public class HTable implements HTableInterface {
    */
   @Override
   public void flushCommits() throws InterruptedIOException, RetriesExhaustedWithDetailsException {
-    // We're looping, as if one region is overloaded we keep its operations in the buffer.
     // As we can have an operation in progress even if the buffer is empty, we call
     //  backgroundFlushCommits at least one time.
-    do {
-      backgroundFlushCommits(true);
-    } while (!writeAsyncBuffer.isEmpty());
+    backgroundFlushCommits(true);
   }
 
   /**
@@ -1361,42 +1267,26 @@ public class HTable implements HTableInterface {
   }
 
   /**
-   * See {@link #setAutoFlush(boolean, boolean)}
-   *
-   * @param autoFlush
-   *          Whether or not to enable 'auto-flush'.
+   * {@inheritDoc}
    */
+  @Deprecated
+  @Override
   public void setAutoFlush(boolean autoFlush) {
     setAutoFlush(autoFlush, autoFlush);
   }
 
   /**
-   * Turns 'auto-flush' on or off.
-   * <p>
-   * When enabled (default), {@link Put} operations don't get buffered/delayed
-   * and are immediately executed. Failed operations are not retried. This is
-   * slower but safer.
-   * <p>
-   * Turning off {@link #autoFlush} means that multiple {@link Put}s will be
-   * accepted before any RPC is actually sent to do the write operations. If the
-   * application dies before pending writes get flushed to HBase, data will be
-   * lost.
-   * <p>
-   * When you turn {@link #autoFlush} off, you should also consider the
-   * {@link #clearBufferOnFail} option. By default, asynchronous {@link Put}
-   * requests will be retried on failure until successful. However, this can
-   * pollute the writeBuffer and slow down batching performance. Additionally,
-   * you may want to issue a number of Put requests and call
-   * {@link #flushCommits()} as a barrier. In both use cases, consider setting
-   * clearBufferOnFail to true to erase the buffer after {@link #flushCommits()}
-   * has been called, regardless of success.
-   *
-   * @param autoFlush
-   *          Whether or not to enable 'auto-flush'.
-   * @param clearBufferOnFail
-   *          Whether to keep Put failures in the writeBuffer
-   * @see #flushCommits
+   * {@inheritDoc}
    */
+  @Override
+  public void setAutoFlushTo(boolean autoFlush) {
+    setAutoFlush(autoFlush, clearBufferOnFail);
+  }
+
+  /**
+   * {@inheritDoc}
+   */
+  @Override
   public void setAutoFlush(boolean autoFlush, boolean clearBufferOnFail) {
     this.autoFlush = autoFlush;
     this.clearBufferOnFail = autoFlush || clearBufferOnFail;
@@ -1409,6 +1299,7 @@ public class HTable implements HTableInterface {
    * {@code hbase.client.write.buffer}.
    * @return The size of the write buffer in bytes.
    */
+  @Override
   public long getWriteBufferSize() {
     return writeBufferSize;
   }
@@ -1632,4 +1523,17 @@ public class HTable implements HTableInterface {
     return operationTimeout;
   }
 
+  /**
+   * Run basic test.
+   * @param args Pass table name and row and will get the content.
+   * @throws IOException
+   */
+  public static void main(String[] args) throws IOException {
+    HTable t = new HTable(HBaseConfiguration.create(), args[0]);
+    try {
+      System.out.println(t.get(new Get(Bytes.toBytes(args[1]))));
+    } finally {
+      t.close();
+    }
+  }
 }

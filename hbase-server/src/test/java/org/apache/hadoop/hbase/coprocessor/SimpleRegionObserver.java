@@ -34,6 +34,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import com.google.common.collect.ImmutableList;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.Cell;
 import org.apache.hadoop.hbase.CellUtil;
 import org.apache.hadoop.hbase.CoprocessorEnvironment;
@@ -47,6 +49,10 @@ import org.apache.hadoop.hbase.client.Increment;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.client.Durability;
+import org.apache.hadoop.hbase.io.FSDataInputStreamWrapper;
+import org.apache.hadoop.hbase.io.Reference;
+import org.apache.hadoop.hbase.io.encoding.DataBlockEncoding;
+import org.apache.hadoop.hbase.io.hfile.CacheConfig;
 import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.regionserver.InternalScanner;
 import org.apache.hadoop.hbase.regionserver.KeyValueScanner;
@@ -56,6 +62,7 @@ import org.apache.hadoop.hbase.regionserver.RegionScanner;
 import org.apache.hadoop.hbase.regionserver.ScanType;
 import org.apache.hadoop.hbase.regionserver.Store;
 import org.apache.hadoop.hbase.regionserver.StoreFile;
+import org.apache.hadoop.hbase.regionserver.StoreFile.Reader;
 import org.apache.hadoop.hbase.regionserver.wal.HLogKey;
 import org.apache.hadoop.hbase.regionserver.wal.WALEdit;
 import org.apache.hadoop.hbase.util.Bytes;
@@ -108,9 +115,12 @@ public class SimpleRegionObserver extends BaseRegionObserver {
   final AtomicInteger ctPostBatchMutate = new AtomicInteger(0);
   final AtomicInteger ctPreWALRestore = new AtomicInteger(0);
   final AtomicInteger ctPostWALRestore = new AtomicInteger(0);
-
-
+  final AtomicInteger ctPreSplitBeforePONR = new AtomicInteger(0);
+  final AtomicInteger ctPreSplitAfterPONR = new AtomicInteger(0);
+  final AtomicInteger ctPreStoreFileReaderOpen = new AtomicInteger(0);
+  final AtomicInteger ctPostStoreFileReaderOpen = new AtomicInteger(0);
   final AtomicBoolean throwOnPostFlush = new AtomicBoolean(false);
+  static final String TABLE_SKIPPED = "SKIPPED_BY_PREWALRESTORE";
 
   public void setThrowOnPostFlush(Boolean val){
     throwOnPostFlush.set(val);
@@ -186,6 +196,19 @@ public class SimpleRegionObserver extends BaseRegionObserver {
     ctPreSplit.incrementAndGet();
   }
 
+  @Override
+  public void preSplitBeforePONR(
+      ObserverContext<RegionCoprocessorEnvironment> ctx, byte[] splitKey,
+      List<Mutation> metaEntries) throws IOException {
+    ctPreSplitBeforePONR.incrementAndGet();
+  }
+  
+  @Override
+  public void preSplitAfterPONR(
+      ObserverContext<RegionCoprocessorEnvironment> ctx) throws IOException {
+    ctPreSplitAfterPONR.incrementAndGet();
+  }
+  
   @Override
   public void postSplit(ObserverContext<RegionCoprocessorEnvironment> c, HRegion l, HRegion r) {
     ctPostSplit.incrementAndGet();
@@ -520,6 +543,12 @@ public class SimpleRegionObserver extends BaseRegionObserver {
   @Override
   public void preWALRestore(ObserverContext<RegionCoprocessorEnvironment> env, HRegionInfo info,
                             HLogKey logKey, WALEdit logEdit) throws IOException {
+    String tableName = logKey.getTablename().getNameAsString();
+    if (tableName.equals(TABLE_SKIPPED)) {
+      // skip recovery of TABLE_SKIPPED for testing purpose
+      env.bypass();
+      return;
+    }
     ctPreWALRestore.incrementAndGet();
   }
 
@@ -529,6 +558,21 @@ public class SimpleRegionObserver extends BaseRegionObserver {
     ctPostWALRestore.incrementAndGet();
   }
 
+  @Override
+  public Reader preStoreFileReaderOpen(ObserverContext<RegionCoprocessorEnvironment> ctx,
+      FileSystem fs, Path p, FSDataInputStreamWrapper in, long size, CacheConfig cacheConf,
+      DataBlockEncoding preferredEncodingInCache, Reference r, Reader reader) throws IOException {
+    ctPreStoreFileReaderOpen.incrementAndGet();
+    return null;
+  }
+
+  @Override
+  public Reader postStoreFileReaderOpen(ObserverContext<RegionCoprocessorEnvironment> ctx,
+      FileSystem fs, Path p, FSDataInputStreamWrapper in, long size, CacheConfig cacheConf,
+      DataBlockEncoding preferredEncodingInCache, Reference r, Reader reader) throws IOException {
+    ctPostStoreFileReaderOpen.incrementAndGet();
+    return reader;
+  }
 
   public boolean hadPreGet() {
     return ctPreGet.get() > 0;
@@ -630,6 +674,14 @@ public class SimpleRegionObserver extends BaseRegionObserver {
   public int getCtPreSplit() {
     return ctPreSplit.get();
   }
+  
+  public int getCtPreSplitBeforePONR() {
+    return ctPreSplitBeforePONR.get();
+  }
+
+  public int getCtPreSplitAfterPONR() {
+    return ctPreSplitAfterPONR.get();
+  }
 
   public int getCtPostSplit() {
     return ctPostSplit.get();
@@ -701,5 +753,9 @@ public class SimpleRegionObserver extends BaseRegionObserver {
 
   public int getCtPostWALRestore() {
     return ctPostWALRestore.get();
+  }
+
+  public boolean wasStoreFileReaderOpenCalled() {
+    return ctPreStoreFileReaderOpen.get() > 0 && ctPostStoreFileReaderOpen.get() > 0;
   }
 }

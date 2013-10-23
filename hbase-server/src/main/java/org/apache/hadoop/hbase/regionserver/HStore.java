@@ -58,6 +58,8 @@ import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.io.compress.Compression;
 import org.apache.hadoop.hbase.io.hfile.CacheConfig;
 import org.apache.hadoop.hbase.io.hfile.HFile;
+import org.apache.hadoop.hbase.io.hfile.HFileContext;
+import org.apache.hadoop.hbase.io.hfile.HFileContextBuilder;
 import org.apache.hadoop.hbase.io.hfile.HFileDataBlockEncoder;
 import org.apache.hadoop.hbase.io.hfile.HFileDataBlockEncoderImpl;
 import org.apache.hadoop.hbase.io.hfile.HFileScanner;
@@ -474,7 +476,9 @@ public class HStore implements Store {
   }
 
   private StoreFile createStoreFileAndReader(final Path p, final HFileDataBlockEncoder encoder) throws IOException {
-    StoreFile storeFile = new StoreFile(this.getFileSystem(), p, this.conf, this.cacheConf,
+    StoreFileInfo info = new StoreFileInfo(conf, this.getFileSystem(), p);
+    info.setRegionCoprocessorHost(this.region.getCoprocessorHost());
+    StoreFile storeFile = new StoreFile(this.getFileSystem(), info, this.conf, this.cacheConf,
         this.family.getBloomFilterType(), encoder);
     storeFile.createReader();
     return storeFile;
@@ -774,11 +778,13 @@ public class HStore implements Store {
    * @param maxKeyCount
    * @param compression Compression algorithm to use
    * @param isCompaction whether we are creating a new file in a compaction
+   * @param includesMVCCReadPoint - whether to include MVCC or not
+   * @param includesTag - includesTag or not
    * @return Writer for a new StoreFile in the tmp dir.
    */
   @Override
-  public StoreFile.Writer createWriterInTmp(long maxKeyCount,
-    Compression.Algorithm compression, boolean isCompaction, boolean includeMVCCReadpoint)
+  public StoreFile.Writer createWriterInTmp(long maxKeyCount, Compression.Algorithm compression,
+      boolean isCompaction, boolean includeMVCCReadpoint, boolean includesTag)
   throws IOException {
     final CacheConfig writerCacheConf;
     if (isCompaction) {
@@ -793,21 +799,38 @@ public class HStore implements Store {
       favoredNodes = region.getRegionServerServices().getFavoredNodesForRegion(
           region.getRegionInfo().getEncodedName());
     }
+    HFileContext hFileContext = createFileContext(compression, includeMVCCReadpoint, includesTag);
     StoreFile.Writer w = new StoreFile.WriterBuilder(conf, writerCacheConf,
-        this.getFileSystem(), blocksize)
+        this.getFileSystem())
             .withFilePath(fs.createTempName())
-            .withDataBlockEncoder(dataBlockEncoder)
             .withComparator(comparator)
             .withBloomType(family.getBloomFilterType())
             .withMaxKeyCount(maxKeyCount)
-            .withChecksumType(checksumType)
-            .withBytesPerChecksum(bytesPerChecksum)
-            .withCompression(compression)
             .withFavoredNodes(favoredNodes)
-            .includeMVCCReadpoint(includeMVCCReadpoint)
+            .withFileContext(hFileContext)
             .build();
     return w;
   }
+  
+  private HFileContext createFileContext(Compression.Algorithm compression,
+      boolean includeMVCCReadpoint, boolean includesTag) {
+    if (compression == null) {
+      compression = HFile.DEFAULT_COMPRESSION_ALGORITHM;
+    }
+    HFileContext hFileContext = new HFileContextBuilder()
+                                .withIncludesMvcc(includeMVCCReadpoint)
+                                .withIncludesTags(includesTag)
+                                .withCompressionAlgo(compression)
+                                .withChecksumType(checksumType)
+                                .withBytesPerCheckSum(bytesPerChecksum)
+                                .withBlockSize(blocksize)
+                                .withHBaseCheckSum(true)
+                                .withDataBlockEncodingOnDisk(family.getDataBlockEncodingOnDisk())
+                                .withDataBlockEncodingInCache(family.getDataBlockEncoding())
+                                .build();
+    return hFileContext;
+  }
+
 
   /*
    * Change storeFiles adding into place the Reader produced by this new flush.
@@ -855,16 +878,16 @@ public class HStore implements Store {
    * @return all scanners for this store
    */
   @Override
-  public List<KeyValueScanner> getScanners(boolean cacheBlocks,
-      boolean isGet, boolean isCompaction, ScanQueryMatcher matcher, byte[] startRow,
-      byte[] stopRow) throws IOException {
+  public List<KeyValueScanner> getScanners(boolean cacheBlocks, boolean isGet,
+      boolean usePread, boolean isCompaction, ScanQueryMatcher matcher, byte[] startRow,
+      byte[] stopRow, long readPt) throws IOException {
     Collection<StoreFile> storeFilesToScan;
     List<KeyValueScanner> memStoreScanners;
     this.lock.readLock().lock();
     try {
       storeFilesToScan =
           this.storeEngine.getStoreFileManager().getFilesForScanOrGet(isGet, startRow, stopRow);
-      memStoreScanners = this.memstore.getScanners();
+      memStoreScanners = this.memstore.getScanners(readPt);
     } finally {
       this.lock.readLock().unlock();
     }
@@ -875,7 +898,8 @@ public class HStore implements Store {
     // but now we get them in ascending order, which I think is
     // actually more correct, since memstore get put at the end.
     List<StoreFileScanner> sfScanners = StoreFileScanner
-      .getScannersForStoreFiles(storeFilesToScan, cacheBlocks, isGet, isCompaction, matcher);
+      .getScannersForStoreFiles(storeFilesToScan, cacheBlocks, usePread, isCompaction, matcher,
+        readPt);
     List<KeyValueScanner> scanners =
       new ArrayList<KeyValueScanner>(sfScanners.size()+1);
     scanners.addAll(sfScanners);
@@ -965,6 +989,7 @@ public class HStore implements Store {
     try {
       // Commence the compaction.
       List<Path> newFiles = compaction.compact();
+
       // TODO: get rid of this!
       if (!this.conf.getBoolean("hbase.hstore.compaction.complete", true)) {
         LOG.warn("hbase.hstore.compaction.complete is set to false");
@@ -1313,7 +1338,7 @@ public class HStore implements Store {
   }
 
   private void finishCompactionRequest(CompactionRequest cr) {
-    this.region.reportCompactionRequestEnd(cr.isMajor());
+    this.region.reportCompactionRequestEnd(cr.isMajor(), cr.getFiles().size(), cr.getSize());
     if (cr.isOffPeak()) {
       offPeakCompactionTracker.set(false);
       cr.setOffPeak(false);
@@ -1441,8 +1466,10 @@ public class HStore implements Store {
         StoreFile sf = sfIterator.next();
         sfIterator.remove(); // Remove sf from iterator.
         boolean haveNewCandidate = rowAtOrBeforeFromStoreFile(sf, state);
+        KeyValue keyv = state.getCandidate();
+        // we have an optimization here which stops the search if we find exact match.
+        if (keyv != null && keyv.matchingRow(row)) return state.getCandidate();
         if (haveNewCandidate) {
-          // TODO: we may have an optimization here which stops the search if we find exact match.
           sfIterator = this.storeEngine.getStoreFileManager().updateCandidateFilesForRowKeyBefore(
               sfIterator, state.getTargetKey(), state.getCandidate());
         }
@@ -1622,7 +1649,7 @@ public class HStore implements Store {
 
   @Override
   public KeyValueScanner getScanner(Scan scan,
-      final NavigableSet<byte []> targetCols) throws IOException {
+      final NavigableSet<byte []> targetCols, long readPt) throws IOException {
     lock.readLock().lock();
     try {
       KeyValueScanner scanner = null;
@@ -1630,7 +1657,7 @@ public class HStore implements Store {
         scanner = this.getCoprocessorHost().preStoreScannerOpen(this, scan, targetCols);
       }
       if (scanner == null) {
-        scanner = new StoreScanner(this, getScanInfo(), scan, targetCols);
+        scanner = new StoreScanner(this, getScanInfo(), scan, targetCols, readPt);
       }
       return scanner;
     } finally {

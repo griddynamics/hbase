@@ -31,8 +31,6 @@ import java.util.Iterator;
 import java.util.List;
 
 import org.apache.commons.httpclient.Header;
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hbase.Cell;
 import org.apache.hadoop.hbase.CellUtil;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
@@ -57,7 +55,6 @@ import org.junit.experimental.categories.Category;
 
 @Category(MediumTests.class)
 public class TestRemoteTable {
-  private static final Log LOG = LogFactory.getLog(TestRemoteTable.class);
   private static final String TABLE = "TestRemoteTable";
   private static final byte[] ROW_1 = Bytes.toBytes("testrow1");
   private static final byte[] ROW_2 = Bytes.toBytes("testrow2");
@@ -85,13 +82,18 @@ public class TestRemoteTable {
     TEST_UTIL.startMiniCluster();
     REST_TEST_UTIL.startServletContainer(TEST_UTIL.getConfiguration());
     HBaseAdmin admin = TEST_UTIL.getHBaseAdmin();
-    if (!admin.tableExists(TABLE)) {
-      HTableDescriptor htd = new HTableDescriptor(TableName.valueOf(TABLE));
-      htd.addFamily(new HColumnDescriptor(COLUMN_1).setMaxVersions(3));
-      htd.addFamily(new HColumnDescriptor(COLUMN_2).setMaxVersions(3));
-      htd.addFamily(new HColumnDescriptor(COLUMN_3).setMaxVersions(3));
-      admin.createTable(htd);
-      HTable table = new HTable(TEST_UTIL.getConfiguration(), TABLE);
+    if (admin.tableExists(TABLE)) {
+      if (admin.isTableEnabled(TABLE)) admin.disableTable(TABLE);
+      admin.deleteTable(TABLE);
+    }
+    HTableDescriptor htd = new HTableDescriptor(TableName.valueOf(TABLE));
+    htd.addFamily(new HColumnDescriptor(COLUMN_1).setMaxVersions(3));
+    htd.addFamily(new HColumnDescriptor(COLUMN_2).setMaxVersions(3));
+    htd.addFamily(new HColumnDescriptor(COLUMN_3).setMaxVersions(3));
+    admin.createTable(htd);
+    HTable table = null;
+    try {
+      table = new HTable(TEST_UTIL.getConfiguration(), TABLE);
       Put put = new Put(ROW_1);
       put.add(COLUMN_1, QUALIFIER_1, TS_2, VALUE_1);
       table.put(put);
@@ -101,7 +103,8 @@ public class TestRemoteTable {
       put.add(COLUMN_2, QUALIFIER_2, TS_2, VALUE_2);
       table.put(put);
       table.flushCommits();
-      table.close();
+    } finally {
+      if (null != table) table.close();
     }
     remoteTable = new RemoteHTable(
       new Client(new Cluster().add("localhost", 
@@ -118,9 +121,14 @@ public class TestRemoteTable {
 
   @Test
   public void testGetTableDescriptor() throws IOException {
-    HTableDescriptor local = new HTable(TEST_UTIL.getConfiguration(),
-      TABLE).getTableDescriptor();
-    assertEquals(remoteTable.getTableDescriptor(), local);
+    HTable table = null;
+    try {
+      table = new HTable(TEST_UTIL.getConfiguration(), TABLE);
+      HTableDescriptor local = table.getTableDescriptor();
+      assertEquals(remoteTable.getTableDescriptor(), local);
+    } finally {
+      if (null != table) table.close();
+    }
   }
 
   @Test
@@ -152,7 +160,7 @@ public class TestRemoteTable {
     assertNull(value2);
 
     get = new Get(ROW_2);
-    result = remoteTable.get(get);    
+    result = remoteTable.get(get);
     value1 = result.getValue(COLUMN_1, QUALIFIER_1);
     value2 = result.getValue(COLUMN_2, QUALIFIER_2);
     assertNotNull(value1);
@@ -162,7 +170,7 @@ public class TestRemoteTable {
 
     get = new Get(ROW_2);
     get.addFamily(COLUMN_1);
-    result = remoteTable.get(get);    
+    result = remoteTable.get(get);
     value1 = result.getValue(COLUMN_1, QUALIFIER_1);
     value2 = result.getValue(COLUMN_2, QUALIFIER_2);
     assertNotNull(value1);
@@ -172,7 +180,7 @@ public class TestRemoteTable {
     get = new Get(ROW_2);
     get.addColumn(COLUMN_1, QUALIFIER_1);
     get.addColumn(COLUMN_2, QUALIFIER_2);
-    result = remoteTable.get(get);    
+    result = remoteTable.get(get);
     value1 = result.getValue(COLUMN_1, QUALIFIER_1);
     value2 = result.getValue(COLUMN_2, QUALIFIER_2);
     assertNotNull(value1);
@@ -186,7 +194,7 @@ public class TestRemoteTable {
     get.addFamily(COLUMN_1);
     get.addFamily(COLUMN_2);
     get.setTimeStamp(TS_1);
-    result = remoteTable.get(get);    
+    result = remoteTable.get(get);
     value1 = result.getValue(COLUMN_1, QUALIFIER_1);
     value2 = result.getValue(COLUMN_2, QUALIFIER_2);
     assertNotNull(value1);
@@ -199,7 +207,7 @@ public class TestRemoteTable {
     get.addFamily(COLUMN_1);
     get.addFamily(COLUMN_2);
     get.setTimeRange(0, TS_1 + 1);
-    result = remoteTable.get(get);    
+    result = remoteTable.get(get);
     value1 = result.getValue(COLUMN_1, QUALIFIER_1);
     value2 = result.getValue(COLUMN_2, QUALIFIER_2);
     assertNotNull(value1);
@@ -336,7 +344,7 @@ public class TestRemoteTable {
     Delete delete = new Delete(ROW_3);
     delete.deleteColumn(COLUMN_2, QUALIFIER_2);
     remoteTable.delete(delete);
-    
+
     get = new Get(ROW_3);
     get.addFamily(COLUMN_1);
     get.addFamily(COLUMN_2);
@@ -360,7 +368,7 @@ public class TestRemoteTable {
     assertNotNull(value1);
     assertTrue(Bytes.equals(VALUE_1, value1));
     assertNull(value2);
-    
+
     delete = new Delete(ROW_3);
     remoteTable.delete(delete);
 
@@ -371,7 +379,7 @@ public class TestRemoteTable {
     value1 = result.getValue(COLUMN_1, QUALIFIER_1);
     value2 = result.getValue(COLUMN_2, QUALIFIER_2);
     assertNull(value1);
-    assertNull(value2);            
+    assertNull(value2);
   }
   /**
    * Test a inner class Scanner 
