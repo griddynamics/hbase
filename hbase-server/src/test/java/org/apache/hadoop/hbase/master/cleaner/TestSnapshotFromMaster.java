@@ -33,23 +33,23 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.HConstants;
+import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.MediumTests;
+import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.HBaseAdmin;
 import org.apache.hadoop.hbase.client.HTable;
 import org.apache.hadoop.hbase.master.HMaster;
 import org.apache.hadoop.hbase.master.snapshot.DisabledTableSnapshotHandler;
 import org.apache.hadoop.hbase.master.snapshot.SnapshotHFileCleaner;
 import org.apache.hadoop.hbase.master.snapshot.SnapshotManager;
-import org.apache.hadoop.hbase.protobuf.ProtobufUtil;
 import org.apache.hadoop.hbase.protobuf.generated.HBaseProtos.SnapshotDescription;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.DeleteSnapshotRequest;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.IsSnapshotDoneRequest;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.IsSnapshotDoneResponse;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.GetCompletedSnapshotsRequest;
-import org.apache.hadoop.hbase.protobuf.generated.MasterAdminProtos.GetCompletedSnapshotsResponse;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.DeleteSnapshotRequest;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.GetCompletedSnapshotsRequest;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.GetCompletedSnapshotsResponse;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.IsSnapshotDoneRequest;
+import org.apache.hadoop.hbase.protobuf.generated.MasterProtos.IsSnapshotDoneResponse;
 import org.apache.hadoop.hbase.regionserver.ConstantSizeRegionSplitPolicy;
 import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.snapshot.SnapshotDescriptionUtils;
@@ -280,23 +280,36 @@ public class TestSnapshotFromMaster {
     HBaseAdmin admin = UTIL.getHBaseAdmin();
     // make sure we don't fail on listing snapshots
     SnapshotTestingUtils.assertNoSnapshots(admin);
+
+    // recreate test table with disabled compactions; otherwise compaction may happen before
+    // snapshot, the call after snapshot will be a no-op and checks will fail
+    UTIL.deleteTable(TABLE_NAME);
+    HTableDescriptor htd = new HTableDescriptor(TABLE_NAME);
+    htd.setCompactionEnabled(false);
+    UTIL.createTable(htd, new byte[][] { TEST_FAM }, UTIL.getConfiguration());
     // load the table (creates 4 hfiles)
+    UTIL.loadTable(new HTable(UTIL.getConfiguration(), TABLE_NAME), TEST_FAM);
+    UTIL.flush(TABLE_NAME);
+    // Put some more data into the table so for sure we get more storefiles.
     UTIL.loadTable(new HTable(UTIL.getConfiguration(), TABLE_NAME), TEST_FAM);
 
     // disable the table so we can take a snapshot
     admin.disableTable(TABLE_NAME);
+    htd.setCompactionEnabled(true);
 
     // take a snapshot of the table
     String snapshotName = "snapshot";
     byte[] snapshotNameBytes = Bytes.toBytes(snapshotName);
     admin.snapshot(snapshotNameBytes, TABLE_NAME);
 
-    Configuration conf = master.getConfiguration();
     LOG.info("After snapshot File-System state");
     FSUtils.logFileSystemState(fs, rootDir, LOG);
 
     // ensure we only have one snapshot
     SnapshotTestingUtils.assertOneSnapshotThatMatches(admin, snapshotNameBytes, TABLE_NAME);
+
+    // enable compactions now
+    admin.modifyTable(TABLE_NAME, htd);
 
     // renable the table so we can compact the regions
     admin.enableTable(TABLE_NAME);
@@ -318,19 +331,19 @@ public class TestSnapshotFromMaster {
 
     // get the snapshot files for the table
     Path snapshotTable = SnapshotDescriptionUtils.getCompletedSnapshotDir(snapshotName, rootDir);
-    FileStatus[] snapshotHFiles = SnapshotTestingUtils.listHFiles(fs, snapshotTable);
+    Path[] snapshotHFiles = SnapshotTestingUtils.listHFiles(fs, snapshotTable);
     // check that the files in the archive contain the ones that we need for the snapshot
     LOG.debug("Have snapshot hfiles:");
-    for (FileStatus file : snapshotHFiles) {
-      LOG.debug(file.getPath());
+    for (Path file : snapshotHFiles) {
+      LOG.debug(file);
     }
     // get the archived files for the table
     Collection<String> files = getArchivedHFiles(archiveDir, rootDir, fs, TABLE_NAME);
 
     // and make sure that there is a proper subset
-    for (FileStatus file : snapshotHFiles) {
-      assertTrue("Archived hfiles " + files + " is missing snapshot file:" + file.getPath(),
-        files.contains(file.getPath().getName()));
+    for (Path file : snapshotHFiles) {
+      assertTrue("Archived hfiles " + files + " is missing snapshot file:" + file,
+        files.contains(file.getName()));
     }
 
     // delete the existing snapshot
@@ -364,12 +377,12 @@ public class TestSnapshotFromMaster {
   private final Collection<String> getArchivedHFiles(Path archiveDir, Path rootDir,
       FileSystem fs, TableName tableName) throws IOException {
     Path tableArchive = FSUtils.getTableDir(archiveDir, tableName);
-    FileStatus[] archivedHFiles = SnapshotTestingUtils.listHFiles(fs, tableArchive);
+    Path[] archivedHFiles = SnapshotTestingUtils.listHFiles(fs, tableArchive);
     List<String> files = new ArrayList<String>(archivedHFiles.length);
     LOG.debug("Have archived hfiles: " + tableArchive);
-    for (FileStatus file : archivedHFiles) {
-      LOG.debug(file.getPath());
-      files.add(file.getPath().getName());
+    for (Path file : archivedHFiles) {
+      LOG.debug(file);
+      files.add(file.getName());
     }
     // sort the archived files
 

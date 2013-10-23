@@ -145,8 +145,9 @@ public class TestHLog  {
     // Run the HPE tool with three threads writing 3000 edits each concurrently.
     // When done, verify that all edits were written and that the order in the
     // WALs is of ascending edit sequence ids.
-    int errCode =
-      HLogPerformanceEvaluation.innerMain(new String [] {"-threads", "3", "-verify", "-iterations", "3000"});
+    int errCode = HLogPerformanceEvaluation.
+      innerMain(new Configuration(TEST_UTIL.getConfiguration()),
+        new String [] {"-threads", "3", "-verify", "-noclosefs", "-iterations", "3000"});
     assertEquals(0, errCode);
   }
 
@@ -794,7 +795,7 @@ public class TestHLog  {
       fs.mkdirs(dir);
       // Write log in pre-PB format.
       sflw = new SequenceFileLogWriter();
-      sflw.init(fs, path, conf);
+      sflw.init(fs, path, conf, false);
       for (int i = 0; i < recordCount; ++i) {
         HLogKey key = new HLogKey(
             hri.getEncodedNameAsBytes(), tableName, i, timestamp, HConstants.DEFAULT_CLUSTER_ID);
@@ -869,6 +870,8 @@ public class TestHLog  {
     final byte[] row = Bytes.toBytes("row");
     long timestamp = System.currentTimeMillis();
     Path path = new Path(dir, "temphlog");
+    // delete the log if already exists, for test only
+    fs.delete(path, true);
     HLog.Writer writer = null;
     HLog.Reader reader = null;
     try {
@@ -877,7 +880,7 @@ public class TestHLog  {
       HTableDescriptor htd = new HTableDescriptor(tableName);
       fs.mkdirs(dir);
       // Write log in pb format.
-      writer = HLogFactory.createWriter(fs, path, conf);
+      writer = HLogFactory.createWALWriter(fs, path, conf);
       for (int i = 0; i < recordCount; ++i) {
         HLogKey key = new HLogKey(
             hri.getEncodedNameAsBytes(), tableName, i, timestamp, HConstants.DEFAULT_CLUSTER_ID);

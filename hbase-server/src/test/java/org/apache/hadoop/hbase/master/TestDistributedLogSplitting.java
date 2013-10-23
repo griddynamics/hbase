@@ -53,6 +53,7 @@ import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.HBaseConfiguration;
 import org.apache.hadoop.hbase.HBaseTestingUtility;
@@ -260,7 +261,6 @@ public class TestDistributedLogSplitting {
     // they will consume recovered.edits
     master.balanceSwitch(false);
 
-    List<RegionServerThread> rsts = cluster.getLiveRegionServerThreads();
     final ZooKeeperWatcher zkw = new ZooKeeperWatcher(conf, "table-creation", null);
     HTable ht = installTable(zkw, "table", "family", NUM_REGIONS_TO_CREATE);
 
@@ -285,7 +285,6 @@ public class TestDistributedLogSplitting {
     // they will consume recovered.edits
     master.balanceSwitch(false);
 
-    List<RegionServerThread> rsts = cluster.getLiveRegionServerThreads();
     final ZooKeeperWatcher zkw = new ZooKeeperWatcher(conf, "table-creation", null);
     HTable ht = installTable(zkw, "table", "family", NUM_REGIONS_TO_CREATE);
 
@@ -817,7 +816,7 @@ public class TestDistributedLogSplitting {
       if (key == null || key.length == 0) {
         key = new byte[] { 0, 0, 0, 0, 1 };
       }
-      ht.setAutoFlush(true);
+      ht.setAutoFlush(true, true);
       Put put = new Put(key);
       put.add(Bytes.toBytes("family"), Bytes.toBytes("c1"), new byte[]{'b'});
       ht.put(put);
@@ -1153,6 +1152,8 @@ public class TestDistributedLogSplitting {
       }
     }
     HTableDescriptor htd = new HTableDescriptor(fullTName);
+    byte[] family = Bytes.toBytes(fname);
+    htd.addFamily(new HColumnDescriptor(family));
     byte[] value = new byte[edit_size];
 
     List<HRegionInfo> hris = new ArrayList<HRegionInfo>();
@@ -1180,7 +1181,6 @@ public class TestDistributedLogSplitting {
         row = Arrays.copyOfRange(row, 3, 8); // use last 5 bytes because
                                              // HBaseTestingUtility.createMultiRegions use 5 bytes
                                              // key
-        byte[] family = Bytes.toBytes(fname);
         byte[] qualifier = Bytes.toBytes("c" + Integer.toString(i));
         e.add(new KeyValue(row, family, qualifier, System.currentTimeMillis(), value));
         log.append(curRegionInfo, fullTName, e, System.currentTimeMillis(), htd);
@@ -1229,7 +1229,7 @@ public class TestDistributedLogSplitting {
    * Load table with puts and deletes with expected values so that we can verify later
    */
   private void prepareData(final HTable t, final byte[] f, final byte[] column) throws IOException {
-    t.setAutoFlush(false);
+    t.setAutoFlush(false, true);
     byte[] k = new byte[3];
 
     // add puts
