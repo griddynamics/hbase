@@ -47,6 +47,9 @@ import org.apache.hadoop.hbase.io.encoding.DataBlockEncoding;
 import org.apache.hadoop.hbase.io.encoding.EncodedDataBlock;
 import org.apache.hadoop.hbase.io.hfile.CacheConfig;
 import org.apache.hadoop.hbase.io.hfile.HFileBlock;
+import org.apache.hadoop.hbase.io.hfile.HFileContext;
+import org.apache.hadoop.hbase.io.hfile.HFileContextBuilder;
+import org.apache.hadoop.hbase.io.hfile.HFileReaderV2;
 import org.apache.hadoop.hbase.io.hfile.NoOpDataBlockEncoder;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.io.compress.CompressionOutputStream;
@@ -122,7 +125,7 @@ public class DataBlockEncodingTool {
   private long totalCFLength = 0;
 
   private byte[] rawKVs;
-  private int minorVersion = 0;
+  private boolean useHBaseChecksum = false;
 
   private final String compressionAlgorithmName;
   private final Algorithm compressionAlgorithm;
@@ -206,13 +209,17 @@ public class DataBlockEncodingTool {
     }
 
     rawKVs = uncompressedOutputStream.toByteArray();
-
+    boolean useTag = (currentKV.getTagsLength() > 0);
     for (DataBlockEncoding encoding : encodings) {
       if (encoding == DataBlockEncoding.NONE) {
         continue;
       }
       DataBlockEncoder d = encoding.getEncoder();
-      codecs.add(new EncodedDataBlock(d, includesMemstoreTS, encoding, rawKVs));
+      HFileContext meta = new HFileContextBuilder()
+                          .withCompressionAlgo(Compression.Algorithm.NONE)
+                          .withIncludesMvcc(includesMemstoreTS)
+                          .withIncludesTags(useTag).build();
+      codecs.add(new EncodedDataBlock(d, encoding, rawKVs, meta ));
     }
   }
 
@@ -232,7 +239,7 @@ public class DataBlockEncodingTool {
     List<Iterator<Cell>> codecIterators =
         new ArrayList<Iterator<Cell>>();
     for(EncodedDataBlock codec : codecs) {
-      codecIterators.add(codec.getIterator(HFileBlock.headerSize(minorVersion)));
+      codecIterators.add(codec.getIterator(HFileBlock.headerSize(useHBaseChecksum)));
     }
 
     int j = 0;
@@ -325,7 +332,7 @@ public class DataBlockEncodingTool {
 
       Iterator<Cell> it;
 
-      it = codec.getIterator(HFileBlock.headerSize(minorVersion));
+      it = codec.getIterator(HFileBlock.headerSize(useHBaseChecksum));
 
       // count only the algorithm time, without memory allocations
       // (expect first time)
@@ -595,7 +602,9 @@ public class DataBlockEncodingTool {
 
     // run the utilities
     DataBlockEncodingTool comp = new DataBlockEncodingTool(compressionName);
-    comp.minorVersion = reader.getHFileMinorVersion();
+    int majorVersion = reader.getHFileVersion();
+    comp.useHBaseChecksum = majorVersion > 2
+        || (majorVersion == 2 && reader.getHFileMinorVersion() >= HFileReaderV2.MINOR_VERSION_WITH_CHECKSUM);
     comp.checkStatistics(scanner, kvLimit);
     if (doVerify) {
       comp.verifyCodecs(scanner, kvLimit);

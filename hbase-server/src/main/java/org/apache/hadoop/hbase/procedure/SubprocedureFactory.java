@@ -18,13 +18,11 @@
 package org.apache.hadoop.hbase.procedure;
 
 import org.apache.hadoop.classification.InterfaceAudience;
-import org.apache.hadoop.classification.InterfaceStability;
 
 /**
  * Task builder to build instances of a {@link ProcedureMember}'s {@link Subprocedure}s.
  */
-@InterfaceAudience.Public
-@InterfaceStability.Evolving
+@InterfaceAudience.Private
 public interface SubprocedureFactory {
 
   /**

@@ -23,11 +23,9 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 
 import java.io.IOException;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.NavigableSet;
-import java.util.concurrent.CountDownLatch;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
@@ -44,20 +42,20 @@ import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.Get;
 import org.apache.hadoop.hbase.client.HBaseAdmin;
 import org.apache.hadoop.hbase.client.HTable;
+import org.apache.hadoop.hbase.client.IsolationLevel;
 import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.filter.FilterBase;
 import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.regionserver.HRegionServer;
+import org.apache.hadoop.hbase.regionserver.HStore;
 import org.apache.hadoop.hbase.regionserver.InternalScanner;
 import org.apache.hadoop.hbase.regionserver.KeyValueScanner;
 import org.apache.hadoop.hbase.regionserver.RegionCoprocessorHost;
 import org.apache.hadoop.hbase.regionserver.ScanType;
 import org.apache.hadoop.hbase.regionserver.Store;
-import org.apache.hadoop.hbase.regionserver.StoreFile;
 import org.apache.hadoop.hbase.regionserver.StoreScanner;
-import org.apache.hadoop.hbase.regionserver.compactions.CompactionRequest;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
@@ -101,7 +99,8 @@ public class TestRegionObserverScannerOpenHook {
         Store store, Scan scan, NavigableSet<byte[]> targetCols, KeyValueScanner s)
         throws IOException {
       scan.setFilter(new NoDataFilter());
-      return new StoreScanner(store, store.getScanInfo(), scan, targetCols);
+      return new StoreScanner(store, store.getScanInfo(), scan, targetCols,
+        ((HStore)store).getHRegion().getReadpoint(IsolationLevel.READ_COMMITTED));
     }
   }
 
@@ -249,14 +248,8 @@ public class TestRegionObserverScannerOpenHook {
     admin.flush(region.getRegionName());
 
     // run a compaction, which normally would should get rid of the data
-    Store s = region.getStores().get(A);
-    CountDownLatch latch = new CountDownLatch(1);
-    WaitableCompactionRequest request = new WaitableCompactionRequest(s.getStorefiles(), latch);
-    rs.compactSplitThread.requestCompaction(region, s,
-      "compact for testRegionObserverCompactionTimeStacking", Store.PRIORITY_USER, request);
-    // wait for the compaction to complete
-    latch.await();
-
+    // wait for the compaction checker to complete
+    Thread.sleep(1000);
     // check both rows to ensure that they aren't there
     Get get = new Get(ROW);
     Result r = table.get(get);
@@ -272,27 +265,5 @@ public class TestRegionObserverScannerOpenHook {
 
     table.close();
     UTIL.shutdownMiniCluster();
-  }
-
-  /**
-   * A simple compaction on which you can wait for the passed in latch until the compaction finishes
-   * (either successfully or if it failed).
-   */
-  public static class WaitableCompactionRequest extends CompactionRequest {
-    private CountDownLatch done;
-
-    /**
-     * Constructor for a custom compaction. Uses the setXXX methods to update the state of the
-     * compaction before being used.
-     */
-    public WaitableCompactionRequest(Collection<StoreFile> files, CountDownLatch finished) {
-      super(files);
-      this.done = finished;
-    }
-
-    @Override
-    public void afterExecute() {
-      this.done.countDown();
-    }
   }
 }

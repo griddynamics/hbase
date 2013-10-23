@@ -18,6 +18,8 @@
  */
 package org.apache.hadoop.hbase.regionserver;
 
+import static org.junit.Assert.fail;
+
 import java.io.IOException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -25,6 +27,7 @@ import org.apache.hadoop.hbase.MediumTests;
 import org.apache.hadoop.hbase.RegionTooBusyException;
 import org.apache.hadoop.hbase.client.Get;
 import org.apache.hadoop.hbase.util.Bytes;
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
@@ -33,18 +36,19 @@ import org.junit.experimental.categories.Category;
  * We can't use parameterized test since TestHRegion is old fashion.
  */
 @Category(MediumTests.class)
-@SuppressWarnings("deprecation")
 public class TestHRegionBusyWait extends TestHRegion {
   // TODO: This subclass runs all the tests in TestHRegion as well as the test below which means
   // all TestHRegion tests are run twice.
-  public TestHRegionBusyWait() {
+  @Before
+  public void setup() throws IOException {
+    super.setup();
     conf.set("hbase.busy.wait.duration", "1000");
   }
 
   /**
    * Test RegionTooBusyException thrown when region is busy
    */
-  @Test (timeout=2000)
+  @Test (timeout=6000)
   public void testRegionTooBusy() throws IOException {
     String method = "testRegionTooBusy";
     byte[] tableName = Bytes.toBytes(method);
