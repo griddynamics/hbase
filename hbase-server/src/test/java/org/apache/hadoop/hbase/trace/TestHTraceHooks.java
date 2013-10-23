@@ -25,6 +25,7 @@ import java.util.Collection;
 
 import org.apache.hadoop.hbase.HBaseTestingUtility;
 import org.apache.hadoop.hbase.MediumTests;
+import org.apache.hadoop.hbase.Waiter;
 import org.apache.hadoop.hbase.client.HTable;
 import org.apache.hadoop.hbase.client.Put;
 import org.cloudera.htrace.Sampler;
@@ -71,6 +72,15 @@ public class TestHTraceHooks {
       tableCreationSpan.close();
     }
 
+    // Some table creation is async.  Need to make sure that everything is full in before
+    // checking to see if the spans are there.
+    TEST_UTIL.waitFor(1000, new Waiter.Predicate<Exception>() {
+      @Override
+      public boolean evaluate() throws Exception {
+        return rcvr.getSpans().size() >= 5;
+      }
+    });
+
     Collection<Span> spans = rcvr.getSpans();
     TraceTree traceTree = new TraceTree(spans);
     Collection<Span> roots = traceTree.getRoots();
@@ -85,7 +95,7 @@ public class TestHTraceHooks {
     int createTableCount = 0;
 
     for (Span s : spansByParentIdMap.get(createTableRoot.getSpanId())) {
-      if (s.getDescription().startsWith("MasterAdminService.CreateTable")) {
+      if (s.getDescription().startsWith("MasterService.CreateTable")) {
         createTableCount++;
       }
     }

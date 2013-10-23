@@ -135,7 +135,7 @@ public class MemStore implements HeapSize {
 
   /**
    * Creates a snapshot of the current memstore.
-   * Snapshot must be cleared by call to {@link #clearSnapshot(SortedSet<KeyValue>)}
+   * Snapshot must be cleared by call to {@link #clearSnapshot(SortedSet)}
    * To get the snapshot made by this method, use {@link #getSnapshot()}
    */
   void snapshot() {
@@ -172,8 +172,8 @@ public class MemStore implements HeapSize {
    * Called by flusher to get current snapshot made by a previous
    * call to {@link #snapshot()}
    * @return Return snapshot.
-   * @see {@link #snapshot()}
-   * @see {@link #clearSnapshot(SortedSet<KeyValue>)}
+   * @see #snapshot()
+   * @see #clearSnapshot(SortedSet)
    */
   KeyValueSkipListSet getSnapshot() {
     return this.snapshot;
@@ -183,7 +183,7 @@ public class MemStore implements HeapSize {
    * The passed snapshot was successfully persisted; it can be let go.
    * @param ss The snapshot to clean out.
    * @throws UnexpectedException
-   * @see {@link #snapshot()}
+   * @see #snapshot()
    */
   void clearSnapshot(final SortedSet<KeyValue> ss)
   throws UnexpectedException {
@@ -674,11 +674,11 @@ public class MemStore implements HeapSize {
   /**
    * @return scanner on memstore and snapshot in this order.
    */
-  List<KeyValueScanner> getScanners() {
+  List<KeyValueScanner> getScanners(long readPt) {
     this.lock.readLock().lock();
     try {
       return Collections.<KeyValueScanner>singletonList(
-          new MemStoreScanner());
+          new MemStoreScanner(readPt));
     } finally {
       this.lock.readLock().unlock();
     }
@@ -730,6 +730,8 @@ public class MemStore implements HeapSize {
     // The allocator and snapshot allocator at the time of creating this scanner
     volatile MemStoreLAB allocatorAtCreation;
     volatile MemStoreLAB snapshotAllocatorAtCreation;
+    
+    private long readPoint;
 
     /*
     Some notes...
@@ -752,9 +754,10 @@ public class MemStore implements HeapSize {
       the adds to kvset in the MemStoreScanner.
     */
 
-    MemStoreScanner() {
+    MemStoreScanner(long readPoint) {
       super();
 
+      this.readPoint = readPoint;
       kvsetAtCreation = kvset;
       snapshotAtCreation = snapshot;
       if (allocator != null) {
@@ -768,13 +771,11 @@ public class MemStore implements HeapSize {
     }
 
     private KeyValue getNext(Iterator<KeyValue> it) {
-      long readPoint = MultiVersionConsistencyControl.getThreadReadPoint();
-
       KeyValue v = null;
       try {
         while (it.hasNext()) {
           v = it.next();
-          if (v.getMvccVersion() <= readPoint) {
+          if (v.getMvccVersion() <= this.readPoint) {
             return v;
           }
         }
@@ -962,8 +963,8 @@ public class MemStore implements HeapSize {
 
   public final static long DEEP_OVERHEAD = ClassSize.align(FIXED_OVERHEAD +
       ClassSize.REENTRANT_LOCK + ClassSize.ATOMIC_LONG +
-      ClassSize.COPYONWRITE_ARRAYSET + ClassSize.COPYONWRITE_ARRAYLIST +
-      (2 * ClassSize.CONCURRENT_SKIPLISTMAP));
+      (2 * ClassSize.TIMERANGE_TRACKER) +
+      (2 * ClassSize.KEYVALUE_SKIPLIST_SET) + (2 * ClassSize.CONCURRENT_SKIPLISTMAP));
 
   /** Used for readability when we don't store memstore timestamp in HFile */
   public static final boolean NO_PERSISTENT_TS = false;

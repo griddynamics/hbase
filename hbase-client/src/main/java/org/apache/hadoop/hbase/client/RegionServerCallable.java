@@ -26,6 +26,7 @@ import java.net.SocketTimeoutException;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.classification.InterfaceAudience;
+import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.HRegionLocation;
 import org.apache.hadoop.hbase.NotServingRegionException;
 import org.apache.hadoop.hbase.TableName;
@@ -116,7 +117,7 @@ public abstract class RegionServerCallable<T> implements RetryingCallable<T> {
       // if thrown these exceptions, we clear all the cache entries that
       // map to that slow/dead server; otherwise, let cache miss and ask
       // hbase:meta again to find the new location
-      getConnection().clearCaches(location.getServerName());
+      if (this.location != null) getConnection().clearCaches(location.getServerName());
     } else if (t instanceof RegionMovedException) {
       getConnection().updateCachedLocations(tableName, row, t, location);
     } else if (t instanceof NotServingRegionException && !retrying) {
@@ -135,10 +136,20 @@ public abstract class RegionServerCallable<T> implements RetryingCallable<T> {
   public long sleep(long pause, int tries) {
     // Tries hasn't been bumped up yet so we use "tries + 1" to get right pause time
     long sleep = ConnectionUtils.getPauseTime(pause, tries + 1);
-    if (sleep < MIN_WAIT_DEAD_SERVER 
+    if (sleep < MIN_WAIT_DEAD_SERVER
         && (location == null || getConnection().isDeadServer(location.getServerName()))) {
       sleep = ConnectionUtils.addJitter(MIN_WAIT_DEAD_SERVER, 0.10f);
     }
     return sleep;
+  }
+
+  /**
+   * @return the HRegionInfo for the current region
+   */
+  public HRegionInfo getHRegionInfo() {
+    if (this.location == null) {
+      return null;
+    }
+    return this.location.getRegionInfo();
   }
 }

@@ -35,11 +35,11 @@ This defaults to /tmp/jdiff but can optionally be specified by export $JDIFF_WOR
          stats="on">
     <old name="V1">
       <!-- This is the location of your old source files -->
-      <dirset dir="./p-${OLD_BRANCH}/hbase/src/main/java" includes="**" />
+      <dirset dir="${OLD_BRANCH}/src/main/java" includes="**" />
     </old>
     <new name="V2">
       <!-- This is the location of your new source files -->
-      <dirset dir="./c-${NEW_BRANCH}/hbase/src/main/java" includes="**" />
+      <dirset dir="${NEW_BRANCH}/src/main/java" includes="**" />
     </new>
   </jdiff>
 </target>
