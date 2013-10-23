@@ -321,8 +321,9 @@ public class TestRemoteTable {
     
     assertTrue(Bytes.equals(Bytes.toBytes("TestRemoteTable"), remoteTable.getTableName()));
   }
+  
   /**
-   * Test function delete
+   * Test delete method
    */
   @Test
   public void testDelete() throws IOException {
@@ -382,8 +383,9 @@ public class TestRemoteTable {
     assertNull(value1);
     assertNull(value2);
   }
+  
   /**
-   * Test a inner class Scanner 
+   * Test RemoteHTable.Scanner 
    */
   @Test
   public void testScanner() throws IOException {
@@ -448,10 +450,10 @@ public class TestRemoteTable {
   }
   
   /**
-   * Test  a method checkAndDelete 
+   * Test checkAndDelete method
    */
   @Test
-  public void testExist() throws IOException {
+  public void testCheckAndDelete() throws IOException {
     Get get = new Get(ROW_1);
     Result result = remoteTable.get(get);
     byte[] value1 = result.getValue(COLUMN_1, QUALIFIER_1);
@@ -460,23 +462,24 @@ public class TestRemoteTable {
     assertTrue(Bytes.equals(VALUE_1, value1));
     assertNull(value2);
     assertTrue(remoteTable.exists(get));
-    assertEquals(1,remoteTable.exists(Collections.singletonList(get)).length);
-    Delete delete=new Delete(ROW_1);
-    
-    remoteTable.checkAndDelete(ROW_1,COLUMN_1,QUALIFIER_1,VALUE_1,delete);
+    assertEquals(1, remoteTable.exists(Collections.singletonList(get)).length);
+    Delete delete = new Delete(ROW_1);
+
+    remoteTable.checkAndDelete(ROW_1, COLUMN_1, QUALIFIER_1, VALUE_1, delete);
     assertFalse(remoteTable.exists(get));
-   
+
     Put put = new Put(ROW_1);
     put.add(COLUMN_1, QUALIFIER_1, VALUE_1);
     remoteTable.put(put);
-    
-   assertTrue(remoteTable.checkAndPut(ROW_1, COLUMN_1, QUALIFIER_1, VALUE_1, put));
-   assertFalse(remoteTable.checkAndPut(ROW_1, COLUMN_1, QUALIFIER_1, VALUE_2, put));
 
+    assertTrue(remoteTable.checkAndPut(ROW_1, COLUMN_1, QUALIFIER_1, VALUE_1,
+        put));
+    assertFalse(remoteTable.checkAndPut(ROW_1, COLUMN_1, QUALIFIER_1, VALUE_2,
+        put));
   }
   
   /**
-   * Test a method next from class Scanner  
+   * Test RemoteHable.Scanner.iterator method  
    */
   @Test
   public void testIteratorScaner() throws IOException {
@@ -496,10 +499,10 @@ public class TestRemoteTable {
     remoteTable.put(puts);
 
     ResultScanner scanner = remoteTable.getScanner(new Scan());
-    Iterator<Result>  iterator=scanner.iterator();
+    Iterator<Result> iterator = scanner.iterator();
     assertTrue(iterator.hasNext());
-    int counter=0;
-    while(iterator.hasNext()){
+    int counter = 0;
+    while (iterator.hasNext()) {
       iterator.next();
       counter++;
     }
@@ -507,29 +510,27 @@ public class TestRemoteTable {
   }
   
   /**
-   * Test a some methods of class Responce.
+   * Test a some methods of class Response.
    */
   @Test
   public void testResponse(){
-    Response responce= new Response(200);
-    assertEquals(200, responce.getCode());
-    Header [] headers= new Header[2];
-    headers[0]= new Header("header1","value1");
-    headers[1]= new Header("header2","value2");
-    responce= new Response(200,headers);
-    assertEquals("value1", responce.getHeader("header1"));
-    assertFalse(responce.hasBody());
-    responce.setCode(404);
-    assertEquals(404, responce.getCode());
-    headers= new Header[2];
-    headers[0]= new Header("header1","value1.1");
-    headers[1]= new Header("header2","value2");
-    responce.setHeaders(headers);
-    assertEquals("value1.1", responce.getHeader("header1"));
-    responce.setBody(Bytes.toBytes("body"));
-    assertTrue(responce.hasBody());
-    
-    
+    Response response = new Response(200);
+    assertEquals(200, response.getCode());
+    Header[] headers = new Header[2];
+    headers[0] = new Header("header1", "value1");
+    headers[1] = new Header("header2", "value2");
+    response = new Response(200, headers);
+    assertEquals("value1", response.getHeader("header1"));
+    assertFalse(response.hasBody());
+    response.setCode(404);
+    assertEquals(404, response.getCode());
+    headers = new Header[2];
+    headers[0] = new Header("header1", "value1.1");
+    headers[1] = new Header("header2", "value2");
+    response.setHeaders(headers);
+    assertEquals("value1.1", response.getHeader("header1"));
+    response.setBody(Bytes.toBytes("body"));
+    assertTrue(response.hasBody());    
   }
   
 }
