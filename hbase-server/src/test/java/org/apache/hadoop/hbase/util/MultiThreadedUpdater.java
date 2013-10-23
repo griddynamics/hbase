@@ -79,9 +79,9 @@ public class MultiThreadedUpdater extends MultiThreadedWriterBase {
   }
 
   @Override
-  public void start(long startKey, long endKey, int numThreads)
-      throws IOException {
-    super.start(startKey, endKey, numThreads);
+  public void start(long startKey, long endKey, int numThreads, boolean useTags, int minNumTags,
+      int maxNumTags) throws IOException {
+    super.start(startKey, endKey, numThreads, useTags, minNumTags, maxNumTags);
 
     if (verbose) {
       LOG.debug("Updating keys [" + startKey + ", " + endKey + ")");
@@ -180,7 +180,7 @@ public class MultiThreadedUpdater extends MultiThreadedWriterBase {
                 byte[] hashCodeBytes = Bytes.toBytes(hashCode);
                 byte[] checkedValue = HConstants.EMPTY_BYTE_ARRAY;
                 if (hashCode % 2 == 0) {
-                  Cell kv = result.getColumnLatest(cf, column);
+                  Cell kv = result.getColumnLatestCell(cf, column);
                   checkedValue = kv != null ? CellUtil.cloneValue(kv) : null;
                   Preconditions.checkNotNull(checkedValue,
                     "Column value to be checked should not be null");

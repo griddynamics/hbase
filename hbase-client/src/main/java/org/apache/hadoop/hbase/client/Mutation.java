@@ -35,10 +35,12 @@ import org.apache.hadoop.hbase.CellUtil;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.KeyValueUtil;
+import org.apache.hadoop.hbase.Tag;
 import org.apache.hadoop.hbase.io.HeapSize;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.ClassSize;
 
+import com.google.common.collect.Lists;
 import com.google.common.io.ByteArrayDataInput;
 import com.google.common.io.ByteArrayDataOutput;
 import com.google.common.io.ByteStreams;
@@ -95,12 +97,26 @@ public abstract class Mutation extends OperationWithAttributes implements Row, C
   }
 
   /*
-   * Create a nnnnnnnn with this objects row key and the Put identifier.
+   * Create a KeyValue with this objects row key and the Put identifier.
    *
    * @return a KeyValue with this objects row key and the Put identifier.
    */
   KeyValue createPutKeyValue(byte[] family, byte[] qualifier, long ts, byte[] value) {
     return new KeyValue(this.row, family, qualifier, ts, KeyValue.Type.Put, value);
+  }
+
+  /**
+   * Create a KeyValue with this objects row key and the Put identifier.
+   * @param family
+   * @param qualifier
+   * @param ts
+   * @param value
+   * @param tags - Specify the Tags as an Array {@link KeyValue.Tag}
+   * @return a KeyValue with this objects row key and the Put identifier.
+   */
+  KeyValue createPutKeyValue(byte[] family, byte[] qualifier, long ts, byte[] value, Tag[] tags) {
+    KeyValue kvWithTag = new KeyValue(this.row, family, qualifier, ts, value, tags);
+    return kvWithTag;
   }
 
   /**
@@ -195,10 +211,23 @@ public abstract class Mutation extends OperationWithAttributes implements Row, C
   /**
    * Method for setting the put's familyMap
    */
-  public void setFamilyMap(NavigableMap<byte [], List<Cell>> map) {
+  public void setFamilyCellMap(NavigableMap<byte [], List<Cell>> map) {
     // TODO: Shut this down or move it up to be a Constructor.  Get new object rather than change
     // this internal data member.
     this.familyMap = map;
+  }
+
+  /**
+   * Method for setting the put's familyMap that is deprecated and inefficient.
+   * @deprecated use {@link #setFamilyCellMap(NavigableMap)} instead.
+   */
+  @Deprecated
+  public void setFamilyMap(NavigableMap<byte [], List<KeyValue>> map) {
+    TreeMap<byte[], List<Cell>> fm = new TreeMap<byte[], List<Cell>>(Bytes.BYTES_COMPARATOR);
+    for (Map.Entry<byte[], List<KeyValue>> e : map.entrySet()) {
+      fm.put(e.getKey(), Lists.<Cell>newArrayList(e.getValue()));
+    }
+    this.familyMap = fm;
   }
 
   /**

@@ -570,7 +570,7 @@ public final class HConstants {
   /**
    * Default value of {@link #HBASE_CLIENT_PAUSE}.
    */
-  public static long DEFAULT_HBASE_CLIENT_PAUSE = 1000;
+  public static long DEFAULT_HBASE_CLIENT_PAUSE = 100;
 
   /**
    * Parameter name for server pause value, used mostly as value to wait before
@@ -689,6 +689,8 @@ public final class HConstants {
    */
   public static final String
       REPLICATION_ENABLE_KEY = "hbase.replication";
+  public static final boolean
+      REPLICATION_ENABLE_DEFAULT = true;
   public static final String
       REPLICATION_SOURCE_SERVICE_CLASSNAME = "hbase.replication.source.service";
   public static final String
@@ -846,7 +848,11 @@ public final class HConstants {
 
   /** Temporary directory used for table creation and deletion */
   public static final String HBASE_TEMP_DIRECTORY = ".tmp";
-
+  /**
+   * The period (in milliseconds) between computing region server point in time metrics
+   */
+  public static final String REGIONSERVER_METRICS_PERIOD = "hbase.regionserver.metrics.period";
+  public static final long DEFAULT_REGIONSERVER_METRICS_PERIOD = 5000;
   /** Directories that are not HBase table directories */
   public static final List<String> HBASE_NON_TABLE_DIRS =
     Collections.unmodifiableList(Arrays.asList(new String[] { HREGION_LOGDIR_NAME,

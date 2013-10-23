@@ -22,8 +22,11 @@ import java.util.NavigableSet;
 
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.Cell;
 import org.apache.hadoop.hbase.CoprocessorEnvironment;
+import org.apache.hadoop.hbase.HBaseInterfaceAudience;
 import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.KeyValueUtil;
@@ -38,6 +41,10 @@ import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.filter.ByteArrayComparable;
 import org.apache.hadoop.hbase.filter.CompareFilter.CompareOp;
+import org.apache.hadoop.hbase.io.FSDataInputStreamWrapper;
+import org.apache.hadoop.hbase.io.Reference;
+import org.apache.hadoop.hbase.io.encoding.DataBlockEncoding;
+import org.apache.hadoop.hbase.io.hfile.CacheConfig;
 import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.regionserver.InternalScanner;
 import org.apache.hadoop.hbase.regionserver.KeyValueScanner;
@@ -46,6 +53,7 @@ import org.apache.hadoop.hbase.regionserver.RegionScanner;
 import org.apache.hadoop.hbase.regionserver.ScanType;
 import org.apache.hadoop.hbase.regionserver.Store;
 import org.apache.hadoop.hbase.regionserver.StoreFile;
+import org.apache.hadoop.hbase.regionserver.StoreFile.Reader;
 import org.apache.hadoop.hbase.regionserver.compactions.CompactionRequest;
 import org.apache.hadoop.hbase.regionserver.wal.HLogKey;
 import org.apache.hadoop.hbase.regionserver.wal.WALEdit;
@@ -59,7 +67,7 @@ import com.google.common.collect.ImmutableList;
  * By extending it, you can create your own region observer without
  * overriding all abstract methods of RegionObserver.
  */
-@InterfaceAudience.Public
+@InterfaceAudience.LimitedPrivate(HBaseInterfaceAudience.COPROC)
 @InterfaceStability.Evolving
 public abstract class BaseRegionObserver implements RegionObserver {
   @Override
@@ -115,6 +123,16 @@ public abstract class BaseRegionObserver implements RegionObserver {
   @Override
   public void preSplit(ObserverContext<RegionCoprocessorEnvironment> c,
       byte[] splitRow) throws IOException {
+  }
+
+  @Override
+  public void preSplitBeforePONR(ObserverContext<RegionCoprocessorEnvironment> ctx,
+      byte[] splitKey, List<Mutation> metaEntries) throws IOException {
+  }
+  
+  @Override
+  public void preSplitAfterPONR(
+      ObserverContext<RegionCoprocessorEnvironment> ctx) throws IOException {
   }
   
   @Override
@@ -444,5 +462,19 @@ public abstract class BaseRegionObserver implements RegionObserver {
   public boolean postBulkLoadHFile(ObserverContext<RegionCoprocessorEnvironment> ctx,
     List<Pair<byte[], String>> familyPaths, boolean hasLoaded) throws IOException {
     return hasLoaded;
+  }
+
+  @Override
+  public Reader preStoreFileReaderOpen(ObserverContext<RegionCoprocessorEnvironment> ctx,
+      FileSystem fs, Path p, FSDataInputStreamWrapper in, long size, CacheConfig cacheConf,
+      DataBlockEncoding preferredEncodingInCache, Reference r, Reader reader) throws IOException {
+    return reader;
+  }
+
+  @Override
+  public Reader postStoreFileReaderOpen(ObserverContext<RegionCoprocessorEnvironment> ctx,
+      FileSystem fs, Path p, FSDataInputStreamWrapper in, long size, CacheConfig cacheConf,
+      DataBlockEncoding preferredEncodingInCache, Reference r, Reader reader) throws IOException {
+    return reader;
   }
 }

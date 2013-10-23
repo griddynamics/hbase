@@ -86,6 +86,7 @@ import org.apache.hadoop.hbase.client.RowMutations;
 import org.apache.hadoop.hbase.io.hfile.CacheConfig;
 import org.apache.hadoop.hbase.io.hfile.HFile;
 import org.apache.hadoop.hbase.master.MasterFileSystem;
+import org.apache.hadoop.hbase.master.RegionState;
 import org.apache.hadoop.hbase.protobuf.ProtobufUtil;
 import org.apache.hadoop.hbase.protobuf.generated.AdminProtos.AdminService.BlockingInterface;
 import org.apache.hadoop.hbase.regionserver.HRegion;
@@ -328,6 +329,18 @@ public class HBaseFsck extends Configured implements Tool {
     if (details) {
       for (ServerName name: backupMasters) {
         errors.print("  " + name);
+      }
+    }
+
+    errors.print("Average load: " + status.getAverageLoad());
+    errors.print("Number of requests: " + status.getRequestsCount());
+    errors.print("Number of regions: " + status.getRegionsCount());
+
+    Map<String, RegionState> rits = status.getRegionsInTransition();
+    errors.print("Number of regions in transition: " + rits.size());
+    if (details) {
+      for (RegionState state: rits.values()) {
+        errors.print("  " + state.toDescriptiveString());
       }
     }
 
@@ -794,6 +807,8 @@ public class HBaseFsck extends Configured implements Tool {
       }
     }
 
+    Path hbaseRoot = FSUtils.getRootDir(getConf());
+    FileSystem fs = hbaseRoot.getFileSystem(getConf());
     // serialized table info gathering.
     for (HbckInfo hbi: hbckInfos) {
 
@@ -815,12 +830,10 @@ public class HBaseFsck extends Configured implements Tool {
       if (modTInfo == null) {
         // only executed once per table.
         modTInfo = new TableInfo(tableName);
-        Path hbaseRoot = FSUtils.getRootDir(getConf());
         tablesInfo.put(tableName, modTInfo);
         try {
           HTableDescriptor htd =
-              FSTableDescriptors.getTableDescriptorFromFs(hbaseRoot.getFileSystem(getConf()),
-              hbaseRoot, tableName);
+              FSTableDescriptors.getTableDescriptorFromFs(fs, hbaseRoot, tableName);
           modTInfo.htds.add(htd);
         } catch (IOException ioe) {
           if (!orphanTableDirs.containsKey(tableName)) {
@@ -838,6 +851,8 @@ public class HBaseFsck extends Configured implements Tool {
       }
     }
 
+    loadTableInfosForTablesWithNoRegion();
+
     return tablesInfo;
   }
 
@@ -845,7 +860,7 @@ public class HBaseFsck extends Configured implements Tool {
    * To get the column family list according to the column family dirs
    * @param columns
    * @param hbi
-   * @return
+   * @return a set of column families
    * @throws IOException
    */
   private Set<String> getColumnFamilyList(Set<String> columns, HbckInfo hbi) throws IOException {
@@ -1836,6 +1851,8 @@ public class HBaseFsck extends Configured implements Tool {
       tablesInfo.put(tableName, modTInfo);
     }
 
+    loadTableInfosForTablesWithNoRegion();
+
     for (TableInfo tInfo : tablesInfo.values()) {
       TableIntegrityErrorHandler handler = tInfo.new IntegrityFixSuggester(tInfo, errors);
       if (!tInfo.checkRegionChain(handler)) {
@@ -1843,6 +1860,25 @@ public class HBaseFsck extends Configured implements Tool {
       }
     }
     return tablesInfo;
+  }
+
+  /** Loads table info's for tables that may not have been included, since there are no
+   * regions reported for the table, but table dir is there in hdfs
+   */
+  private void loadTableInfosForTablesWithNoRegion() throws IOException {
+    Map<String, HTableDescriptor> allTables = new FSTableDescriptors(getConf()).getAll();
+    for (HTableDescriptor htd : allTables.values()) {
+      if (checkMetaOnly && !htd.isMetaTable()) {
+        continue;
+      }
+
+      TableName tableName = htd.getTableName();
+      if (isTableIncluded(tableName) && !tablesInfo.containsKey(tableName)) {
+        TableInfo tableInfo = new TableInfo(tableName);
+        tableInfo.htds.add(htd);
+        tablesInfo.put(htd.getTableName(), tableInfo);
+      }
+    }
   }
 
   /**
@@ -2072,6 +2108,7 @@ public class HBaseFsck extends Configured implements Tool {
        * missing from META, HBase doesn't acknowledge the existance of the
        * table.
        */
+      @Override
       public void handleRegionStartKeyNotEmpty(HbckInfo next) throws IOException {
         errors.reportError(ERROR_CODE.FIRST_REGION_STARTKEY_NOT_EMPTY,
             "First region should start with an empty key.  Creating a new " +
@@ -2089,6 +2126,7 @@ public class HBaseFsck extends Configured implements Tool {
         fixes++;
       }
 
+      @Override
       public void handleRegionEndKeyNotEmpty(byte[] curEndKey) throws IOException {
         errors.reportError(ERROR_CODE.LAST_REGION_ENDKEY_NOT_EMPTY,
             "Last region should end with an empty key.  Creating a new "
@@ -2108,6 +2146,7 @@ public class HBaseFsck extends Configured implements Tool {
        * There is a hole in the hdfs regions that violates the table integrity
        * rules.  Create a new empty region that patches the hole.
        */
+      @Override
       public void handleHoleInRegionChain(byte[] holeStartKey, byte[] holeStopKey) throws IOException {
         errors.reportError(
             ERROR_CODE.HOLE_IN_REGION_CHAIN,
@@ -2292,6 +2331,12 @@ public class HBaseFsck extends Configured implements Tool {
 
       byte[] prevKey = null;
       byte[] problemKey = null;
+
+      if (splits.size() == 0) {
+        // no region for this table
+        handler.handleHoleInRegionChain(HConstants.EMPTY_START_ROW, HConstants.EMPTY_END_ROW);
+      }
+
       for (byte[] key : splits) {
         Collection<HbckInfo> ranges = regions.get(key);
         if (prevKey == null && !Bytes.equals(key, HConstants.EMPTY_BYTE_ARRAY)) {
@@ -2449,7 +2494,7 @@ public class HBaseFsck extends Configured implements Tool {
    * @return tables that have not been modified recently
    * @throws IOException if an error is encountered
    */
-   HTableDescriptor[] getTables(AtomicInteger numSkipped) {
+  HTableDescriptor[] getTables(AtomicInteger numSkipped) {
     List<TableName> tableNames = new ArrayList<TableName>();
     long now = System.currentTimeMillis();
 
@@ -2469,17 +2514,16 @@ public class HBaseFsck extends Configured implements Tool {
     return getHTableDescriptors(tableNames);
   }
 
-   HTableDescriptor[] getHTableDescriptors(List<TableName> tableNames) {
+  HTableDescriptor[] getHTableDescriptors(List<TableName> tableNames) {
     HTableDescriptor[] htd = new HTableDescriptor[0];
-     try {
-       LOG.info("getHTableDescriptors == tableNames => " + tableNames);
-       htd = new HBaseAdmin(getConf()).getTableDescriptorsByTableName(tableNames);
-     } catch (IOException e) {
-       LOG.debug("Exception getting table descriptors", e);
-     }
-     return htd;
+    try {
+      LOG.info("getHTableDescriptors == tableNames => " + tableNames);
+      htd = new HBaseAdmin(getConf()).getTableDescriptorsByTableName(tableNames);
+    } catch (IOException e) {
+      LOG.debug("Exception getting table descriptors", e);
+    }
+    return htd;
   }
-
 
   /**
    * Gets the entry in regionInfo corresponding to the the given encoded
@@ -2562,11 +2606,13 @@ public class HBaseFsck extends Configured implements Tool {
 
       // comparator to sort KeyValues with latest modtime
       final Comparator<Cell> comp = new Comparator<Cell>() {
+        @Override
         public int compare(Cell k1, Cell k2) {
           return (int)(k1.getTimestamp() - k2.getTimestamp());
         }
       };
 
+      @Override
       public boolean processRow(Result result) throws IOException {
         try {
 
@@ -2641,6 +2687,7 @@ public class HBaseFsck extends Configured implements Tool {
       this.splitB = splitB;
     }
 
+    @Override
     public boolean equals(Object o) {
       boolean superEq = super.equals(o);
       if (!superEq) {
@@ -2688,6 +2735,7 @@ public class HBaseFsck extends Configured implements Tool {
     HRegionInfo hri;
     ServerName hsa;
 
+    @Override
     public String toString() {
       return hsa.toString() + ";" + hri.getRegionNameAsString();
     }
@@ -2716,6 +2764,7 @@ public class HBaseFsck extends Configured implements Tool {
       this.deployedOn.add(server);
     }
 
+    @Override
     public synchronized String toString() {
       StringBuilder sb = new StringBuilder();
       sb.append("{ meta => ");
@@ -2947,12 +2996,14 @@ public class HBaseFsck extends Configured implements Tool {
     // for use by unit tests to verify which errors were discovered
     private ArrayList<ERROR_CODE> errorList = new ArrayList<ERROR_CODE>();
 
+    @Override
     public void clear() {
       errorTables.clear();
       errorList.clear();
       errorCount = 0;
     }
 
+    @Override
     public synchronized void reportError(ERROR_CODE errorCode, String message) {
       if (errorCode == ERROR_CODE.WRONG_USAGE) {
         System.err.println(message);
@@ -2967,11 +3018,13 @@ public class HBaseFsck extends Configured implements Tool {
       showProgress = 0;
     }
 
+    @Override
     public synchronized void reportError(ERROR_CODE errorCode, String message, TableInfo table) {
       errorTables.add(table);
       reportError(errorCode, message);
     }
 
+    @Override
     public synchronized void reportError(ERROR_CODE errorCode, String message, TableInfo table,
                                          HbckInfo info) {
       errorTables.add(table);
@@ -2979,6 +3032,7 @@ public class HBaseFsck extends Configured implements Tool {
       reportError(errorCode, reference + " " + message);
     }
 
+    @Override
     public synchronized void reportError(ERROR_CODE errorCode, String message, TableInfo table,
                                          HbckInfo info1, HbckInfo info2) {
       errorTables.add(table);
@@ -2987,6 +3041,7 @@ public class HBaseFsck extends Configured implements Tool {
       reportError(errorCode, reference + " " + message);
     }
 
+    @Override
     public synchronized void reportError(String message) {
       reportError(ERROR_CODE.UNKNOWN, message);
     }
@@ -2996,6 +3051,7 @@ public class HBaseFsck extends Configured implements Tool {
      * where the actual error would have been reported previously.
      * @param message
      */
+    @Override
     public synchronized void report(String message) {
       if (! summary) {
         System.out.println("ERROR: " + message);
@@ -3003,6 +3059,7 @@ public class HBaseFsck extends Configured implements Tool {
       showProgress = 0;
     }
 
+    @Override
     public synchronized int summarize() {
       System.out.println(Integer.toString(errorCount) +
                          " inconsistencies detected.");
@@ -3015,10 +3072,12 @@ public class HBaseFsck extends Configured implements Tool {
       }
     }
 
+    @Override
     public ArrayList<ERROR_CODE> getErrorList() {
       return errorList;
     }
 
+    @Override
     public synchronized void print(String message) {
       if (!summary) {
         System.out.println(message);
@@ -3035,6 +3094,7 @@ public class HBaseFsck extends Configured implements Tool {
       errorCount = 0;
     }
 
+    @Override
     public synchronized void detail(String message) {
       if (details) {
         System.out.println(message);
@@ -3042,6 +3102,7 @@ public class HBaseFsck extends Configured implements Tool {
       showProgress = 0;
     }
 
+    @Override
     public synchronized void progress() {
       if (showProgress++ == 10) {
         if (!summary) {

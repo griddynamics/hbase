@@ -51,12 +51,12 @@ import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.FileUtil;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.HBaseConfiguration;
 import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.KeyValue;
+import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.TableNotFoundException;
 import org.apache.hadoop.hbase.client.HBaseAdmin;
 import org.apache.hadoop.hbase.client.HConnection;
@@ -70,8 +70,8 @@ import org.apache.hadoop.hbase.io.compress.Compression.Algorithm;
 import org.apache.hadoop.hbase.io.encoding.DataBlockEncoding;
 import org.apache.hadoop.hbase.io.hfile.CacheConfig;
 import org.apache.hadoop.hbase.io.hfile.HFile;
-import org.apache.hadoop.hbase.io.hfile.HFileDataBlockEncoder;
-import org.apache.hadoop.hbase.io.hfile.HFileDataBlockEncoderImpl;
+import org.apache.hadoop.hbase.io.hfile.HFileContext;
+import org.apache.hadoop.hbase.io.hfile.HFileContextBuilder;
 import org.apache.hadoop.hbase.io.hfile.HFileScanner;
 import org.apache.hadoop.hbase.protobuf.ProtobufUtil;
 import org.apache.hadoop.hbase.regionserver.BloomType;
@@ -558,7 +558,7 @@ public class LoadIncrementalHFiles extends Configured implements Tool {
 
         try {
           LOG.debug("Going to connect to server " + getLocation() + " for row "
-              + Bytes.toStringBinary(getRow()));
+              + Bytes.toStringBinary(getRow()) + " with hfile group " + famPaths);
           byte[] regionName = getLocation().getRegionInfo().getRegionName();
           if(!useSecure) {
             success = ProtobufUtil.bulkLoadHFile(getStub(), famPaths, regionName, assignSeqIds);
@@ -646,9 +646,6 @@ public class LoadIncrementalHFiles extends Configured implements Tool {
     CacheConfig cacheConf = new CacheConfig(conf);
     HalfStoreFileReader halfReader = null;
     StoreFile.Writer halfWriter = null;
-    HFileDataBlockEncoder dataBlockEncoder = new HFileDataBlockEncoderImpl(
-        familyDescriptor.getDataBlockEncodingOnDisk(),
-        familyDescriptor.getDataBlockEncoding());
     try {
       halfReader = new HalfStoreFileReader(fs, inFile, cacheConf,
           reference, DataBlockEncoding.NONE);
@@ -657,15 +654,19 @@ public class LoadIncrementalHFiles extends Configured implements Tool {
       int blocksize = familyDescriptor.getBlocksize();
       Algorithm compression = familyDescriptor.getCompression();
       BloomType bloomFilterType = familyDescriptor.getBloomFilterType();
-
+      HFileContext hFileContext = new HFileContextBuilder()
+                                  .withCompressionAlgo(compression)
+                                  .withChecksumType(HStore.getChecksumType(conf))
+                                  .withBytesPerCheckSum(HStore.getBytesPerChecksum(conf))
+                                  .withBlockSize(blocksize)
+                                  .withDataBlockEncodingInCache(familyDescriptor.getDataBlockEncoding())
+                                  .withDataBlockEncodingOnDisk(familyDescriptor.getDataBlockEncodingOnDisk())
+                                  .build();
       halfWriter = new StoreFile.WriterBuilder(conf, cacheConf,
-          fs, blocksize)
+          fs)
               .withFilePath(outFile)
-              .withCompression(compression)
-              .withDataBlockEncoder(dataBlockEncoder)
               .withBloomType(bloomFilterType)
-              .withChecksumType(HStore.getChecksumType(conf))
-              .withBytesPerChecksum(HStore.getBytesPerChecksum(conf))
+              .withFileContext(hFileContext)
               .build();
       HFileScanner scanner = halfReader.getScanner(false, false, false);
       scanner.seekTo();

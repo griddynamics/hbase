@@ -127,10 +127,13 @@ public class TestHFileSeek extends TestCase {
     long totalBytes = 0;
     FSDataOutputStream fout = createFSOutput(path, fs);
     try {
+      HFileContext context = new HFileContextBuilder()
+                            .withBlockSize(options.minBlockSize)
+                            .withCompressionAlgo(AbstractHFileWriter.compressionByName(options.compress))
+                            .build();
       Writer writer = HFile.getWriterFactoryNoCache(conf)
           .withOutputStream(fout)
-          .withBlockSize(options.minBlockSize)
-          .withCompression(options.compress)
+          .withFileContext(context)
           .withComparator(new KeyValue.RawBytesComparator())
           .create();
       try {
