@@ -17,17 +17,22 @@
  */ 
 package org.apache.hadoop.hbase.metrics;
 
-import java.util.Arrays;
+import static org.mockito.Matchers.anyFloat;
+import static org.mockito.Matchers.anyLong;
+import static org.mockito.Matchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+
 import java.util.Random;
 
-import org.apache.hadoop.hbase.metrics.histogram.MetricsHistogram;
 import org.apache.hadoop.hbase.SmallTests;
+import org.apache.hadoop.hbase.metrics.histogram.MetricsHistogram;
 import org.apache.hadoop.metrics.MetricsRecord;
-import com.yammer.metrics.stats.Snapshot;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
-import static org.mockito.Mockito.*;
+
+import com.yammer.metrics.stats.Snapshot;
 
 @SuppressWarnings("deprecation")
 @Category(SmallTests.class)
@@ -44,74 +49,64 @@ public class TestMetricsHistogram {
     Assert.assertEquals(100, h.getCount());
     Assert.assertEquals(0, h.getMin());
     Assert.assertEquals(99, h.getMax());
-  }
-
-  private static int safeIndex(int i, int len) {
-    if (i < len && i >= 0) {
-      return i;
-    } else if (i >= len) {
-      return len - 1;
-    } else {
-      return 0;
-    }
+    Assert.assertEquals(49.5d, h.getMean(), 0.01);
   }
 
   @Test
-  public void testRandom() {
-    final Random r = new Random();
+  public void testSnapshotPercentiles() {
     final MetricsHistogram h = new MetricsHistogram("testHistogram", null);
-
-    final long[] data = new long[1000];
-
-    for (int i = 0; i < data.length; i++) {
-      data[i] = (long) (r.nextGaussian() * 10000.0);
-      h.update(data[i]);
-    }
+    final long[] data = genRandomData(h);
 
     final Snapshot s = h.getSnapshot();
-    Arrays.sort(data);
 
-    // as long as the histogram chooses an item with index N+/-slop, accept it
-    final int slop = 20;
-
-    // make sure the median, 75th percentile and 95th percentile are good
-    final int medianIndex = data.length / 2;
-    final long minAcceptableMedian = data[safeIndex(medianIndex - slop,
-        data.length)];
-    final long maxAcceptableMedian = data[safeIndex(medianIndex + slop,
-        data.length)];
-    Assert.assertTrue(s.getMedian() >= minAcceptableMedian
-        && s.getMedian() <= maxAcceptableMedian);
-
-    final int seventyFifthIndex = (int) (data.length * 0.75);
-    final long minAcceptableseventyFifth = data[safeIndex(seventyFifthIndex
-        - slop, data.length)];
-    final long maxAcceptableseventyFifth = data[safeIndex(seventyFifthIndex
-        + slop, data.length)];
-    Assert.assertTrue(s.get75thPercentile() >= minAcceptableseventyFifth
-        && s.get75thPercentile() <= maxAcceptableseventyFifth);
-
-    final int ninetyFifthIndex = (int) (data.length * 0.95);
-    final long minAcceptableninetyFifth = data[safeIndex(ninetyFifthIndex
-        - slop, data.length)];
-    final long maxAcceptableninetyFifth = data[safeIndex(ninetyFifthIndex
-        + slop, data.length)];
-    Assert.assertTrue(s.get95thPercentile() >= minAcceptableninetyFifth
-        && s.get95thPercentile() <= maxAcceptableninetyFifth);
-    // test the method pushMetric 
-    MetricsRecord mr= mock(MetricsRecord.class);
-    h.pushMetric(mr);
-    verify(mr).setMetric("testHistogram_num_ops",1000L);
-    verify(mr).setMetric(eq("testHistogram_min"),anyLong());
-    verify(mr).setMetric(eq("testHistogram_max"),anyLong());
-    verify(mr).setMetric(eq("testHistogram_mean"),anyFloat());
-    verify(mr).setMetric(eq("testHistogram_std_dev"),anyFloat());
-    verify(mr).setMetric(eq("testHistogram_median"),anyFloat());
-    verify(mr).setMetric(eq("testHistogram_75th_percentile"),anyFloat());
-    verify(mr).setMetric(eq("testHistogram_95th_percentile"),anyFloat());
-    verify(mr).setMetric(eq("testHistogram_99th_percentile"),anyFloat());
-    
-
+    assertPercentile(data, 50, s.getMedian());
+    assertPercentile(data, 75, s.get75thPercentile());
+    assertPercentile(data, 95, s.get95thPercentile());
+    assertPercentile(data, 98, s.get98thPercentile());
+    assertPercentile(data, 99, s.get99thPercentile());
+    assertPercentile(data, 99.9, s.get999thPercentile());
   }
 
+  @Test
+  public void testPushMetric() {
+    final MetricsHistogram h = new MetricsHistogram("testHistogram", null);
+    genRandomData(h);
+
+    MetricsRecord mr = mock(MetricsRecord.class);
+    h.pushMetric(mr);
+    
+    verify(mr).setMetric("testHistogram_num_ops", 10000L);
+    verify(mr).setMetric(eq("testHistogram_min"), anyLong());
+    verify(mr).setMetric(eq("testHistogram_max"), anyLong());
+    verify(mr).setMetric(eq("testHistogram_mean"), anyFloat());
+    verify(mr).setMetric(eq("testHistogram_std_dev"), anyFloat());
+    verify(mr).setMetric(eq("testHistogram_median"), anyFloat());
+    verify(mr).setMetric(eq("testHistogram_75th_percentile"), anyFloat());
+    verify(mr).setMetric(eq("testHistogram_95th_percentile"), anyFloat());
+    verify(mr).setMetric(eq("testHistogram_99th_percentile"), anyFloat());    
+  }
+
+  private void assertPercentile(long[] data, double percentile, double value) {
+    int count = 0;
+    for (long v : data) {
+      if (v < value) {
+        count++;
+      }
+    }
+    Assert.assertEquals("Wrong " + percentile + " percentile", 
+        (int)(percentile / 100), count / data.length);
+  }
+  
+  private long[] genRandomData(final MetricsHistogram h) {
+    final Random r = new Random();
+    final long[] data = new long[10000];
+
+    for (int i = 0; i < data.length; i++) {
+      data[i] = (long) (r.nextGaussian() * 10000);
+      h.update(data[i]);
+    }
+    
+    return data;
+  }
+  
 }
