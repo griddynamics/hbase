@@ -51,7 +51,7 @@ public class TestRemoteHTableRetries {
 
   private static final int SLEEP_TIME = 50;
   private static final int RETRIES = 3;
-  private static final long MAX_TIME = SLEEP_TIME * RETRIES;
+  private static final long MAX_TIME = SLEEP_TIME * (RETRIES - 1);
 
   private static final HBaseTestingUtility TEST_UTIL = new HBaseTestingUtility();
   

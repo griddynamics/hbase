@@ -1,4 +1,5 @@
 /*
+ *
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -15,6 +16,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.apache.hadoop.hbase.rest.client;
 
 import static org.junit.Assert.assertEquals;
@@ -47,7 +49,9 @@ import org.apache.hadoop.hbase.client.ResultScanner;
 import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.rest.HBaseRESTTestingUtility;
 import org.apache.hadoop.hbase.util.Bytes;
+import org.junit.After;
 import org.junit.AfterClass;
+import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
@@ -74,12 +78,16 @@ public class TestRemoteTable {
   private static final HBaseTestingUtility TEST_UTIL = new HBaseTestingUtility();
   private static final HBaseRESTTestingUtility REST_TEST_UTIL = 
     new HBaseRESTTestingUtility();
-  private static RemoteHTable remoteTable;
+  private RemoteHTable remoteTable;
 
   @BeforeClass
   public static void setUpBeforeClass() throws Exception {
     TEST_UTIL.startMiniCluster();
     REST_TEST_UTIL.startServletContainer(TEST_UTIL.getConfiguration());
+  }
+
+  @Before
+  public void before() throws Exception  {
     HBaseAdmin admin = TEST_UTIL.getHBaseAdmin();
     if (admin.tableExists(TABLE)) {
       if (admin.isTableEnabled(TABLE)) admin.disableTable(TABLE);
@@ -110,10 +118,14 @@ public class TestRemoteTable {
           REST_TEST_UTIL.getServletPort())),
         TEST_UTIL.getConfiguration(), TABLE);
   }
-
+  
+  @After
+  public void after() throws Exception {
+    remoteTable.close();
+  }
+  
   @AfterClass
   public static void tearDownAfterClass() throws Exception {
-    remoteTable.close();
     REST_TEST_UTIL.shutdownServletContainer();
     TEST_UTIL.shutdownMiniCluster();
   }
@@ -253,8 +265,8 @@ public class TestRemoteTable {
     results = remoteTable.get(gets);
     assertNotNull(results);
     assertEquals(2, results.length);
-    assertEquals(2, results[0].size());
-    assertEquals(4, results[1].size());
+    assertEquals(1, results[0].size());
+    assertEquals(3, results[1].size());
 
     //404
     gets = new ArrayList<Get>();
@@ -271,10 +283,7 @@ public class TestRemoteTable {
     assertNotNull(results);
     assertEquals(0, results.length);
   }
-  
-  /**
-   * Test multi put
-   */
+
   @Test
   public void testPut() throws IOException {
     Put put = new Put(ROW_3);
@@ -319,10 +328,7 @@ public class TestRemoteTable {
     
     assertTrue(Bytes.equals(Bytes.toBytes("TestRemoteTable"), remoteTable.getTableName()));
   }
-  
-  /**
-   * Test delete method
-   */
+
   @Test
   public void testDelete() throws IOException {
     Put put = new Put(ROW_3);
@@ -447,9 +453,6 @@ public class TestRemoteTable {
 
   }
   
-  /**
-   * Test checkAndDelete method
-   */
   @Test
   public void testCheckAndDelete() throws IOException {
     Get get = new Get(ROW_1);
