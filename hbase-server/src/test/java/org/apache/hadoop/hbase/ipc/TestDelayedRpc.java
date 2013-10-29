@@ -127,7 +127,7 @@ public class TestDelayedRpc {
 
     rpcServer = new RpcServer(null, "testSecuredDelayedRpc",
         Lists.newArrayList(new RpcServer.BlockingServiceAndInterface(service, null)),
-          isa, 1, 0, conf, 0);
+          isa, conf, new FifoRpcScheduler(conf, 1));
     rpcServer.start();
     RpcClient rpcClient = new RpcClient(conf, HConstants.DEFAULT_CLUSTER_ID.toString());
     try {

@@ -83,7 +83,7 @@ public class TestUser {
     assertEquals("User name in runAs() should match", "testuser", username);
 
     // verify that nested contexts work
-    user2.runAs(new PrivilegedExceptionAction(){
+    user2.runAs(new PrivilegedExceptionAction<Object>(){
       @Override
       public Object run() throws IOException, InterruptedException{
         String nestedName = user.runAs(action);
@@ -161,17 +161,18 @@ public class TestUser {
 
     Configuration conf = HBaseConfiguration.create();
     conf.set(CommonConfigurationKeys.HADOOP_SECURITY_AUTHENTICATION, "kerberos");
-    conf.set("hbase.security.authentication", "kerberos");
-    assertTrue("Security disabled in security configuration", User.isHBaseSecurityEnabled(conf));
+    conf.set(User.HBASE_SECURITY_CONF_KEY, "kerberos");
+    assertTrue("Security should be enabled", User.isHBaseSecurityEnabled(conf));
 
     conf = HBaseConfiguration.create();
     conf.set(CommonConfigurationKeys.HADOOP_SECURITY_AUTHENTICATION, "kerberos");
-    assertFalse("Single property shouldn't be enoght for enable security",
+    assertFalse("HBase security should not be enabled if " 
+        + User.HBASE_SECURITY_CONF_KEY + " is not set accordingly",
         User.isHBaseSecurityEnabled(conf));
 
     conf = HBaseConfiguration.create();
-    conf.set("hbase.security.authentication", "kerberos");
-    assertFalse("Single property shouldn't be enoght for enable security",
-        User.isHBaseSecurityEnabled(conf));
+    conf.set(User.HBASE_SECURITY_CONF_KEY, "kerberos");
+    assertTrue("HBase security should be enabled regardless of underlying "
+        + "HDFS settings", User.isHBaseSecurityEnabled(conf));
   }
 }

@@ -254,7 +254,7 @@ public class TestHBaseSaslRpcClient {
 
   private HBaseSaslRpcClient createSaslRpcClientForKerberos(String principal)
       throws IOException {
-    return new HBaseSaslRpcClient(AuthMethod.KERBEROS, createTokenMock(), principal);
+    return new HBaseSaslRpcClient(AuthMethod.KERBEROS, createTokenMock(), principal, false);
   }
 
   private HBaseSaslRpcClient createSaslRpcClientForDigest(String principal, String password)
@@ -264,12 +264,12 @@ public class TestHBaseSaslRpcClient {
       when(token.getIdentifier()).thenReturn(DEFAULT_USER_NAME.getBytes());
       when(token.getPassword()).thenReturn(DEFAULT_USER_PASSWORD.getBytes());
     }
-    return new HBaseSaslRpcClient(AuthMethod.DIGEST, token, principal);
+    return new HBaseSaslRpcClient(AuthMethod.DIGEST, token, principal, false);
   }
 
   private HBaseSaslRpcClient createSaslRpcClientSimple(String principal, String password)
       throws IOException {
-    return new HBaseSaslRpcClient(AuthMethod.SIMPLE, createTokenMock(), principal);
+    return new HBaseSaslRpcClient(AuthMethod.SIMPLE, createTokenMock(), principal, false);
   }
 
   @SuppressWarnings("unchecked")
