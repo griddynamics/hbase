@@ -61,6 +61,12 @@ import com.google.common.base.Strings;
 
 @Category(SmallTests.class)
 public class TestHBaseSaslRpcClient {
+  
+  static {
+    System.setProperty("java.security.krb5.realm", "DOMAIN.COM");
+    System.setProperty("java.security.krb5.kdc", "DOMAIN.COM");
+  }
+  
   static final String DEFAULT_USER_NAME = "principal";
   static final String DEFAULT_USER_PASSWORD = "password";
 
@@ -227,7 +233,7 @@ public class TestHBaseSaslRpcClient {
     try {
       rpcClient = createSaslRpcClientForKerberos(principal);
     } catch(Exception ex) {
-      LOG.error(ex.getMessage());
+      LOG.error(ex.getMessage(), ex);
     }
     return rpcClient != null;
   }
@@ -237,7 +243,7 @@ public class TestHBaseSaslRpcClient {
     try {
       rpcClient = createSaslRpcClientForDigest(principal, password);
     } catch(Exception ex) {
-      LOG.error(ex.getMessage());
+      LOG.error(ex.getMessage(), ex);
     }
     return rpcClient != null;
   }
@@ -247,7 +253,7 @@ public class TestHBaseSaslRpcClient {
     try {
       rpcClient = createSaslRpcClientSimple(principal, password);
     } catch(Exception ex) {
-      LOG.error(ex.getMessage());
+      LOG.error(ex.getMessage(), ex);
     }
     return rpcClient != null;
   }
