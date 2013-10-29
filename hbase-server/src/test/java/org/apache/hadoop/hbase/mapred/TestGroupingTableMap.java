@@ -18,19 +18,22 @@
  */
 package org.apache.hadoop.hbase.mapred;
 
-import static com.google.common.collect.ImmutableList.of;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertNull;
 import static org.mockito.Matchers.any;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyZeroInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import java.io.IOException;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hbase.Cell;
 import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.SmallTests;
 import org.apache.hadoop.hbase.client.Result;
@@ -39,6 +42,7 @@ import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.mapred.JobConf;
 import org.apache.hadoop.mapred.OutputCollector;
 import org.apache.hadoop.mapred.Reporter;
+import org.junit.Assert;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
@@ -62,16 +66,16 @@ public class TestGroupingTableMap {
       gTableMap.configure(jobConf);
   
       byte[] row = {};
-      ImmutableList<KeyValue> keyValues = of(
+      List<Cell> keyValues = ImmutableList.<Cell>of(
           new KeyValue(row, "familyA".getBytes(), "qualifierA".getBytes(), Bytes.toBytes("1111")),
           new KeyValue(row, "familyA".getBytes(), "qualifierA".getBytes(), Bytes.toBytes("2222")),
           new KeyValue(row, "familyB".getBytes(), "qualifierB".getBytes(), Bytes.toBytes("3333")));
-      when(result.list()).thenReturn(keyValues);
+      when(result.listCells()).thenReturn(keyValues);
       OutputCollector<ImmutableBytesWritable, Result> outputCollectorMock =
           mock(OutputCollector.class);
       gTableMap.map(null, result, outputCollectorMock, reporter);
-      verify(outputCollectorMock, never())
-        .collect(any(ImmutableBytesWritable.class), any(Result.class));
+      verify(result).listCells();
+      verifyZeroInteractions(outputCollectorMock);
     } finally {
       if (gTableMap != null)
         gTableMap.close();    
@@ -92,16 +96,18 @@ public class TestGroupingTableMap {
       gTableMap.configure(jobConf);
   
       byte[] row = {};
-      ImmutableList<KeyValue> keyValues = of(
+      List<Cell> keyValues = ImmutableList.<Cell>of(
           new KeyValue(row, "familyA".getBytes(), "qualifierA".getBytes(), Bytes.toBytes("1111")),
           new KeyValue(row, "familyB".getBytes(), "qualifierB".getBytes(), Bytes.toBytes("2222")),
           new KeyValue(row, "familyC".getBytes(), "qualifierC".getBytes(), Bytes.toBytes("3333")));
-      when(result.list()).thenReturn(keyValues);
+      when(result.listCells()).thenReturn(keyValues);
       OutputCollector<ImmutableBytesWritable, Result> outputCollectorMock =
           mock(OutputCollector.class);
       gTableMap.map(null, result, outputCollectorMock, reporter);
+      verify(result).listCells();
       verify(outputCollectorMock, times(1))
         .collect(any(ImmutableBytesWritable.class), any(Result.class));
+      verifyNoMoreInteractions(outputCollectorMock);
     } finally {
       if (gTableMap != null)
         gTableMap.close();
@@ -125,21 +131,26 @@ public class TestGroupingTableMap {
       final byte[] firstPartKeyValue = Bytes.toBytes("34879512738945");
       final byte[] secondPartKeyValue = Bytes.toBytes("35245142671437");
       byte[] row = {};
-      ImmutableList<KeyValue> keyValues = of(
+      List<Cell> cells = ImmutableList.<Cell>of(
           new KeyValue(row, "familyA".getBytes(), "qualifierA".getBytes(), firstPartKeyValue),
           new KeyValue(row, "familyB".getBytes(), "qualifierB".getBytes(), secondPartKeyValue));
-      when(result.list()).thenReturn(keyValues);
+      when(result.listCells()).thenReturn(cells);
   
+      final AtomicBoolean outputCollected = new AtomicBoolean();
       OutputCollector<ImmutableBytesWritable, Result> outputCollector =
           new OutputCollector<ImmutableBytesWritable, Result>() {
         @Override
         public void collect(ImmutableBytesWritable arg, Result result) throws IOException {
           assertArrayEquals(com.google.common.primitives.Bytes.concat(firstPartKeyValue, bSeparator,
               secondPartKeyValue), arg.copyBytes());
+          outputCollected.set(true);
         }
       };
-  
+      
       gTableMap.map(null, result, outputCollector, reporter);
+      verify(result).listCells();
+      Assert.assertTrue("Output not received", outputCollected.get());
+  
       final byte[] firstPartValue = Bytes.toBytes("238947928");
       final byte[] secondPartValue = Bytes.toBytes("4678456942345");
       byte[][] data = { firstPartValue, secondPartValue };
