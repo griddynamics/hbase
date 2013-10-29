@@ -20,6 +20,7 @@ package org.apache.hadoop.hbase.regionserver.compactions;
 import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 
 import org.apache.hadoop.classification.InterfaceAudience;
@@ -74,7 +75,8 @@ public class DefaultCompactor extends Compactor {
             fd.maxMVCCReadpoint >= smallestReadPoint, fd.maxTagsLength > 0);
         boolean finished = performCompaction(scanner, writer, smallestReadPoint);
         if (!finished) {
-          abortWriter(writer);
+          writer.close();
+          store.getFileSystem().delete(writer.getPath(), false);
           writer = null;
           throw new InterruptedIOException( "Aborting compaction of store " + store +
               " in region " + store.getRegionInfo().getRegionNameAsString() +
@@ -93,5 +95,22 @@ public class DefaultCompactor extends Compactor {
       }
     }
     return newFiles;
+  }
+
+  /**
+   * Compact a list of files for testing. Creates a fake {@link CompactionRequest} to pass to
+   * {@link #compact(CompactionRequest)};
+   * @param filesToCompact the files to compact. These are used as the compactionSelection for
+   *          the generated {@link CompactionRequest}.
+   * @param isMajor true to major compact (prune all deletes, max versions, etc)
+   * @return Product of compaction or an empty list if all cells expired or deleted and nothing \
+   *         made it through the compaction.
+   * @throws IOException
+   */
+  public List<Path> compactForTesting(final Collection<StoreFile> filesToCompact, boolean isMajor)
+      throws IOException {
+    CompactionRequest cr = new CompactionRequest(filesToCompact);
+    cr.setIsMajor(isMajor);
+    return this.compact(cr);
   }
 }
