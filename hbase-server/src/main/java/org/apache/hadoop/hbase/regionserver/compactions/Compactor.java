@@ -33,7 +33,6 @@ import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.KeyValueUtil;
 import org.apache.hadoop.hbase.client.Scan;
-import org.apache.hadoop.hbase.io.CellOutputStream;
 import org.apache.hadoop.hbase.io.compress.Compression;
 import org.apache.hadoop.hbase.io.hfile.HFile.FileInfo;
 import org.apache.hadoop.hbase.io.hfile.HFileWriterV2;
@@ -73,36 +72,10 @@ public abstract class Compactor {
   }
 
   /**
-   * TODO: Replace this with {@link CellOutputStream} when StoreFile.Writer uses cells.
+   * TODO: Replace this with CellOutputStream when StoreFile.Writer uses cells.
    */
   public interface CellSink {
     void append(KeyValue kv) throws IOException;
-  }
-
-  /**
-   * Do a minor/major compaction on an explicit set of storefiles from a Store.
-   * @param request the requested compaction
-   * @return Product of compaction or an empty list if all cells expired or deleted and nothing made
-   *         it through the compaction.
-   * @throws IOException
-   */
-  public abstract List<Path> compact(final CompactionRequest request) throws IOException;
-
-  /**
-   * Compact a list of files for testing. Creates a fake {@link CompactionRequest} to pass to
-   * {@link #compact(CompactionRequest)};
-   * @param filesToCompact the files to compact. These are used as the compactionSelection for the
-   *          generated {@link CompactionRequest}.
-   * @param isMajor true to major compact (prune all deletes, max versions, etc)
-   * @return Product of compaction or an empty list if all cells expired or deleted and nothing made
-   *         it through the compaction.
-   * @throws IOException
-   */
-  public List<Path> compactForTesting(final Collection<StoreFile> filesToCompact, boolean isMajor)
-      throws IOException {
-    CompactionRequest cr = new CompactionRequest(filesToCompact);
-    cr.setIsMajor(isMajor);
-    return this.compact(cr);
   }
 
   public CompactionProgress getProgress() {
@@ -123,6 +96,12 @@ public abstract class Compactor {
     public int maxTagsLength = 0;
   }
 
+  /**
+   * Extracts some details about the files to compact that are commonly needed by compactors.
+   * @param filesToCompact Files.
+   * @param calculatePutTs Whether earliest put TS is needed.
+   * @return The result.
+   */
   protected FileDetails getFileDetails(
       Collection<StoreFile> filesToCompact, boolean calculatePutTs) throws IOException {
     FileDetails fd = new FileDetails();
@@ -177,6 +156,11 @@ public abstract class Compactor {
     return fd;
   }
 
+  /**
+   * Creates file scanners for compaction.
+   * @param filesToCompact Files.
+   * @return Scanners.
+   */
   protected List<StoreFileScanner> createFileScanners(
       final Collection<StoreFile> filesToCompact, long smallestReadPoint) throws IOException {
     return StoreFileScanner.getScannersForStoreFiles(filesToCompact, false, false, true,
@@ -187,6 +171,14 @@ public abstract class Compactor {
     return store.getSmallestReadPoint();
   }
 
+  /**
+   * Calls coprocessor, if any, to create compaction scanner - before normal scanner creation.
+   * @param request Compaction request.
+   * @param scanType Scan type.
+   * @param earliestPutTs Earliest put ts.
+   * @param scanners File scanners for compaction files.
+   * @return Scanner override by coprocessor; null if not overriding.
+   */
   protected InternalScanner preCreateCoprocScanner(final CompactionRequest request,
       ScanType scanType, long earliestPutTs,  List<StoreFileScanner> scanners) throws IOException {
     if (store.getCoprocessorHost() == null) return null;
@@ -194,13 +186,27 @@ public abstract class Compactor {
         .preCompactScannerOpen(store, scanners, scanType, earliestPutTs, request);
   }
 
-  protected InternalScanner postCreateCoprocScanner(final CompactionRequest request,
+  /**
+   * Calls coprocessor, if any, to create scanners - after normal scanner creation.
+   * @param request Compaction request.
+   * @param scanType Scan type.
+   * @param scanner The default scanner created for compaction.
+   * @return Scanner scanner to use (usually the default); null if compaction should not proceed.
+   */
+   protected InternalScanner postCreateCoprocScanner(final CompactionRequest request,
       ScanType scanType, InternalScanner scanner) throws IOException {
     if (store.getCoprocessorHost() == null) return scanner;
     return store.getCoprocessorHost().preCompact(store, scanner, scanType, request);
   }
 
   @SuppressWarnings("deprecation")
+  /**
+   * Performs the compaction.
+   * @param scanner Where to read from.
+   * @param writer Where to write to.
+   * @param smallestReadPoint Smallest read point.
+   * @return Whether compaction ended; false if it was interrupted for some reason.
+   */
   protected boolean performCompaction(InternalScanner scanner,
       CellSink writer, long smallestReadPoint) throws IOException {
     int bytesWritten = 0;
@@ -239,12 +245,8 @@ public abstract class Compactor {
     return true;
   }
 
-  protected void abortWriter(final StoreFile.Writer writer) throws IOException {
-    writer.close();
-    store.getFileSystem().delete(writer.getPath(), false);
-  }
-
   /**
+   * @param store store
    * @param scanners Store file scanners.
    * @param scanType Scan type.
    * @param smallestReadPoint Smallest MVCC read point.
@@ -257,5 +259,23 @@ public abstract class Compactor {
     scan.setMaxVersions(store.getFamily().getMaxVersions());
     return new StoreScanner(store, store.getScanInfo(), scan, scanners,
         scanType, smallestReadPoint, earliestPutTs);
+  }
+
+  /**
+   * @param store The store.
+   * @param scanners Store file scanners.
+   * @param smallestReadPoint Smallest MVCC read point.
+   * @param earliestPutTs Earliest put across all files.
+   * @param dropDeletesFromRow Drop deletes starting with this row, inclusive. Can be null.
+   * @param dropDeletesToRow Drop deletes ending with this row, exclusive. Can be null.
+   * @return A compaction scanner.
+   */
+  protected InternalScanner createScanner(Store store, List<StoreFileScanner> scanners,
+     long smallestReadPoint, long earliestPutTs, byte[] dropDeletesFromRow,
+     byte[] dropDeletesToRow) throws IOException {
+    Scan scan = new Scan();
+    scan.setMaxVersions(store.getFamily().getMaxVersions());
+    return new StoreScanner(store, store.getScanInfo(), scan, scanners, smallestReadPoint,
+        earliestPutTs, dropDeletesFromRow, dropDeletesToRow);
   }
 }
