@@ -43,8 +43,6 @@ import javax.security.sasl.RealmChoiceCallback;
 import javax.security.sasl.SaslClient;
 
 import org.apache.hadoop.hbase.SmallTests;
-import org.apache.hadoop.hbase.ipc.SaslClients;
-import org.apache.hadoop.hbase.ipc.SaslClients.SaslClientProvider;
 import org.apache.hadoop.hbase.security.HBaseSaslRpcClient.SaslClientCallbackHandler;
 import org.apache.hadoop.io.DataInputBuffer;
 import org.apache.hadoop.io.DataOutputBuffer;
@@ -170,7 +168,8 @@ public class TestHBaseSaslRpcClient {
     boolean inState = false;
     boolean outState = false;
 
-    SaslClients.setSaslRpcClientProvider(new SaslClientProvider() {
+    HBaseSaslRpcClient rpcClient = new HBaseSaslRpcClient(AuthMethod.DIGEST, 
+        createTokenMockWithCredentials(principal, password), principal, false) {
       @Override
       public SaslClient createDigestSaslClient(String[] mechanismNames,
           String saslDefaultRealm, CallbackHandler saslClientCallbackHandler)
@@ -183,9 +182,8 @@ public class TestHBaseSaslRpcClient {
           String userFirstPart, String userSecondPart) throws IOException {
         return Mockito.mock(SaslClient.class);
       }
-    });
-
-    HBaseSaslRpcClient rpcClient = createSaslRpcClientForDigest(principal, password);
+    };
+    
     try {
       rpcClient.getInputStream(Mockito.mock(InputStream.class));
     } catch(IOException ex) {
@@ -204,28 +202,26 @@ public class TestHBaseSaslRpcClient {
   }
 
   private boolean assertIOExceptionThenSaslClientIsNull(String principal, String password) {
-    //set provider which return null for test
-    SaslClients.setSaslRpcClientProvider(new SaslClientProvider() {
-      @Override
-      public SaslClient createDigestSaslClient(String[] mechanismNames,
-          String saslDefaultRealm, CallbackHandler saslClientCallbackHandler)
-              throws IOException {
-        return null;
-      }
-
-      @Override
-      public SaslClient createKerberosSaslClient(String[] mechanismNames,
-          String userFirstPart, String userSecondPart) throws IOException {
-        return null;
-      }
-    });
-
     try {
-      createSaslRpcClientForDigest(principal, password);
+      new HBaseSaslRpcClient(AuthMethod.DIGEST, 
+          createTokenMockWithCredentials(principal, password), principal, false) {
+        @Override
+        public SaslClient createDigestSaslClient(String[] mechanismNames,
+            String saslDefaultRealm, CallbackHandler saslClientCallbackHandler)
+                throws IOException {
+          return null;
+        }
+  
+        @Override
+        public SaslClient createKerberosSaslClient(String[] mechanismNames,
+            String userFirstPart, String userSecondPart) throws IOException {
+          return null;
+        }
+      };
+      return false;
     } catch (IOException ex) {
       return true;
     }
-    return false;
   }
 
   private boolean assertSuccessCreationKerberosPrincipal(String principal) {
@@ -241,7 +237,8 @@ public class TestHBaseSaslRpcClient {
   private boolean assertSuccessCreationDigestPrincipal(String principal, String password) {
     HBaseSaslRpcClient rpcClient = null;
     try {
-      rpcClient = createSaslRpcClientForDigest(principal, password);
+      rpcClient = new HBaseSaslRpcClient(AuthMethod.DIGEST, 
+          createTokenMockWithCredentials(principal, password), principal, false);
     } catch(Exception ex) {
       LOG.error(ex.getMessage(), ex);
     }
@@ -263,14 +260,15 @@ public class TestHBaseSaslRpcClient {
     return new HBaseSaslRpcClient(AuthMethod.KERBEROS, createTokenMock(), principal, false);
   }
 
-  private HBaseSaslRpcClient createSaslRpcClientForDigest(String principal, String password)
+  private Token<? extends TokenIdentifier> createTokenMockWithCredentials(
+      String principal, String password)
       throws IOException {
     Token<? extends TokenIdentifier> token = createTokenMock();
     if (!Strings.isNullOrEmpty(principal) && !Strings.isNullOrEmpty(password)) {
       when(token.getIdentifier()).thenReturn(DEFAULT_USER_NAME.getBytes());
       when(token.getPassword()).thenReturn(DEFAULT_USER_PASSWORD.getBytes());
     }
-    return new HBaseSaslRpcClient(AuthMethod.DIGEST, token, principal, false);
+    return token;
   }
 
   private HBaseSaslRpcClient createSaslRpcClientSimple(String principal, String password)

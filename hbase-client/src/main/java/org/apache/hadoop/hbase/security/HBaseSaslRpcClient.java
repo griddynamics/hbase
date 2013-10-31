@@ -18,13 +18,14 @@
 
 package org.apache.hadoop.hbase.security;
 
-import java.io.BufferedInputStream;
-import java.io.BufferedOutputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.io.WritableUtils;
+import org.apache.hadoop.ipc.RemoteException;
+import org.apache.hadoop.security.SaslInputStream;
+import org.apache.hadoop.security.SaslOutputStream;
+import org.apache.hadoop.security.token.Token;
+import org.apache.hadoop.security.token.TokenIdentifier;
 
 import javax.security.auth.callback.Callback;
 import javax.security.auth.callback.CallbackHandler;
@@ -37,15 +38,13 @@ import javax.security.sasl.Sasl;
 import javax.security.sasl.SaslClient;
 import javax.security.sasl.SaslException;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
-import org.apache.hadoop.hbase.ipc.SaslClients;
-import org.apache.hadoop.io.WritableUtils;
-import org.apache.hadoop.ipc.RemoteException;
-import org.apache.hadoop.security.SaslInputStream;
-import org.apache.hadoop.security.SaslOutputStream;
-import org.apache.hadoop.security.token.Token;
-import org.apache.hadoop.security.token.TokenIdentifier;
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 
 import com.google.common.annotations.VisibleForTesting;
 
@@ -61,7 +60,7 @@ public class HBaseSaslRpcClient {
 
   /**
    * Create a HBaseSaslRpcClient for an authentication method
-   *
+   * 
    * @param method
    *          the requested authentication method
    * @param token
@@ -76,7 +75,7 @@ public class HBaseSaslRpcClient {
       if (LOG.isDebugEnabled())
         LOG.debug("Creating SASL " + AuthMethod.DIGEST.getMechanismName()
             + " client to authenticate to service at " + token.getService());
-      saslClient = SaslClients.getDigestSaslClient(
+      saslClient = createDigestSaslClient(
           new String[] { AuthMethod.DIGEST.getMechanismName() },
           SaslUtil.SASL_DEFAULT_REALM, new SaslClientCallbackHandler(token));
       break;
@@ -97,7 +96,7 @@ public class HBaseSaslRpcClient {
           "Kerberos principal does not have the expected format: "
                 + serverPrincipal);
       }
-      saslClient = SaslClients.getKerberosSaslClients(
+      saslClient = createKerberosSaslClient(
           new String[] { AuthMethod.KERBEROS.getMechanismName() },
           names[0], names[1]);
       break;
@@ -108,6 +107,19 @@ public class HBaseSaslRpcClient {
       throw new IOException("Unable to find SASL client implementation");
   }
 
+  protected SaslClient createDigestSaslClient(String[] mechanismNames, 
+      String saslDefaultRealm, CallbackHandler saslClientCallbackHandler) 
+      throws IOException {
+    return Sasl.createSaslClient(mechanismNames, null, null, saslDefaultRealm,
+        SaslUtil.SASL_PROPS, saslClientCallbackHandler);
+  }
+
+  protected SaslClient createKerberosSaslClient(String[] mechanismNames,
+      String userFirstPart, String userSecondPart) throws IOException {
+    return Sasl.createSaslClient(mechanismNames, null, userFirstPart, 
+        userSecondPart, SaslUtil.SASL_PROPS, null);
+  }
+
   private static void readStatus(DataInputStream inStream) throws IOException {
     int status = inStream.readInt(); // read status
     if (status != SaslStatus.SUCCESS.state) {
@@ -115,16 +127,16 @@ public class HBaseSaslRpcClient {
           WritableUtils.readString(inStream));
     }
   }
-
+  
   /**
    * Do client side SASL authentication with server via the given InputStream
    * and OutputStream
-   *
+   * 
    * @param inS
    *          InputStream to use
    * @param outS
    *          OutputStream to use
-   * @return true if connection is set up, or false if needs to switch
+   * @return true if connection is set up, or false if needs to switch 
    *             to simple Auth.
    * @throws IOException
    */
@@ -204,7 +216,7 @@ public class HBaseSaslRpcClient {
   /**
    * Get a SASL wrapped InputStream. Can be called only after saslConnect() has
    * been called.
-   *
+   * 
    * @param in
    *          the InputStream to wrap
    * @return a SASL wrapped InputStream
@@ -220,7 +232,7 @@ public class HBaseSaslRpcClient {
   /**
    * Get a SASL wrapped OutputStream. Can be called only after saslConnect() has
    * been called.
-   *
+   * 
    * @param out
    *          the OutputStream to wrap
    * @return a SASL wrapped OutputStream
@@ -248,7 +260,6 @@ public class HBaseSaslRpcClient {
       this.userPassword = SaslUtil.encodePassword(token.getPassword());
     }
 
-    @Override
     public void handle(Callback[] callbacks)
         throws UnsupportedCallbackException {
       NameCallback nc = null;

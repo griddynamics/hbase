@@ -23,11 +23,11 @@ import org.apache.hadoop.hbase.HBaseConfiguration;
 
 import com.google.common.base.Strings;
 
-public class HBaseKerberosUtils {
+class HBaseKerberosUtils {
   public static final String KRB_PRINCIPAL = "hbase.regionserver.kerberos.principal";
   public static final String KRB_KEYTAB_FILE = "hbase.regionserver.keytab.file";
 
-  public static boolean isKerberosPropertySetted() {
+  static boolean isKerberosPropertySetted() {
     String krbPrincipal = System.getProperty(KRB_PRINCIPAL);
     String krbKeytab = System.getProperty(KRB_KEYTAB_FILE);
     if (Strings.isNullOrEmpty(krbPrincipal) || Strings.isNullOrEmpty(krbKeytab)) {
@@ -36,27 +36,27 @@ public class HBaseKerberosUtils {
     return true;
   }
 
-  public static void setPrincipalForTesting(String principal) {
+  static void setPrincipalForTesting(String principal) {
     setSystemProperty(KRB_PRINCIPAL, principal);
   }
 
-  public static void setKeytabFileForTesting(String keytabFile) {
+  static void setKeytabFileForTesting(String keytabFile) {
     setSystemProperty(KRB_KEYTAB_FILE, keytabFile);
   }
 
-  private static void setSystemProperty(String propertyName, String propertyValue) {
+  static void setSystemProperty(String propertyName, String propertyValue) {
     System.setProperty(propertyName, propertyValue);
   }
 
-  public static String getKeytabFileForTesting() {
+  static String getKeytabFileForTesting() {
     return System.getProperty(KRB_KEYTAB_FILE);
   }
 
-  public static String getPrincipalForTesting() {
+  static String getPrincipalForTesting() {
     return System.getProperty(KRB_PRINCIPAL);
   }
 
-  public static Configuration getConfigurationWoPrincipal() {
+  static Configuration getConfigurationWoPrincipal() {
     Configuration conf = HBaseConfiguration.create();
     conf.set(CommonConfigurationKeys.HADOOP_SECURITY_AUTHENTICATION, "kerberos");
     conf.set("hbase.security.authentication", "kerberos");
@@ -64,7 +64,7 @@ public class HBaseKerberosUtils {
     return conf;
   }
 
-  public static Configuration getSecuredConfiguration() {
+  static Configuration getSecuredConfiguration() {
     Configuration conf = HBaseConfiguration.create();
     conf.set(CommonConfigurationKeys.HADOOP_SECURITY_AUTHENTICATION, "kerberos");
     conf.set("hbase.security.authentication", "kerberos");

@@ -18,26 +18,20 @@
  */
 package org.apache.hadoop.hbase.ipc;
 
-import static org.apache.hadoop.hbase.security.HBaseKerberosUtils.getKeytabFileForTesting;
-import static org.apache.hadoop.hbase.security.HBaseKerberosUtils.getPrincipalForTesting;
-import static org.apache.hadoop.hbase.security.HBaseKerberosUtils.getSecuredConfiguration;
-import static org.apache.hadoop.hbase.security.HBaseKerberosUtils.isKerberosPropertySetted;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
-import static org.junit.Assume.assumeTrue;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.google.common.collect.Lists;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.CommonConfigurationKeys;
 import org.apache.hadoop.hbase.HBaseConfiguration;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.MediumTests;
@@ -45,20 +39,14 @@ import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.ipc.protobuf.generated.TestDelayedRpcProtos;
 import org.apache.hadoop.hbase.ipc.protobuf.generated.TestDelayedRpcProtos.TestArg;
 import org.apache.hadoop.hbase.ipc.protobuf.generated.TestDelayedRpcProtos.TestResponse;
-import org.apache.hadoop.hbase.security.HBaseKerberosUtils;
-import org.apache.hadoop.hbase.security.SecurityInfo;
 import org.apache.hadoop.hbase.security.User;
-import org.apache.hadoop.security.UserGroupInformation;
-import org.apache.hadoop.security.UserGroupInformation.AuthenticationMethod;
 import org.apache.log4j.AppenderSkeleton;
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
 import org.apache.log4j.spi.LoggingEvent;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
-import org.mockito.Mockito;
 
-import com.google.common.collect.Lists;
 import com.google.protobuf.BlockingRpcChannel;
 import com.google.protobuf.BlockingService;
 import com.google.protobuf.RpcController;
@@ -85,68 +73,6 @@ public class TestDelayedRpc {
   @Test (timeout=60000)
   public void testDelayedRpcDelayedReturnValue() throws Exception {
     testDelayedRpc(true);
-  }
-
-  /**
-   * To run this test, we must specify the following system properties:
-   *<p>
-   * <b> hbase.regionserver.kerberos.principal </b>
-   * <p>
-   * <b> hbase.regionserver.keytab.file </b>
-   */
-  @Test
-  public void testRpcCallWithEnabledKerberosSaslAuth() throws Exception {
-    assumeTrue(isKerberosPropertySetted());
-    String krbKeytab = getKeytabFileForTesting();
-    String krbPrincipal = getPrincipalForTesting();
-
-    Configuration cnf = new Configuration();
-    cnf.set(CommonConfigurationKeys.HADOOP_SECURITY_AUTHENTICATION, "kerberos");
-    UserGroupInformation.setConfiguration(cnf);
-    UserGroupInformation.loginUserFromKeytab(krbPrincipal, krbKeytab);
-    UserGroupInformation ugi = UserGroupInformation.getLoginUser();
-    UserGroupInformation ugi2 = UserGroupInformation.getCurrentUser();
-
-    // check that the login user is okay:
-    assertSame(ugi, ugi2);
-    assertEquals(AuthenticationMethod.KERBEROS, ugi.getAuthenticationMethod());
-    assertEquals(krbPrincipal, ugi.getUserName());
-
-    Configuration conf = getSecuredConfiguration();
-
-    SecurityInfo securityInfoMock = Mockito.mock(SecurityInfo.class);
-    Mockito.when(securityInfoMock.getServerPrincipal())
-      .thenReturn(HBaseKerberosUtils.KRB_PRINCIPAL);
-    SecurityInfo.addInfo("TestDelayedService", securityInfoMock);
-
-    boolean delayReturnValue = false;
-    InetSocketAddress isa = new InetSocketAddress("localhost", 0);
-    TestDelayedImplementation instance = new TestDelayedImplementation(delayReturnValue);
-    BlockingService service =
-        TestDelayedRpcProtos.TestDelayedService.newReflectiveBlockingService(instance);
-
-    rpcServer = new RpcServer(null, "testSecuredDelayedRpc",
-        Lists.newArrayList(new RpcServer.BlockingServiceAndInterface(service, null)),
-          isa, conf, new FifoRpcScheduler(conf, 1));
-    rpcServer.start();
-    RpcClient rpcClient = new RpcClient(conf, HConstants.DEFAULT_CLUSTER_ID.toString());
-    try {
-      BlockingRpcChannel channel = rpcClient.createBlockingRpcChannel(
-          new ServerName(rpcServer.getListenerAddress().getHostName(),
-              rpcServer.getListenerAddress().getPort(), System.currentTimeMillis()),
-          User.getCurrent(), 1000);
-      TestDelayedRpcProtos.TestDelayedService.BlockingInterface stub =
-        TestDelayedRpcProtos.TestDelayedService.newBlockingStub(channel);
-      List<Integer> results = new ArrayList<Integer>();
-      TestThread th1 = new TestThread(stub, true, results);
-      th1.start();
-      Thread.sleep(100);
-      th1.join();
-
-      assertEquals(0xDEADBEEF, results.get(0).intValue());
-    } finally {
-      rpcClient.stop();
-    }
   }
 
   private void testDelayedRpc(boolean delayReturnValue) throws Exception {
@@ -196,7 +122,7 @@ public class TestDelayedRpc {
   }
 
   private static class ListAppender extends AppenderSkeleton {
-    private final List<String> messages = new ArrayList<String>();
+    private List<String> messages = new ArrayList<String>();
 
     @Override
     protected void append(LoggingEvent event) {
@@ -277,53 +203,13 @@ public class TestDelayedRpc {
     }
   }
 
-  static class TestDelayedImplementationWithSecurity implements
-    TestDelayedRpcProtos.TestDelayedService.BlockingInterface {
-
-    private final boolean delayReturnValue;
-
-    TestDelayedImplementationWithSecurity(boolean delayReturnValue) {
-      this.delayReturnValue = delayReturnValue;
-    }
-
-    @Override
-    public TestResponse test(final RpcController rpcController, final TestArg testArg)
-    throws ServiceException {
-      boolean delay = testArg.getDelay();
-      TestResponse.Builder responseBuilder = TestResponse.newBuilder();
-      if (!delay) {
-        responseBuilder.setResponse(UNDELAYED);
-        return responseBuilder.build();
-      }
-      final Delayable call = RpcServer.getCurrentCall();
-      call.startDelay(delayReturnValue);
-      new Thread() {
-        @Override
-        public void run() {
-          try {
-            Thread.sleep(500);
-            TestResponse.Builder responseBuilder = TestResponse.newBuilder();
-            call.endDelay(delayReturnValue ?
-                responseBuilder.setResponse(DELAYED).build() : null);
-          } catch (Exception e) {
-            e.printStackTrace();
-          }
-        }
-      }.start();
-      // This value should go back to client only if the response is set
-      // immediately at delay time.
-      responseBuilder.setResponse(0xDEADBEEF);
-      return responseBuilder.build();
-    }
-  }
-
-  static class TestDelayedImplementation
+  public static class TestDelayedImplementation
   implements TestDelayedRpcProtos.TestDelayedService.BlockingInterface {
     /**
      * Should the return value of delayed call be set at the end of the delay
      * or at call return.
      */
-    private final boolean delayReturnValue;
+    private boolean delayReturnValue;
 
     /**
      * @param delayReturnValue Should the response to the delayed call be set
@@ -345,12 +231,11 @@ public class TestDelayedRpc {
       final Delayable call = RpcServer.getCurrentCall();
       call.startDelay(delayReturnValue);
       new Thread() {
-        @Override
         public void run() {
           try {
             Thread.sleep(500);
             TestResponse.Builder responseBuilder = TestResponse.newBuilder();
-            call.endDelay(delayReturnValue ?
+            call.endDelay(delayReturnValue ? 
                 responseBuilder.setResponse(DELAYED).build() : null);
           } catch (Exception e) {
             e.printStackTrace();
@@ -364,10 +249,10 @@ public class TestDelayedRpc {
     }
   }
 
-  private static class TestThread extends Thread {
-    private final TestDelayedRpcProtos.TestDelayedService.BlockingInterface stub;
-    private final boolean delay;
-    private final List<Integer> results;
+  public static class TestThread extends Thread {
+    private TestDelayedRpcProtos.TestDelayedService.BlockingInterface stub;
+    private boolean delay;
+    private List<Integer> results;
 
     public TestThread(TestDelayedRpcProtos.TestDelayedService.BlockingInterface stub,
         boolean delay, List<Integer> results) {
