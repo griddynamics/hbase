@@ -1,4 +1,6 @@
 /*
+ * Copyright 2010 The Apache Software Foundation
+ *
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -15,6 +17,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.apache.hadoop.hbase.rest.client;
 
 import static org.junit.Assert.assertEquals;
@@ -167,7 +170,7 @@ public class TestRemoteTable {
     assertNull(value2);
 
     get = new Get(ROW_2);
-    result = remoteTable.get(get);
+    result = remoteTable.get(get);    
     value1 = result.getValue(COLUMN_1, QUALIFIER_1);
     value2 = result.getValue(COLUMN_2, QUALIFIER_2);
     assertNotNull(value1);
@@ -177,7 +180,7 @@ public class TestRemoteTable {
 
     get = new Get(ROW_2);
     get.addFamily(COLUMN_1);
-    result = remoteTable.get(get);
+    result = remoteTable.get(get);    
     value1 = result.getValue(COLUMN_1, QUALIFIER_1);
     value2 = result.getValue(COLUMN_2, QUALIFIER_2);
     assertNotNull(value1);
@@ -187,7 +190,7 @@ public class TestRemoteTable {
     get = new Get(ROW_2);
     get.addColumn(COLUMN_1, QUALIFIER_1);
     get.addColumn(COLUMN_2, QUALIFIER_2);
-    result = remoteTable.get(get);
+    result = remoteTable.get(get);    
     value1 = result.getValue(COLUMN_1, QUALIFIER_1);
     value2 = result.getValue(COLUMN_2, QUALIFIER_2);
     assertNotNull(value1);
@@ -201,7 +204,7 @@ public class TestRemoteTable {
     get.addFamily(COLUMN_1);
     get.addFamily(COLUMN_2);
     get.setTimeStamp(TS_1);
-    result = remoteTable.get(get);
+    result = remoteTable.get(get);    
     value1 = result.getValue(COLUMN_1, QUALIFIER_1);
     value2 = result.getValue(COLUMN_2, QUALIFIER_2);
     assertNotNull(value1);
@@ -214,7 +217,7 @@ public class TestRemoteTable {
     get.addFamily(COLUMN_1);
     get.addFamily(COLUMN_2);
     get.setTimeRange(0, TS_1 + 1);
-    result = remoteTable.get(get);
+    result = remoteTable.get(get);    
     value1 = result.getValue(COLUMN_1, QUALIFIER_1);
     value2 = result.getValue(COLUMN_2, QUALIFIER_2);
     assertNotNull(value1);
@@ -228,7 +231,7 @@ public class TestRemoteTable {
     get.setMaxVersions(2);
     result = remoteTable.get(get);
     int count = 0;
-    for (KeyValue kv : result.list()) {
+    for (KeyValue kv: result.list()) {
       if (Bytes.equals(COLUMN_1, kv.getFamily()) && TS_1 == kv.getTimestamp()) {
         assertTrue(Bytes.equals(VALUE_1, kv.getValue())); // @TS_1
         count++;
@@ -252,7 +255,7 @@ public class TestRemoteTable {
     assertEquals(1, results[0].size());
     assertEquals(2, results[1].size());
 
-    // Test Versions
+    //Test Versions
     gets = new ArrayList<Get>();
     Get g = new Get(ROW_1);
     g.setMaxVersions(3);
@@ -264,7 +267,7 @@ public class TestRemoteTable {
     assertEquals(1, results[0].size());
     assertEquals(3, results[1].size());
 
-    // 404
+    //404
     gets = new ArrayList<Get>();
     gets.add(new Get(Bytes.toBytes("RESALLYREALLYNOTTHERE")));
     results = remoteTable.get(gets);
@@ -383,10 +386,7 @@ public class TestRemoteTable {
     assertNull(value1);
     assertNull(value2);
   }
-  
-  /**
-   * Test RemoteHTable.Scanner 
-   */
+
   @Test
   public void testScanner() throws IOException {
     List<Put> puts = new ArrayList<Put>();
@@ -527,4 +527,7 @@ public class TestRemoteTable {
     assertTrue(response.hasBody());    
   }
 
+  @org.junit.Rule
+  public org.apache.hadoop.hbase.ResourceCheckerJUnitRule cu =
+    new org.apache.hadoop.hbase.ResourceCheckerJUnitRule();
 }
