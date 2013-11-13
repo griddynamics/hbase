@@ -228,8 +228,16 @@ public final class ProtobufUtil {
    * @return True if passed <code>bytes</code> has {@link #PB_MAGIC} for a prefix.
    */
   public static boolean isPBMagicPrefix(final byte [] bytes) {
-    if (bytes == null || bytes.length < PB_MAGIC.length) return false;
-    return Bytes.compareTo(PB_MAGIC, 0, PB_MAGIC.length, bytes, 0, PB_MAGIC.length) == 0;
+    return isPBMagicPrefix(bytes, 0, bytes.length);
+  }
+
+  /**
+   * @param bytes Bytes to check.
+   * @return True if passed <code>bytes</code> has {@link #PB_MAGIC} for a prefix.
+   */
+  public static boolean isPBMagicPrefix(final byte [] bytes, int offset, int len) {
+    if (bytes == null || len < PB_MAGIC.length) return false;
+    return Bytes.compareTo(PB_MAGIC, 0, PB_MAGIC.length, bytes, offset, PB_MAGIC.length) == 0;
   }
 
   /**
@@ -980,8 +988,8 @@ public final class ProtobufUtil {
    * @param increment
    * @return the converted mutate
    */
-  public static MutationProto toMutation(final Increment increment) {
-    MutationProto.Builder builder = MutationProto.newBuilder();
+  public static MutationProto toMutation(final Increment increment,
+      final MutationProto.Builder builder) {
     builder.setRow(ZeroCopyLiteralByteString.wrap(increment.getRow()));
     builder.setMutateType(MutationType.INCREMENT);
     builder.setDurability(toDurability(increment.getDurability()));
@@ -1037,12 +1045,18 @@ public final class ProtobufUtil {
    */
   public static MutationProto toMutation(final MutationType type, final Mutation mutation)
   throws IOException {
-    MutationProto.Builder builder = getMutationBuilderAndSetCommonFields(type, mutation);
+    return toMutation(type, mutation, MutationProto.newBuilder());
+  }
+
+  public static MutationProto toMutation(final MutationType type, final Mutation mutation,
+      MutationProto.Builder builder)
+  throws IOException {
+    builder = getMutationBuilderAndSetCommonFields(type, mutation, builder);
     ColumnValue.Builder columnBuilder = ColumnValue.newBuilder();
     QualifierValue.Builder valueBuilder = QualifierValue.newBuilder();
     for (Map.Entry<byte[],List<Cell>> family: mutation.getFamilyCellMap().entrySet()) {
+      columnBuilder.clear();
       columnBuilder.setFamily(ZeroCopyLiteralByteString.wrap(family.getKey()));
-      columnBuilder.clearQualifierValue();
       for (Cell cell: family.getValue()) {
         KeyValue kv = KeyValueUtil.ensureKeyValue(cell);
         valueBuilder.setQualifier(ZeroCopyLiteralByteString.wrap(
@@ -1072,9 +1086,10 @@ public final class ProtobufUtil {
    * @return a protobuf'd Mutation
    * @throws IOException
    */
-  public static MutationProto toMutationNoData(final MutationType type, final Mutation mutation)
+  public static MutationProto toMutationNoData(final MutationType type, final Mutation mutation,
+      final MutationProto.Builder builder)
   throws IOException {
-    MutationProto.Builder builder = getMutationBuilderAndSetCommonFields(type, mutation);
+    getMutationBuilderAndSetCommonFields(type, mutation, builder);
     builder.setAssociatedCellCount(mutation.size());
     return builder.build();
   }
@@ -1087,8 +1102,7 @@ public final class ProtobufUtil {
    * @return A partly-filled out protobuf'd Mutation.
    */
   private static MutationProto.Builder getMutationBuilderAndSetCommonFields(final MutationType type,
-      final Mutation mutation) {
-    MutationProto.Builder builder = MutationProto.newBuilder();
+      final Mutation mutation, MutationProto.Builder builder) {
     builder.setRow(ZeroCopyLiteralByteString.wrap(mutation.getRow()));
     builder.setMutateType(type);
     builder.setDurability(toDurability(mutation.getDurability()));
@@ -2246,15 +2260,16 @@ public final class ProtobufUtil {
     // Doing this is going to kill us if we do it for all data passed.
     // St.Ack 20121205
     CellProtos.Cell.Builder kvbuilder = CellProtos.Cell.newBuilder();
-    kvbuilder.setRow(ByteString.copyFrom(kv.getRowArray(), kv.getRowOffset(),
+    kvbuilder.setRow(ZeroCopyLiteralByteString.wrap(kv.getRowArray(), kv.getRowOffset(),
       kv.getRowLength()));
-    kvbuilder.setFamily(ByteString.copyFrom(kv.getFamilyArray(),
+    kvbuilder.setFamily(ZeroCopyLiteralByteString.wrap(kv.getFamilyArray(),
       kv.getFamilyOffset(), kv.getFamilyLength()));
-    kvbuilder.setQualifier(ByteString.copyFrom(kv.getQualifierArray(),
+    kvbuilder.setQualifier(ZeroCopyLiteralByteString.wrap(kv.getQualifierArray(),
       kv.getQualifierOffset(), kv.getQualifierLength()));
     kvbuilder.setCellType(CellProtos.CellType.valueOf(kv.getTypeByte()));
     kvbuilder.setTimestamp(kv.getTimestamp());
-    kvbuilder.setValue(ByteString.copyFrom(kv.getValueArray(), kv.getValueOffset(), kv.getValueLength()));
+    kvbuilder.setValue(ZeroCopyLiteralByteString.wrap(kv.getValueArray(), kv.getValueOffset(),
+      kv.getValueLength()));
     return kvbuilder.build();
   }
 
